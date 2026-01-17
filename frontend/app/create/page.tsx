@@ -1,88 +1,88 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Upload } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import Navigation from "@/components/navigation"
-import { postService, reelService } from "@/lib/api-services"
-import { ApiError } from "@/lib/api-client"
+import Navigation from '@/components/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ApiError } from '@/lib/api-client';
+import { postService, reelService } from '@/lib/api-services';
+import { Upload } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 export default function CreatePage() {
-  const [user, setUser] = useState<any>(null)
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
-  const [caption, setCaption] = useState("")
-  const [contentType, setContentType] = useState<"post" | "reel">("post")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const router = useRouter()
+  const [user, setUser] = useState<any>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [caption, setCaption] = useState('');
+  const [contentType, setContentType] = useState<'post' | 'reel'>('post');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const router = useRouter();
 
   useEffect(() => {
-    const userData = localStorage.getItem("user")
+    const userData = localStorage.getItem('user');
     if (!userData) {
-      router.push("/")
+      router.push('/');
     } else {
-      setUser(JSON.parse(userData))
+      setUser(JSON.parse(userData));
     }
-  }, [router])
+  }, [router]);
 
   const handleLogout = () => {
-    localStorage.removeItem("user")
-    router.push("/")
-  }
+    localStorage.removeItem('user');
+    router.push('/');
+  };
 
   const handlePublish = async () => {
     if (!uploadedFile || !caption.trim()) {
-      setError("Please upload a file and add a caption")
-      return
+      setError('Please upload a file and add a caption');
+      return;
     }
 
-    setLoading(true)
-    setError("")
+    setLoading(true);
+    setError('');
 
     try {
       // Create FormData
-      const formData = new FormData()
-      formData.append("files", uploadedFile) // Backend expects "files" (plural)
-      formData.append("caption", caption.trim())
+      const formData = new FormData();
+      formData.append('files', uploadedFile); // Backend expects "files" (plural)
+      formData.append('caption', caption.trim());
 
       // Call appropriate API based on content type
-      let response
-      if (contentType === "post") {
-        response = await postService.createPost(formData)
+      let response;
+      if (contentType === 'post') {
+        response = await postService.createPost(formData);
       } else {
-        response = await reelService.uploadReel(formData)
+        response = await reelService.uploadReel(formData);
       }
 
       if (response.success) {
-        alert(`${contentType === "post" ? "Post" : "Reel"} published successfully!`)
-        setCaption("")
-        setUploadedFile(null)
+        alert(`${contentType === 'post' ? 'Post' : 'Reel'} published successfully!`);
+        setCaption('');
+        setUploadedFile(null);
         // Redirect to home to see the new post/reel
-        router.push("/home")
+        router.push('/home');
       } else {
-        setError(response.message || `Failed to publish ${contentType}`)
+        setError(response.message || `Failed to publish ${contentType}`);
       }
     } catch (err) {
-      const apiError = err as ApiError
-      console.error(`Failed to publish ${contentType}:`, apiError)
+      const apiError = err as ApiError;
+      console.error(`Failed to publish ${contentType}:`, apiError);
 
       if (apiError.statusCode === 401) {
-        setError("Please login to create content")
-        router.push("/login")
+        setError('Please login to create content');
+        router.push('/login');
       } else if (apiError.statusCode === 413) {
-        setError("File size too large. Please choose a smaller file.")
+        setError('File size too large. Please choose a smaller file.');
       } else {
-        setError(apiError.message || `Failed to publish ${contentType}. Please try again.`)
+        setError(apiError.message || `Failed to publish ${contentType}. Please try again.`);
       }
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   if (!user) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
   return (
@@ -110,18 +110,24 @@ export default function CreatePage() {
               <p className="text-foreground font-semibold mb-4">What would you like to create?</p>
               <div className="grid grid-cols-2 gap-4">
                 <button
-                  onClick={() => setContentType("post")}
-                  className={`p-4 rounded-xl border-2 transition ${contentType === "post" ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"
-                    }`}
+                  onClick={() => setContentType('post')}
+                  className={`p-4 rounded-xl border-2 transition ${
+                    contentType === 'post'
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border hover:border-primary/50'
+                  }`}
                 >
                   <p className="text-2xl mb-2">📸</p>
                   <p className="font-semibold text-foreground">Post</p>
                   <p className="text-xs text-muted-foreground mt-1">Share photos & stories</p>
                 </button>
                 <button
-                  onClick={() => setContentType("reel")}
-                  className={`p-4 rounded-xl border-2 transition ${contentType === "reel" ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"
-                    }`}
+                  onClick={() => setContentType('reel')}
+                  className={`p-4 rounded-xl border-2 transition ${
+                    contentType === 'reel'
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border hover:border-primary/50'
+                  }`}
                 >
                   <p className="text-2xl mb-2">🎬</p>
                   <p className="font-semibold text-foreground">Reel</p>
@@ -136,15 +142,17 @@ export default function CreatePage() {
                 <div className="border-2 border-dashed border-primary/50 rounded-xl p-12 text-center cursor-pointer hover:border-primary transition">
                   {uploadedFile ? (
                     <div>
-                      <p className="text-lg font-semibold text-foreground mb-2">File ready to upload</p>
+                      <p className="text-lg font-semibold text-foreground mb-2">
+                        File ready to upload
+                      </p>
                       <p className="text-sm text-muted-foreground">{uploadedFile.name}</p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
                       </p>
                       <button
                         onClick={(e) => {
-                          e.preventDefault()
-                          setUploadedFile(null)
+                          e.preventDefault();
+                          setUploadedFile(null);
                         }}
                         className="mt-4 text-accent hover:underline text-sm"
                         type="button"
@@ -157,7 +165,9 @@ export default function CreatePage() {
                       <Upload size={40} className="mx-auto mb-2 text-primary" />
                       <p className="text-foreground font-semibold">Click to upload</p>
                       <p className="text-sm text-muted-foreground">
-                        {contentType === "post" ? "PNG, JPG, GIF up to 100MB" : "MP4, WebM up to 500MB"}
+                        {contentType === 'post'
+                          ? 'PNG, JPG, GIF up to 100MB'
+                          : 'MP4, WebM up to 500MB'}
                       </p>
                     </div>
                   )}
@@ -166,13 +176,13 @@ export default function CreatePage() {
                   type="file"
                   className="hidden"
                   onChange={(e) => {
-                    const file = e.target.files?.[0]
+                    const file = e.target.files?.[0];
                     if (file) {
-                      setUploadedFile(file)
-                      setError("")
+                      setUploadedFile(file);
+                      setError('');
                     }
                   }}
-                  accept={contentType === "post" ? "image/*" : "video/*"}
+                  accept={contentType === 'post' ? 'image/*' : 'video/*'}
                   disabled={loading}
                 />
               </label>
@@ -195,14 +205,16 @@ export default function CreatePage() {
 
             {/* Tags */}
             <div className="mb-8">
-              <label className="text-foreground font-semibold block mb-2">Add Tags (optional)</label>
+              <label className="text-foreground font-semibold block mb-2">
+                Add Tags (optional)
+              </label>
               <Input placeholder="e.g., #design #photography #creative" />
             </div>
 
             {/* Action Buttons */}
             <div className="flex gap-4">
               <Button
-                onClick={() => router.push("/home")}
+                onClick={() => router.push('/home')}
                 variant="outline"
                 className="flex-1 bg-transparent"
                 disabled={loading}
@@ -220,7 +232,7 @@ export default function CreatePage() {
                     Publishing...
                   </span>
                 ) : (
-                  `Publish ${contentType === "post" ? "Post" : "Reel"}`
+                  `Publish ${contentType === 'post' ? 'Post' : 'Reel'}`
                 )}
               </Button>
             </div>
@@ -231,5 +243,5 @@ export default function CreatePage() {
       {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
-  )
+  );
 }
