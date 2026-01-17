@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7
+    container_name: social-media-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=social_media_app
+    networks:
+      - social-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: social-media-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - social-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: social-media-backend
+    restart: always
+    ports:
+      - "3333:3333"
+    environment:
+      - NODE_ENV=production
+      - PORT=3333
+      - DB_NAME=social_media_app
+      - MONGO_URL=mongodb://mongodb:27017/social_media_app
+      - REDIS_URL=redis://redis:6379
+      - CORS_ORIGIN=http://localhost:3000,https://your-domain.com
+      - FRONTEND_URL=http://localhost:3000
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_SECRET_KEY=${CLOUDINARY_SECRET_KEY}
+      - SMTP_FROM=${SMTP_FROM}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PASS=${SMTP_PASS}
+      - SMTP_PORT=${SMTP_PORT}
+      - ACCESS_TOKEN_SECRET=${ACCESS_TOKEN_SECRET}
+      - REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET}
+      - RESET_SECRET=${RESET_SECRET}
+      - ACCESS_TOKEN_EXPIRY=1d
+      - REFRESH_TOKEN_EXPIRY=7d
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - social-network
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:3333/api/v1/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: social-media-frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://backend:3333/api/v1
+      - NEXT_PUBLIC_API_BASE_URL=http://backend:3333/api/v1
+      - NEXT_PUBLIC_SOCKET_URL=http://backend:3333
+      - NEXT_PUBLIC_ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - NEXT_PUBLIC_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - social-network
+
+  # Cloudflare Tunnel (for exposing to internet)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: social-media-cloudflared
+    restart: always
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - social-network
+    depends_on:
+      - frontend
+      - backend
+
+networks:
+  social-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:

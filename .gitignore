@@ -2,8 +2,7 @@
 node_modules/
 .pnpm-store/
 
-# Environment files
-.env
+# Environment files (keep .env.production as template)
 .env.local
 .env.*.local
 
