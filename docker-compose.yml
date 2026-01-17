@@ -103,18 +103,26 @@ services:
     networks:
       - social-network
 
-  # Cloudflare Tunnel (for exposing to internet)
-  cloudflared:
+  # Cloudflare Tunnel for Frontend (free temporary URL)
+  cloudflared-frontend:
     image: cloudflare/cloudflared:latest
-    container_name: social-media-cloudflared
+    container_name: social-media-cloudflared-frontend
     restart: always
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate --url http://frontend:3000
     networks:
       - social-network
     depends_on:
       - frontend
+
+  # Cloudflare Tunnel for Backend API (free temporary URL)
+  cloudflared-backend:
+    image: cloudflare/cloudflared:latest
+    container_name: social-media-cloudflared-backend
+    restart: always
+    command: tunnel --no-autoupdate --url http://backend:3333
+    networks:
+      - social-network
+    depends_on:
       - backend
 
 networks:
