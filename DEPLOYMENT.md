@@ -34,6 +34,7 @@ nano .env  # Edit with your values
 ```
 
 Update the `.env` file:
+
 ```env
 CLOUDFLARE_TUNNEL_TOKEN=your-actual-tunnel-token
 ```
@@ -112,17 +113,20 @@ docker stats
 ## Troubleshooting
 
 ### Container not starting
+
 ```bash
 docker compose logs backend  # Check backend logs
 docker compose logs frontend # Check frontend logs
 ```
 
 ### Database connection issues
+
 ```bash
 docker compose exec mongodb mongosh  # Access MongoDB shell
 ```
 
 ### Cloudflare Tunnel not working
+
 ```bash
 docker compose logs cloudflared  # Check tunnel logs
 ```

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MongoDB Database
   mongodb:
@@ -7,7 +5,7 @@ services:
     container_name: social-media-mongodb
     restart: always
     ports:
-      - "27017:27017"
+      - '27017:27017'
     volumes:
       - mongodb_data:/data/db
     environment:
@@ -26,13 +24,13 @@ services:
     container_name: social-media-redis
     restart: always
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     networks:
       - social-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 30s
       timeout: 10s
       retries: 5
@@ -45,7 +43,7 @@ services:
     container_name: social-media-backend
     restart: always
     ports:
-      - "3333:3333"
+      - '3333:3333'
     environment:
       - NODE_ENV=production
       - PORT=3333
@@ -76,9 +74,10 @@ services:
     networks:
       - social-network
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:3333/api/v1/health || exit 1
+      test: wget --no-verbose --tries=1 --spider http://localhost:3333/health-check || exit 1
       interval: 30s
       timeout: 10s
+      start_period: 30s
       retries: 5
 
   # Frontend Next.js
@@ -89,7 +88,7 @@ services:
     container_name: social-media-frontend
     restart: always
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://backend:3333/api/v1
