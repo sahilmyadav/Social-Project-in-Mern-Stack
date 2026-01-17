@@ -44,7 +44,7 @@ export default function CreatePage() {
     try {
       // Create FormData
       const formData = new FormData()
-      formData.append("file", uploadedFile)
+      formData.append("files", uploadedFile) // Backend expects "files" (plural)
       formData.append("caption", caption.trim())
 
       // Call appropriate API based on content type
