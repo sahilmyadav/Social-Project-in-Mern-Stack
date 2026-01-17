@@ -12,8 +12,8 @@ export const initSocket = (token: string) => {
   const socketUrl = API_CONFIG.SOCKET_URL;
 
   // In production with Cloudflare tunnels, use polling only to avoid WebSocket issues
-  const isCloudflare = typeof window !== 'undefined' &&
-    window.location.hostname.includes('trycloudflare.com');
+  const isCloudflare =
+    typeof window !== 'undefined' && window.location.hostname.includes('trycloudflare.com');
 
   socket = io(socketUrl, {
     auth: {
@@ -29,6 +29,8 @@ export const initSocket = (token: string) => {
     path: '/socket.io/',
     withCredentials: true,
     timeout: 20000,
+  });
+
   socket.on('connect_error', (error) => {
     try {
       if (typeof window !== 'undefined') {
