@@ -1,230 +1,216 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Search, UserPlus, UserCheck, Clock, X } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import Navigation from "@/components/navigation"
-import PostCard from "@/components/post-card"
-import { searchService, followService } from "@/lib/api-services"
+import Navigation from '@/components/navigation';
+import PostCard from '@/components/post-card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { feedService, followService, searchService } from '@/lib/api-services';
+import { Clock, Search, UserCheck, UserPlus, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 interface Creator {
-  id: string
-  name: string
-  username?: string
-  avatar: string
-  bio: string
-  followers: number
-  following?: number
-  posts?: number
-  verified: boolean
-  isFollowing?: boolean
-  isPending?: boolean
-  isPrivate?: boolean
+  id: string;
+  name: string;
+  username?: string;
+  avatar: string;
+  bio: string;
+  followers: number;
+  following?: number;
+  posts?: number;
+  verified: boolean;
+  isFollowing?: boolean;
+  isPending?: boolean;
+  isPrivate?: boolean;
 }
 
 export default function ExplorePage() {
-  const [user, setUser] = useState<any>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [activeTab, setActiveTab] = useState<"posts" | "creators">("posts")
-  const [creators, setCreators] = useState<Creator[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
-  const [followingStatus, setFollowingStatus] = useState<Record<string, 'following' | 'pending' | 'none'>>({})
-
-  const [explorePosts] = useState([
-    {
-      id: 1,
-      author: "Creative Mind",
-      avatar: "👨‍🎨",
-      content: "Exploring new design trends",
-      image: "/design-trends-creative.jpg",
-      likes: 1200,
-      comments: 234,
-      shares: 89,
-      timestamp: "2 hours ago",
-    },
-    {
-      id: 2,
-      author: "Tech Wizard",
-      avatar: "👨‍💻",
-      content: "Latest in web development",
-      image: "/web-development-tech.jpg",
-      likes: 2500,
-      comments: 456,
-      shares: 123,
-      timestamp: "4 hours ago",
-    },
-    {
-      id: 3,
-      author: "Photo Pro",
-      avatar: "📸",
-      content: "Nature photography tips",
-      image: "/nature-photography-landscape.jpg",
-      likes: 1800,
-      comments: 345,
-      shares: 92,
-      timestamp: "6 hours ago",
-    },
-  ])
-  const router = useRouter()
+  const [user, setUser] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'posts' | 'creators'>('posts');
+  const [creators, setCreators] = useState<Creator[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [followingStatus, setFollowingStatus] = useState<
+    Record<string, 'following' | 'pending' | 'none'>
+  >({});
+  const [explorePosts, setExplorePosts] = useState<any[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
-    const userData = localStorage.getItem("user")
+    const userData = localStorage.getItem('user');
     if (!userData) {
-      router.push("/")
+      router.push('/');
     } else {
-      setUser(JSON.parse(userData))
-      // Load initial suggestions
-      loadSuggestions()
+      setUser(JSON.parse(userData));
+      loadSuggestions();
+      loadExplorePosts();
     }
-  }, [router])
+  }, [router]);
+
+  const loadExplorePosts = async () => {
+    try {
+      setPostsLoading(true);
+      const response = await feedService.getExploreFeed({ limit: 20 });
+      if (response.success && response.data?.posts) {
+        setExplorePosts(response.data.posts);
+      }
+    } catch (error) {
+      console.error('Error loading posts:', error);
+    } finally {
+      setPostsLoading(false);
+    }
+  };
 
   // Debounced search
   useEffect(() => {
     if (searchTimeout) {
-      clearTimeout(searchTimeout)
+      clearTimeout(searchTimeout);
     }
 
     if (searchQuery.trim()) {
       const timeout = setTimeout(() => {
-        searchUsers(searchQuery)
-      }, 500)
-      setSearchTimeout(timeout)
+        searchUsers(searchQuery);
+      }, 500);
+      setSearchTimeout(timeout);
     } else {
-      loadSuggestions()
+      loadSuggestions();
     }
 
     return () => {
       if (searchTimeout) {
-        clearTimeout(searchTimeout)
+        clearTimeout(searchTimeout);
       }
-    }
-  }, [searchQuery])
+    };
+  }, [searchQuery]);
 
   const loadSuggestions = async () => {
     try {
-      const response = await followService.getSuggestions({ limit: 20 })
+      const response = await followService.getSuggestions({ limit: 20 });
       if (response.success && response.data) {
         // Handle different response structures - data might be an array or an object with suggestions
-        const suggestions = Array.isArray(response.data) ? response.data : response.data.suggestions || []
+        const suggestions = Array.isArray(response.data)
+          ? response.data
+          : response.data.suggestions || [];
 
         const formattedCreators = suggestions.map((user: any) => ({
           id: user._id,
           name: `${user.firstName} ${user.lastName}`,
-          username: user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
-          avatar: user.profilePicture || user.avatar || "👤",
-          bio: user.bio || "No bio yet",
+          username:
+            user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
+          avatar: user.profilePicture || user.avatar || '👤',
+          bio: user.bio || 'No bio yet',
           followers: user.followersCount || 0,
           following: user.followingCount || 0,
           posts: user.postsCount || 0,
           verified: user.isVerified || false,
           isPrivate: user.isPrivate || false,
           isFollowing: user.isFollowing || false,
-        }))
-        setCreators(formattedCreators)
+        }));
+        setCreators(formattedCreators);
       }
     } catch (error) {
-      console.error("Error loading suggestions:", error)
+      console.error('Error loading suggestions:', error);
     }
-  }
+  };
 
   const searchUsers = async (query: string) => {
-    setIsSearching(true)
+    setIsSearching(true);
     try {
-      const response = await searchService.searchUsers({ query, limit: 20 })
+      const response = await searchService.searchUsers({ query, limit: 20 });
 
       if (response.success && response.data?.users) {
-        const users = response.data.users
+        const users = response.data.users;
 
         if (Array.isArray(users) && users.length > 0) {
           const formattedCreators = users.map((user: any) => ({
             id: user._id,
             name: user.fullName || `${user.firstName} ${user.lastName}`,
-            username: user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
-            avatar: user.avatar || user.profilePicture || "👤",
-            bio: user.bio || "No bio yet",
+            username:
+              user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
+            avatar: user.avatar || user.profilePicture || '👤',
+            bio: user.bio || 'No bio yet',
             followers: user.followersCount || 0,
             following: user.followingCount || 0,
             posts: user.postsCount || 0,
             verified: user.isVerified || false,
             isPrivate: user.profile_type === 'private',
             isFollowing: user.isFollowing || false,
-          }))
-          setCreators(formattedCreators)
+          }));
+          setCreators(formattedCreators);
         } else {
-          setCreators([])
+          setCreators([]);
         }
       } else {
-        setCreators([])
+        setCreators([]);
       }
     } catch (error) {
-      console.error("Error searching users:", error)
-      setCreators([])
+      console.error('Error searching users:', error);
+      setCreators([]);
     } finally {
-      setIsSearching(false)
+      setIsSearching(false);
     }
-  }
+  };
 
   const handleFollowAction = async (userId: string, isPrivate: boolean) => {
     try {
-      const currentStatus = followingStatus[userId] || 'none'
+      const currentStatus = followingStatus[userId] || 'none';
 
       if (currentStatus === 'following') {
         // Unfollow
-        await followService.unfollowUser(userId)
-        setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }))
+        await followService.unfollowUser(userId);
+        setFollowingStatus((prev) => ({ ...prev, [userId]: 'none' }));
       } else if (currentStatus === 'pending') {
         // Cancel request
-        await followService.cancelFollowRequest(userId)
-        setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }))
+        await followService.cancelFollowRequest(userId);
+        setFollowingStatus((prev) => ({ ...prev, [userId]: 'none' }));
       } else {
         // Follow or send request
         if (isPrivate) {
-          await followService.sendFollowRequest(userId)
-          setFollowingStatus(prev => ({ ...prev, [userId]: 'pending' }))
+          await followService.sendFollowRequest(userId);
+          setFollowingStatus((prev) => ({ ...prev, [userId]: 'pending' }));
         } else {
-          await followService.followUser(userId)
-          setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }))
+          await followService.followUser(userId);
+          setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
         }
       }
     } catch (error) {
-      console.error("Error with follow action:", error)
+      console.error('Error with follow action:', error);
     }
-  }
+  };
 
   const getFollowButtonConfig = (userId: string, isPrivate: boolean) => {
-    const status = followingStatus[userId] || 'none'
+    const status = followingStatus[userId] || 'none';
 
     if (status === 'following') {
       return {
         text: 'Following',
         icon: <UserCheck size={16} />,
         variant: 'outline' as const,
-      }
+      };
     } else if (status === 'pending') {
       return {
         text: 'Requested',
         icon: <Clock size={16} />,
         variant: 'outline' as const,
-      }
+      };
     } else {
       return {
         text: isPrivate ? 'Request' : 'Follow',
         icon: <UserPlus size={16} />,
         variant: 'default' as const,
-      }
+      };
     }
-  }
+  };
 
   const handleLogout = () => {
-    localStorage.removeItem("user")
-    router.push("/")
-  }
+    localStorage.removeItem('user');
+    router.push('/');
+  };
 
   if (!user) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
   return (
@@ -239,7 +225,10 @@ export default function ExplorePage() {
         <section className="lg:col-span-2">
           <div className="sticky top-0 z-20 mb-6 bg-background pt-4">
             <div className="relative bg-card rounded-2xl border border-border p-4">
-              <Search className="absolute left-7 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={20} />
+              <Search
+                className="absolute left-7 top-1/2 transform -translate-y-1/2 text-muted-foreground"
+                size={20}
+              />
               <Input
                 type="text"
                 placeholder="Search users by name... (e.g., 'kr', 'john')"
@@ -249,7 +238,7 @@ export default function ExplorePage() {
               />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => setSearchQuery('')}
                   className="absolute right-7 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   <X size={20} />
@@ -275,8 +264,8 @@ export default function ExplorePage() {
                         <button
                           key={creator.id}
                           onClick={() => {
-                            router.push(`/profile/${creator.id}`)
-                            setSearchQuery("")
+                            router.push(`/profile/${creator.id}`);
+                            setSearchQuery('');
                           }}
                           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/50 transition-colors border-b border-border last:border-0"
                         >
@@ -298,9 +287,18 @@ export default function ExplorePage() {
                             ) : null}
                             <span
                               className="w-full h-full flex items-center justify-center"
-                              style={{ display: creator.avatar && creator.avatar.startsWith('http') ? 'none' : 'flex' }}
+                              style={{
+                                display:
+                                  creator.avatar && creator.avatar.startsWith('http')
+                                    ? 'none'
+                                    : 'flex',
+                              }}
                             >
-                              {creator.name.split(' ').map(n => n.charAt(0).toUpperCase()).join('').slice(0, 2)}
+                              {creator.name
+                                .split(' ')
+                                .map((n) => n.charAt(0).toUpperCase())
+                                .join('')
+                                .slice(0, 2)}
                             </span>
                           </div>
                           <div className="flex-1 text-left">
@@ -309,8 +307,10 @@ export default function ExplorePage() {
                               {creator.verified && <span className="text-blue-500">✓</span>}
                             </div>
                             <p className="text-sm text-muted-foreground">@{creator.username}</p>
-                            {creator.bio !== "No bio yet" && (
-                              <p className="text-sm text-muted-foreground line-clamp-1 mt-1">{creator.bio}</p>
+                            {creator.bio !== 'No bio yet' && (
+                              <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
+                                {creator.bio}
+                              </p>
                             )}
                           </div>
                           <div className="text-right text-sm text-muted-foreground">
@@ -332,46 +332,61 @@ export default function ExplorePage() {
           {/* Tabs */}
           <div className="flex gap-4 mb-6 border-b border-border">
             <button
-              onClick={() => setActiveTab("posts")}
-              className={`px-4 py-3 font-semibold border-b-2 transition ${activeTab === "posts"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+              onClick={() => setActiveTab('posts')}
+              className={`px-4 py-3 font-semibold border-b-2 transition ${
+                activeTab === 'posts'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
             >
               Posts
             </button>
             <button
-              onClick={() => setActiveTab("creators")}
-              className={`px-4 py-3 font-semibold border-b-2 transition ${activeTab === "creators"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+              onClick={() => setActiveTab('creators')}
+              className={`px-4 py-3 font-semibold border-b-2 transition ${
+                activeTab === 'creators'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
             >
               Creators
             </button>
           </div>
 
           {/* Posts Tab */}
-          {activeTab === "posts" && (
+          {activeTab === 'posts' && (
             <div className="space-y-4">
-              {explorePosts.map((post) => (
-                <PostCard key={post.id} post={post} />
-              ))}
+              {postsLoading ? (
+                <div className="flex justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : explorePosts.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">No posts to explore yet</p>
+                </div>
+              ) : (
+                explorePosts.map((post) => (
+                  <PostCard key={post._id} post={post} currentUserId={user?._id} />
+                ))
+              )}
             </div>
           )}
 
           {/* Creators Tab */}
-          {activeTab === "creators" && (
+          {activeTab === 'creators' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {creators.length === 0 ? (
                 <div className="col-span-2 text-center py-12">
                   <p className="text-muted-foreground">
-                    {searchQuery ? "No users found" : "No suggestions available"}
+                    {searchQuery ? 'No users found' : 'No suggestions available'}
                   </p>
                 </div>
               ) : (
                 creators.map((creator) => {
-                  const buttonConfig = getFollowButtonConfig(creator.id, creator.isPrivate || false)
+                  const buttonConfig = getFollowButtonConfig(
+                    creator.id,
+                    creator.isPrivate || false
+                  );
 
                   return (
                     <div
@@ -431,7 +446,9 @@ export default function ExplorePage() {
                             <p className="text-xs text-muted-foreground">Posts</p>
                           </div>
                           <div className="text-center">
-                            <p className="font-bold text-foreground">{creator.followers.toLocaleString()}</p>
+                            <p className="font-bold text-foreground">
+                              {creator.followers.toLocaleString()}
+                            </p>
                             <p className="text-xs text-muted-foreground">Followers</p>
                           </div>
                           <div className="text-center">
@@ -445,8 +462,8 @@ export default function ExplorePage() {
                       <div className="flex gap-2">
                         <Button
                           onClick={(e) => {
-                            e.stopPropagation()
-                            router.push(`/profile/${creator.id}`)
+                            e.stopPropagation();
+                            router.push(`/profile/${creator.id}`);
                           }}
                           variant="outline"
                           className="flex-1"
@@ -455,8 +472,8 @@ export default function ExplorePage() {
                         </Button>
                         <Button
                           onClick={(e) => {
-                            e.stopPropagation()
-                            handleFollowAction(creator.id, creator.isPrivate || false)
+                            e.stopPropagation();
+                            handleFollowAction(creator.id, creator.isPrivate || false);
                           }}
                           variant={buttonConfig.variant}
                           className="flex-1 gap-2"
@@ -466,7 +483,7 @@ export default function ExplorePage() {
                         </Button>
                       </div>
                     </div>
-                  )
+                  );
                 })
               )}
             </div>
@@ -478,12 +495,17 @@ export default function ExplorePage() {
           <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
             <h3 className="font-bold text-lg mb-4">Popular Categories</h3>
             <div className="space-y-3">
-              {["Design", "Photography", "Technology", "Art", "Music", "Travel"].map((category, i) => (
-                <button key={i} className="w-full text-left p-3 hover:bg-muted rounded-lg transition">
-                  <p className="font-semibold text-foreground">{category}</p>
-                  <p className="text-xs text-muted-foreground">45.2K posts</p>
-                </button>
-              ))}
+              {['Design', 'Photography', 'Technology', 'Art', 'Music', 'Travel'].map(
+                (category, i) => (
+                  <button
+                    key={i}
+                    className="w-full text-left p-3 hover:bg-muted rounded-lg transition"
+                  >
+                    <p className="font-semibold text-foreground">{category}</p>
+                    <p className="text-xs text-muted-foreground">45.2K posts</p>
+                  </button>
+                )
+              )}
             </div>
           </div>
         </aside>
@@ -492,5 +514,5 @@ export default function ExplorePage() {
       {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
-  )
+  );
 }

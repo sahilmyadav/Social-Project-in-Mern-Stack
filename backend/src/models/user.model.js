@@ -1,6 +1,6 @@
-import { model, Schema } from "mongoose";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { model, Schema } from 'mongoose';
 
 const userSchema = new Schema(
   {
@@ -22,20 +22,16 @@ const userSchema = new Schema(
     // Additional personal details
     gender: {
       type: String,
-      enum: ["male", "female", "other", "prefer_not_to_say"],
+      enum: ['male', 'female', 'other', 'prefer_not_to_say'],
     },
     dob: { type: Date }, // Date of birth
 
-
     // Role & Access
-    role: { type: Schema.Types.ObjectId, ref: "Role" },
+    role: { type: Schema.Types.ObjectId, ref: 'Role' },
     userType: {
       type: String,
-      default: "user",
-      enum: [
-        "user",
-        "admin",
-      ],
+      default: 'user',
+      enum: ['user', 'admin'],
       // required: true,
     },
 
@@ -43,8 +39,8 @@ const userSchema = new Schema(
 
     profile_type: {
       type: String,
-      enum: ["personal", "business"],
-      default: "personal"
+      enum: ['personal', 'business'],
+      default: 'personal',
     },
 
     // Privacy settings
@@ -61,8 +57,8 @@ const userSchema = new Schema(
 
     status: {
       type: String,
-      enum: ["active", "inactive", "suspended", "blocked", "banned"],
-      default: "active",
+      enum: ['active', 'inactive', 'suspended', 'blocked', 'banned'],
+      default: 'active',
     },
 
     // Verification status
@@ -94,22 +90,21 @@ const userSchema = new Schema(
     refreshToken: { type: String, select: false },
 
     // Blocked users - array of user IDs that this user has blocked
-    blockedUsers: [{
-      type: Schema.Types.ObjectId,
-      ref: "User"
-    }],
+    blockedUsers: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
 
   { timestamps: true }
 );
 
-// Indexes 
-userSchema.index({ email: 1 });
-userSchema.index({ phone: 1 });
-
+// Note: email and phone indexes are created automatically by unique: true
 
 // Virtual for full name
-userSchema.virtual("fullName").get(function () {
+userSchema.virtual('fullName').get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
@@ -119,14 +114,14 @@ userSchema.methods.isLocked = function () {
 };
 
 // Hash password before saving
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) {
+userSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) {
     return next();
   }
 
   // Only hash if password doesn't look like it's already hashed
   // Bcrypt hashes always start with $2a$, $2b$, or $2y$
-  if (this.password && !this.password.startsWith("$2")) {
+  if (this.password && !this.password.startsWith('$2')) {
     this.password = await bcrypt.hash(this.password, 10);
   }
   next();
@@ -148,7 +143,7 @@ userSchema.methods.generateAccessToken = async function () {
     },
     process.env.ACCESS_TOKEN_SECRET,
     {
-      expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1d",
+      expiresIn: process.env.ACCESS_TOKEN_EXPIRY || '1d',
     }
   );
 };
@@ -161,9 +156,9 @@ userSchema.methods.generateRefreshToken = async function () {
     },
     process.env.REFRESH_TOKEN_SECRET,
     {
-      expiresIn: process.env.REFRESH_TOKEN_EXPIRY || "7d",
+      expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '7d',
     }
   );
 };
 
-export const User = model("User", userSchema);
+export const User = model('User', userSchema);

@@ -1,17 +1,17 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
 const storySchema = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
       index: true,
     },
     media: {
       type: {
         type: String,
-        enum: ["image", "video"],
+        enum: ['image', 'video'],
         required: true,
       },
       url: {
@@ -40,13 +40,13 @@ const storySchema = new mongoose.Schema(
     },
     reply_settings: {
       type: String,
-      enum: ["everyone", "followers", "off"],
-      default: "everyone",
+      enum: ['everyone', 'followers', 'off'],
+      default: 'everyone',
     },
     privacy: {
       type: String,
-      enum: ["public", "followers", "close_friends"],
-      default: "followers",
+      enum: ['public', 'followers', 'close_friends'],
+      default: 'followers',
     },
     views_count: {
       type: Number,
@@ -57,7 +57,7 @@ const storySchema = new mongoose.Schema(
       {
         user: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
+          ref: 'User',
           required: true,
         },
         viewedAt: {
@@ -73,7 +73,6 @@ const storySchema = new mongoose.Schema(
     expires_at: {
       type: Date,
       required: true,
-      index: true,
     },
     is_deleted: {
       type: Boolean,
@@ -86,6 +85,6 @@ const storySchema = new mongoose.Schema(
 // Auto-expire after 24 hours
 storySchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 });
 storySchema.index({ user_id: 1, createdAt: -1 });
-storySchema.index({ "views.user": 1 }); // Index for view tracking queries
+storySchema.index({ 'views.user': 1 }); // Index for view tracking queries
 
-export const Story = mongoose.model("Story", storySchema);
+export const Story = mongoose.model('Story', storySchema);

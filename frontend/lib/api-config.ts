@@ -88,6 +88,7 @@ export const API_ENDPOINTS = {
   // Feed
   FEED: {
     HOME: '/feed/home',
+    EXPLORE: '/feed/explore',
     REELS: '/feed/reels',
     STORIES: '/feed/stories',
     USER_POSTS: (userId: string) => `/feed/posts/${userId}`,

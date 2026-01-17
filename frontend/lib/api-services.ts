@@ -1,6 +1,5 @@
-import { api } from './api-client';
-import { API_ENDPOINTS, API_CONFIG } from './api-config';
-import { setToken, setRefreshToken, removeToken, getToken } from './api-client';
+import { api, getToken, removeToken, setRefreshToken, setToken } from './api-client';
+import { API_CONFIG, API_ENDPOINTS } from './api-config';
 
 // Auth Service
 export const authService = {
@@ -25,7 +24,7 @@ export const authService = {
     // Backend expects 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
-      otp: data.otp
+      otp: data.otp,
     };
 
     const response = await api.post(API_ENDPOINTS.AUTH.VERIFY_REGISTER, payload);
@@ -39,28 +38,20 @@ export const authService = {
   },
 
   // Resend OTP
-  resendOtp: async (data: {
-    email?: string;
-    phone?: string;
-    userId: string;
-  }) => {
+  resendOtp: async (data: { email?: string; phone?: string; userId: string }) => {
     // Backend expects 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
-      userId: data.userId
+      userId: data.userId,
     };
     return api.post(API_ENDPOINTS.AUTH.RESEND_OTP, payload);
   },
 
   // Login
-  login: async (data: {
-    email?: string;
-    phone?: string;
-    password: string;
-  }) => {
+  login: async (data: { email?: string; phone?: string; password: string }) => {
     // Send both formats for compatibility
     const payload: any = {
-      password: data.password
+      password: data.password,
     };
 
     // Add identifier
@@ -87,16 +78,11 @@ export const authService = {
   },
 
   // Verify Login OTP
-  verifyLogin: async (data: {
-    email?: string;
-    phone?: string;
-    userId: string;
-    otp: string;
-  }) => {
+  verifyLogin: async (data: { email?: string; phone?: string; userId: string; otp: string }) => {
     // Backend expects 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
-      otp: data.otp
+      otp: data.otp,
     };
 
     const response = await api.post(API_ENDPOINTS.AUTH.VERIFY_LOGIN, payload);
@@ -129,15 +115,18 @@ export const authService = {
   // Update Profile Picture
   updateProfilePicture: async (formData: FormData) => {
     const token = getToken();
-    const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.UPDATE_PROFILE_PICTURE}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        // Don't set Content-Type for FormData - browser will set it automatically
-      },
-      body: formData,
-      credentials: 'include',
-    });
+    const response = await fetch(
+      `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.UPDATE_PROFILE_PICTURE}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          // Don't set Content-Type for FormData - browser will set it automatically
+        },
+        body: formData,
+        credentials: 'include',
+      }
+    );
 
     return response.json();
   },
@@ -159,13 +148,10 @@ export const authService = {
   },
 
   // Forgot Password
-  forgotPassword: async (data: {
-    email?: string;
-    phone?: string;
-  }) => {
+  forgotPassword: async (data: { email?: string; phone?: string }) => {
     // Backend may expect 'identifier' field (email or phone)
     const payload = {
-      identifier: data.email || data.phone
+      identifier: data.email || data.phone,
     };
     return api.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, payload);
   },
@@ -176,17 +162,12 @@ export const authService = {
   },
 
   // Change Password
-  changePassword: async (data: {
-    currentPassword: string;
-    newPassword: string;
-  }) => {
+  changePassword: async (data: { currentPassword: string; newPassword: string }) => {
     return api.post(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, data);
   },
 
   // Update Privacy Settings
-  updatePrivacySettings: async (data: {
-    profile_type: 'private' | 'public';
-  }) => {
+  updatePrivacySettings: async (data: { profile_type: 'private' | 'public' }) => {
     return api.put(API_ENDPOINTS.AUTH.UPDATE_PROFILE, data);
   },
 };
@@ -404,6 +385,11 @@ export const feedService = {
   // Get Home Feed
   getHomeFeed: async (params?: { cursor?: string; limit?: number; filter?: string }) => {
     return api.get(API_ENDPOINTS.FEED.HOME, params);
+  },
+
+  // Get Explore Feed
+  getExploreFeed: async (params?: { limit?: number }) => {
+    return api.get(API_ENDPOINTS.FEED.EXPLORE, params);
   },
 
   // Get Reels Feed
