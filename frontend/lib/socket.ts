@@ -8,25 +8,27 @@ export const initSocket = (token: string) => {
     return socket;
   }
 
-  socket = io(API_CONFIG.SOCKET_URL, {
+  // Get socket URL - prefer NEXT_PUBLIC_SOCKET_URL, fallback to origin
+  const socketUrl = API_CONFIG.SOCKET_URL;
+
+  // In production with Cloudflare tunnels, use polling only to avoid WebSocket issues
+  const isCloudflare = typeof window !== 'undefined' &&
+    window.location.hostname.includes('trycloudflare.com');
+
+  socket = io(socketUrl, {
     auth: {
-      token: token, // Backend expects token without 'Bearer' prefix
+      token: token,
     },
-    transports: ['websocket', 'polling'],
+    // Use polling only for Cloudflare tunnels, otherwise try WebSocket first
+    transports: isCloudflare ? ['polling'] : ['polling', 'websocket'],
+    upgrade: !isCloudflare, // Only try to upgrade to WebSocket if not on Cloudflare
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     reconnectionAttempts: 5,
-  });
-
-  socket.on('connect', () => {
-    console.log('✅ Socket connected:', socket?.id);
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log('❌ Socket disconnected:', reason);
-  });
-
+    path: '/socket.io/',
+    withCredentials: true,
+    timeout: 20000,
   socket.on('connect_error', (error) => {
     try {
       if (typeof window !== 'undefined') {
@@ -216,7 +218,11 @@ export const offIceCandidate = (callback: (data: any) => void) => {
 };
 
 // Emit call events
-export const emitInitiateCall = (recipientId: string, threadId: string, callType: "voice" | "video" = "voice") => {
+export const emitInitiateCall = (
+  recipientId: string,
+  threadId: string,
+  callType: 'voice' | 'video' = 'voice'
+) => {
   console.log(`📞 Emitting ${callType} call to recipient:`, recipientId, 'threadId:', threadId);
   console.log('📞 Socket connected:', socket?.connected, 'Socket ID:', socket?.id);
   socket?.emit('initiateCall', {
@@ -336,4 +342,3 @@ export const emitJoinGroup = (groupId: string) => {
 export const emitLeaveGroupRoom = (groupId: string) => {
   socket?.emit('leaveGroup', { groupId });
 };
-

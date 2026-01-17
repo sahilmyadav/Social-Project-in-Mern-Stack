@@ -50,8 +50,8 @@ services:
       - DB_NAME=social_media_app
       - MONGO_URL=mongodb://mongodb:27017/social_media_app
       - REDIS_URL=redis://redis:6379
-      - CORS_ORIGIN=http://localhost:3000,https://your-domain.com
-      - FRONTEND_URL=http://localhost:3000
+      - CORS_ORIGIN=*
+      - FRONTEND_URL=http://frontend:3000
       - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
       - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
       - CLOUDINARY_SECRET_KEY=${CLOUDINARY_SECRET_KEY}

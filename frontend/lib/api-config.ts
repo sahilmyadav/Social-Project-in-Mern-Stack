@@ -3,9 +3,12 @@
 // Socket needs absolute URL for WebSocket connection
 export const API_CONFIG = {
   BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1',
+  // For socket: Use NEXT_PUBLIC_SOCKET_URL if set, otherwise use same origin (works with polling)
   SOCKET_URL:
     process.env.NEXT_PUBLIC_SOCKET_URL ||
     (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3333'),
+  // Backend URL for direct socket connection (used in production with separate tunnel)
+  BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || '',
   TIMEOUT: 30000, // 30 seconds
 };
 
