@@ -105,7 +105,7 @@ services:
     networks:
       - social-network
 
-  # Cloudflare Tunnel for Frontend (free temporary URL)
+  # Cloudflare Tunnel for Frontend (serves both frontend and API via proxy)
   cloudflared-frontend:
     image: cloudflare/cloudflared:latest
     container_name: social-media-cloudflared-frontend
@@ -115,17 +115,6 @@ services:
       - social-network
     depends_on:
       - frontend
-
-  # Cloudflare Tunnel for Backend API (free temporary URL)
-  cloudflared-backend:
-    image: cloudflare/cloudflared:latest
-    container_name: social-media-cloudflared-backend
-    restart: always
-    command: tunnel --no-autoupdate --url http://backend:3333
-    networks:
-      - social-network
-    depends_on:
-      - backend
 
 networks:
   social-network:
