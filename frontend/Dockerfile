@@ -3,9 +3,17 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Build arguments
+# Build arguments - NEXT_PUBLIC vars must be set at build time!
 ARG BACKEND_INTERNAL_URL=http://backend:3333
+ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
+ARG NEXT_PUBLIC_SOCKET_URL=
+ARG NEXT_PUBLIC_ENV=production
+
+# Set environment variables for build
 ENV BACKEND_INTERNAL_URL=$BACKEND_INTERNAL_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_SOCKET_URL=$NEXT_PUBLIC_SOCKET_URL
+ENV NEXT_PUBLIC_ENV=$NEXT_PUBLIC_ENV
 
 # Install dependencies
 COPY package*.json ./
@@ -14,7 +22,7 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the application
+# Build the application with env vars baked in
 RUN npm run build
 
 # Production image
