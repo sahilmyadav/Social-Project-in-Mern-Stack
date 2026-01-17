@@ -85,15 +85,17 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - BACKEND_INTERNAL_URL=http://backend:3333
     container_name: social-media-frontend
     restart: always
     ports:
       - '3000:3000'
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://backend:3333/api/v1
-      - NEXT_PUBLIC_API_BASE_URL=http://backend:3333/api/v1
-      - NEXT_PUBLIC_SOCKET_URL=http://backend:3333
+      - BACKEND_INTERNAL_URL=http://backend:3333
+      - NEXT_PUBLIC_API_BASE_URL=/api/v1
+      - NEXT_PUBLIC_SOCKET_URL=
       - NEXT_PUBLIC_ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
       - NEXT_PUBLIC_ENV=production

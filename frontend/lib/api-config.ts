@@ -1,7 +1,11 @@
 // API Configuration
+// Use relative URL for API (proxied through Next.js rewrites)
+// Socket needs absolute URL for WebSocket connection
 export const API_CONFIG = {
-  BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3333/api/v1',
-  SOCKET_URL: process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3333',
+  BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1',
+  SOCKET_URL:
+    process.env.NEXT_PUBLIC_SOCKET_URL ||
+    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3333'),
   TIMEOUT: 30000, // 30 seconds
 };
 
@@ -24,7 +28,6 @@ export const API_ENDPOINTS = {
     GET_USER_PROFILE: (userId: string) => `/users/profile/${userId}`,
     UPDATE_PROFILE_PICTURE: '/users/update-profile-picture',
     UPDATE_COVER_PHOTO: '/users/update-cover-photo',
-
   },
 
   // Posts
@@ -81,7 +84,6 @@ export const API_ENDPOINTS = {
     VIEW_STORY: (storyId: string) => `/story/view/${storyId}`,
     GET_VIEWERS: (storyId: string) => `/story/viewers/${storyId}`,
   },
-
 
   // Feed
   FEED: {

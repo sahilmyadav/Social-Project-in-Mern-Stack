@@ -18,10 +18,12 @@ const nextConfig = {
     ],
   },
   async rewrites() {
+    // In Docker, use 'backend' container name; locally use 'localhost'
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3333';
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:3333/api/:path*',
+        destination: `${backendUrl}/api/:path*`,
       },
     ];
   },

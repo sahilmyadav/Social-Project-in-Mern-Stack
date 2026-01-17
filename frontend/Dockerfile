@@ -3,6 +3,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build arguments
+ARG BACKEND_INTERNAL_URL=http://backend:3333
+ENV BACKEND_INTERNAL_URL=$BACKEND_INTERNAL_URL
+
 # Install dependencies
 COPY package*.json ./
 RUN npm ci
