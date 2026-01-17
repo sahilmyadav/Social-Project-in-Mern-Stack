@@ -25,11 +25,19 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
   // STEP 2: Include your own posts
   const userIdsToShow = [...followingIds, userId];
 
-  // STEP 3: Get posts ONLY from followed users
-  const posts = await Post.find({
-    user_id: { $in: userIdsToShow },
+  // STEP 3: Get posts from followed users OR all posts if not following anyone
+  let postsQuery = {
     is_deleted: false,
-  })
+  };
+
+  // If user follows people, show their content + own content
+  // If user doesn't follow anyone, show all public content (explore mode)
+  if (followingIds.length > 0) {
+    postsQuery.user_id = { $in: userIdsToShow };
+  }
+  // When not following anyone, show all posts (no user_id filter)
+
+  const posts = await Post.find(postsQuery)
     .populate('user_id', 'firstName lastName username profileImage profilePicture avatar')
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
@@ -80,11 +88,19 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
   const followingIds = following.map((f) => f.following_id);
   const userIdsToShow = [...followingIds, userId];
 
-  // STEP 2: Get reels ONLY from followed users
-  const reels = await Reel.find({
-    user_id: { $in: userIdsToShow },
+  // STEP 2: Get reels from followed users OR all reels if not following anyone
+  let reelsQuery = {
     is_deleted: false,
-  })
+  };
+
+  // If user follows people, show their content + own content
+  // If user doesn't follow anyone, show all public reels (explore mode)
+  if (followingIds.length > 0) {
+    reelsQuery.user_id = { $in: userIdsToShow };
+  }
+  // When not following anyone, show all reels (no user_id filter)
+
+  const reels = await Reel.find(reelsQuery)
     .populate('user_id', 'firstName lastName username profileImage profilePicture avatar') // ✅ FIXED
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
