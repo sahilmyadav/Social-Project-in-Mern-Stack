@@ -149,21 +149,27 @@ class ApiClient {
 
   // GET request
   async get<T = any>(endpoint: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
-    const url = new URL(`${this.baseURL}${endpoint}`);
-    
+    // Build URL - handle both relative and absolute base URLs
+    let urlString = `${this.baseURL}${endpoint}`;
+
     if (params) {
-      Object.keys(params).forEach(key => {
+      const searchParams = new URLSearchParams();
+      Object.keys(params).forEach((key) => {
         if (params[key] !== undefined && params[key] !== null) {
-          url.searchParams.append(key, params[key]);
+          searchParams.append(key, String(params[key]));
         }
       });
+      const queryString = searchParams.toString();
+      if (queryString) {
+        urlString += `?${queryString}`;
+      }
     }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(url.toString(), {
+      const response = await fetch(urlString, {
         method: 'GET',
         headers: this.getHeaders(),
         credentials: 'include',
@@ -188,7 +194,11 @@ class ApiClient {
   }
 
   // POST request
-  async post<T = any>(endpoint: string, data?: any, isMultipart: boolean = false): Promise<ApiResponse<T>> {
+  async post<T = any>(
+    endpoint: string,
+    data?: any,
+    isMultipart: boolean = false
+  ): Promise<ApiResponse<T>> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -221,7 +231,11 @@ class ApiClient {
   }
 
   // PUT request
-  async put<T = any>(endpoint: string, data?: any, isMultipart: boolean = false): Promise<ApiResponse<T>> {
+  async put<T = any>(
+    endpoint: string,
+    data?: any,
+    isMultipart: boolean = false
+  ): Promise<ApiResponse<T>> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -286,25 +300,25 @@ class ApiClient {
 
   // Upload file (multipart/form-data)
   async upload<T = any>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
-    console.log("=== API CLIENT UPLOAD ===");
-    console.log("Endpoint:", endpoint);
-    console.log("Base URL:", this.baseURL);
-    console.log("Full URL:", `${this.baseURL}${endpoint}`);
-    
+    console.log('=== API CLIENT UPLOAD ===');
+    console.log('Endpoint:', endpoint);
+    console.log('Base URL:', this.baseURL);
+    console.log('Full URL:', `${this.baseURL}${endpoint}`);
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds for file uploads
 
     try {
       const token = getToken();
-      console.log("Token:", token ? "Present" : "Missing");
-      
+      console.log('Token:', token ? 'Present' : 'Missing');
+
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      console.log("Headers:", headers);
-      console.log("Making fetch request...");
+      console.log('Headers:', headers);
+      console.log('Making fetch request...');
 
       const response = await fetch(`${this.baseURL}${endpoint}`, {
         method: 'POST',
@@ -314,7 +328,7 @@ class ApiClient {
         signal: controller.signal,
       });
 
-      console.log("Response received:", response.status, response.statusText);
+      console.log('Response received:', response.status, response.statusText);
 
       clearTimeout(timeoutId);
       return this.handleResponse<T>(response);
@@ -339,18 +353,16 @@ export const apiClient = new ApiClient();
 
 // Export convenience methods
 export const api = {
-  get: <T = any>(endpoint: string, params?: Record<string, any>) => 
+  get: <T = any>(endpoint: string, params?: Record<string, any>) =>
     apiClient.get<T>(endpoint, params),
-  
-  post: <T = any>(endpoint: string, data?: any) => 
-    apiClient.post<T>(endpoint, data),
-  
-  put: <T = any>(endpoint: string, data?: any, isMultipart?: boolean) => 
+
+  post: <T = any>(endpoint: string, data?: any) => apiClient.post<T>(endpoint, data),
+
+  put: <T = any>(endpoint: string, data?: any, isMultipart?: boolean) =>
     apiClient.put<T>(endpoint, data, isMultipart),
-  
-  delete: <T = any>(endpoint: string, data?: any) => 
-    apiClient.delete<T>(endpoint, data),
-  
-  upload: <T = any>(endpoint: string, formData: FormData) => 
+
+  delete: <T = any>(endpoint: string, data?: any) => apiClient.delete<T>(endpoint, data),
+
+  upload: <T = any>(endpoint: string, formData: FormData) =>
     apiClient.upload<T>(endpoint, formData),
 };
