@@ -170,6 +170,21 @@ export const authService = {
   updatePrivacySettings: async (data: { profile_type: 'private' | 'public' }) => {
     return api.put(API_ENDPOINTS.AUTH.UPDATE_PROFILE, data);
   },
+
+  // Block User
+  blockUser: async (userId: string) => {
+    return api.post(`/users/${userId}/block`);
+  },
+
+  // Unblock User
+  unblockUser: async (userId: string) => {
+    return api.delete(`/users/${userId}/block`);
+  },
+
+  // Get Blocked Users
+  getBlockedUsers: async () => {
+    return api.get('/users/blocked');
+  },
 };
 
 // Post Service
