@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { CloudCog, Plus } from "lucide-react"
+import { Plus } from "lucide-react"
 import Navigation from "@/components/navigation"
 import PostCard from "@/components/post-card"
 import CreatePostModal from "@/components/create-post-modal"
@@ -10,6 +10,7 @@ import StoriesBar from "@/components/stories-bar"
 import { feedService, reelService } from "@/lib/api-services"
 import ReelCard from "@/components/reel-card"
 import ReelComments from "@/components/reel-comments"
+import { PostCardSkeleton, StorySkeleton } from "@/components/ui/skeleton"
 
 export default function HomePage() {
   const [user, setUser] = useState<any>(null)
@@ -164,106 +165,155 @@ export default function HomePage() {
   }
 
   if (!user) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-[3px] border-primary border-t-transparent" />
+      </div>
+    )
   }
 
   return (
     <main className="min-h-screen bg-background">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Sidebar */}
-        <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
+      <div className="flex justify-center">
+        {/* Sidebar - Desktop */}
+        <aside className="hidden lg:flex lg:flex-col lg:w-[245px] xl:w-[335px] border-r border-border fixed left-0 top-0 h-screen">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Feed */}
-        <section className="lg:col-span-2 max-w-2xl mx-auto pb-20 lg:pb-0">
-          {/* Create Post Card */}
-          <div className="bg-card rounded-2xl border border-border p-4 mb-6 sticky top-0 z-10">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-xl overflow-hidden">
-                {(user?.profileImage || user?.profilePicture || user?.avatar)?.startsWith?.('http') ? (
-                  <img
-                    src={user?.profileImage || user?.profilePicture || user?.avatar}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span>{user?.profileImage || user?.profilePicture || user?.avatar || "😊"}</span>
-                )}
+        {/* Main Content */}
+        <div className="w-full lg:ml-[245px] xl:ml-[335px] lg:mr-[320px] xl:mr-[400px]">
+          {/* Mobile Header */}
+          <header className="lg:hidden sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border px-4 py-3">
+            <div className="flex items-center justify-between max-w-lg mx-auto">
+              <h1 className="text-xl font-serif italic font-semibold">ClickME</h1>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setShowCreateModal(true)}
+                  className="p-1"
+                >
+                  <Plus size={26} className="text-foreground" />
+                </button>
               </div>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="flex-1 bg-muted rounded-full px-4 py-2 text-left text-muted-foreground hover:bg-muted/80 transition"
-              >
-                What's on your mind?
-              </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="p-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition"
-              >
-                <Plus size={20} />
-              </button>
             </div>
+          </header>
+
+          {/* Feed Container */}
+          <section className="max-w-[470px] mx-auto pb-20 lg:pb-8 lg:pt-4">
+            {/* Stories Bar */}
+            <StoriesBar
+              currentUserId={user?._id}
+              currentUserName={user?.fullName || user?.firstName || "You"}
+              currentUserAvatar={user?.profileImage || user?.profilePicture || user?.avatar}
+            />
+
+            {/* Posts Feed */}
+            <div className="space-y-0 sm:space-y-3">
+              {loading ? (
+                <>
+                  <PostCardSkeleton />
+                  <PostCardSkeleton />
+                  <PostCardSkeleton />
+                </>
+              ) : feed.length > 0 ? (
+                feed.map((item) => (
+                  item.type === 'post' ? (
+                    <PostCard
+                      key={`post-${item._id || item.id}`}
+                      post={item}
+                      onCommentClick={() => handleOpenPostDetails(item)}
+                      onLikeUpdate={(postId: string, isLiked: boolean, likeCount: number) => handlePostLikeUpdate(postId, isLiked, likeCount)}
+                      currentUserId={user?._id}
+                      onPostClick={() => handleOpenPostDetails(item)}
+                      showComments={item.showComments}
+                    />
+                  ) : (
+                    <ReelCard
+                      key={`reel-${item._id || item.id}`}
+                      reel={item}
+                      currentUserId={user?._id}
+                      onCommentClick={() => handleOpenReelComments(item)}
+                    />
+                  )
+                ))
+              ) : (
+                <div className="py-16 text-center">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-full border-2 border-foreground flex items-center justify-center">
+                    <Plus size={32} className="text-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-1">Welcome to ClickME</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    When you follow people, you'll see their photos and videos here.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* Right Sidebar - Suggestions (Desktop Only) */}
+        <aside className="hidden lg:block fixed right-0 top-0 w-[320px] xl:w-[400px] h-screen pt-8 px-8">
+          {/* Current User */}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-zinc-200 to-zinc-300 dark:from-zinc-700 dark:to-zinc-800 flex items-center justify-center overflow-hidden">
+              {(user?.profileImage || user?.profilePicture || user?.avatar)?.startsWith?.('http') ? (
+                <img
+                  src={user?.profileImage || user?.profilePicture || user?.avatar}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-xl font-medium text-foreground">
+                  {user?.firstName?.[0] || user?.username?.[0] || "U"}
+                </span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm truncate">{user?.username}</p>
+              <p className="text-sm text-muted-foreground truncate">
+                {user?.firstName} {user?.lastName}
+              </p>
+            </div>
+            <button className="text-xs font-semibold text-[#0095F6] hover:text-[#1877F2] transition">
+              Switch
+            </button>
           </div>
 
-          {/* Stories Bar */}
-          <StoriesBar
-            currentUserId={user?._id}
-            currentUserName={user?.fullName || user?.firstName || "You"}
-            currentUserAvatar={user?.profileImage || user?.profilePicture || user?.avatar}
-          />
-
-          {/* Mixed Posts and Reels Feed */}
-          <div className="space-y-4">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                  <p className="text-muted-foreground">Loading feed...</p>
-                </div>
-              </div>
-            ) : feed.length > 0 ? (
-              feed.map((item) => (
-                item.type === 'post' ? (
-                  <PostCard
-                    key={`post-${item._id || item.id}`}
-                    post={item}
-                    onCommentClick={() => handleOpenPostDetails(item)}
-                    onLikeUpdate={(postId: string, isLiked: boolean, likeCount: number) => handlePostLikeUpdate(postId, isLiked, likeCount)}
-                    currentUserId={user?._id}
-                    onPostClick={() => handleOpenPostDetails(item)}
-                    showComments={item.showComments}
-                  />
-                ) : (
-                  <ReelCard
-                    key={`reel-${item._id || item.id}`}
-                    reel={item}
-                    currentUserId={user?._id}
-                    onCommentClick={() => handleOpenReelComments(item)}
-                  />
-                )
-              ))
-            ) : (
-              <div className="bg-card rounded-2xl border border-border p-8 text-center">
-                <p className="text-muted-foreground mb-2">No posts or reels yet</p>
-                <p className="text-sm text-muted-foreground">Follow some users to see their content here!</p>
-              </div>
-            )}
+          {/* Suggestions Header */}
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-semibold text-muted-foreground">Suggested for you</span>
+            <button className="text-xs font-semibold text-foreground hover:opacity-70 transition">
+              See All
+            </button>
           </div>
-        </section>
 
-        {/* Right Sidebar - Trending */}
-        <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4">
-          <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
-            <h3 className="font-bold text-lg mb-4">Trending Now</h3>
-            <div className="space-y-3">
-              {["#DesignTrends", "#WebDevelopment", "#Photography", "#CreativeArt"].map((trend, i) => (
-                <div key={i} className="p-3 hover:bg-muted rounded-lg cursor-pointer transition">
-                  <p className="text-primary font-semibold">{trend}</p>
-                  <p className="text-sm text-muted-foreground">12.5K posts</p>
+          {/* Suggested Users Placeholder */}
+          <div className="space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-muted skeleton-wave" />
+                <div className="flex-1">
+                  <div className="w-24 h-3 bg-muted rounded skeleton-wave mb-1" />
+                  <div className="w-16 h-2.5 bg-muted rounded skeleton-wave" />
                 </div>
-              ))}
+                <button className="text-xs font-semibold text-[#0095F6] hover:text-[#1877F2] transition">
+                  Follow
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer Links */}
+          <div className="mt-8">
+            <div className="flex flex-wrap gap-x-1 text-[11px] text-muted-foreground/60 mb-4">
+              <a href="#" className="hover:underline">About</a> ·
+              <a href="#" className="hover:underline">Help</a> ·
+              <a href="#" className="hover:underline">Press</a> ·
+              <a href="#" className="hover:underline">API</a> ·
+              <a href="#" className="hover:underline">Jobs</a> ·
+              <a href="#" className="hover:underline">Privacy</a> ·
+              <a href="#" className="hover:underline">Terms</a>
             </div>
+            <p className="text-[11px] text-muted-foreground/60 uppercase">© 2024 ClickME</p>
           </div>
         </aside>
       </div>

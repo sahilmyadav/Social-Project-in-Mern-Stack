@@ -138,7 +138,7 @@ export default function ReelsPage() {
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-black">
-        <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-[3px] border-white border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -147,7 +147,7 @@ export default function ReelsPage() {
     return (
       <div className="min-h-screen bg-background">
         <div className="flex">
-          <aside className="hidden lg:block w-64 border-r border-border h-screen sticky top-0 p-4">
+          <aside className="hidden lg:flex lg:flex-col lg:w-[245px] xl:w-[335px] border-r border-border h-screen sticky top-0">
             <Navigation user={user} onLogout={handleLogout} />
           </aside>
           <main className="flex-1 flex items-center justify-center p-8">
@@ -178,7 +178,7 @@ export default function ReelsPage() {
 
   return (
     <div className="h-screen bg-black flex">
-      <aside className="hidden lg:block w-64 bg-background border-r border-border h-screen p-4 overflow-y-auto">
+      <aside className="hidden lg:flex lg:flex-col lg:w-[245px] xl:w-[335px] bg-background border-r border-border h-screen overflow-y-auto">
         <Navigation user={user} onLogout={handleLogout} />
       </aside>
 
@@ -186,8 +186,8 @@ export default function ReelsPage() {
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="h-screen overflow-y-scroll snap-y snap-mandatory"
-          style={{ scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          className="h-screen overflow-y-scroll snap-y snap-mandatory no-scrollbar"
+          style={{ scrollSnapType: 'y mandatory' }}
         >
           {reels.map((reel) => (
             <div
@@ -200,7 +200,7 @@ export default function ReelsPage() {
                 }}
                 src={reel.media.url}
                 poster={reel.media.thumbnail}
-                className="h-full w-full object-contain bg-black lg:max-w-[400px] lg:rounded-xl"
+                className="h-full w-full object-contain bg-black lg:max-w-[420px] lg:rounded-lg"
                 loop
                 muted={isMuted}
                 playsInline
@@ -210,93 +210,113 @@ export default function ReelsPage() {
                 }}
               />
 
-              <div className="absolute inset-0 pointer-events-none lg:max-w-[400px] lg:left-1/2 lg:-translate-x-1/2">
+              <div className="absolute inset-0 pointer-events-none lg:max-w-[420px] lg:left-1/2 lg:-translate-x-1/2">
+                {/* Mute button */}
                 <button
                   onClick={() => setIsMuted(!isMuted)}
-                  className="absolute top-4 right-4 p-2 rounded-full bg-black/40 text-white pointer-events-auto"
+                  className="absolute top-4 right-4 p-2.5 rounded-full bg-black/50 text-white pointer-events-auto transition-transform active:scale-90"
                 >
-                  {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                  {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                 </button>
 
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-                  <div className="flex items-center gap-3 mb-3 pointer-events-auto">
-                    <UserAvatar user={reel.user_id} size="md" />
-                    <p className="text-white font-medium text-sm">
-                      {reel.user_id.firstName} {reel.user_id.lastName}
+                {/* Bottom info */}
+                <div className="absolute bottom-0 left-0 right-16 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-auto">
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <UserAvatar user={reel.user_id} size="sm" />
+                    <p className="text-white font-semibold text-[13px]">
+                      {reel.user_id.firstName}_{reel.user_id.lastName?.toLowerCase()}
                     </p>
-                    <button className="ml-auto px-4 py-1.5 border border-white text-white text-sm rounded-lg hover:bg-white hover:text-black transition">
+                    <span className="text-white/70">•</span>
+                    <button className="text-white text-[13px] font-semibold hover:opacity-70 transition">
                       Follow
                     </button>
                   </div>
                   {reel.caption && (
-                    <p className="text-white text-sm mb-4 line-clamp-2">{reel.caption}</p>
+                    <p className="text-white text-[13px] mb-2 line-clamp-2 leading-relaxed">{reel.caption}</p>
+                  )}
+                  {reel.tags && reel.tags.length > 0 && (
+                    <p className="text-white/80 text-xs">
+                      {reel.tags.slice(0, 3).map(tag => `#${tag}`).join(' ')}
+                    </p>
                   )}
                 </div>
 
-                <div className="absolute right-3 bottom-28 flex flex-col gap-5 pointer-events-auto">
+                {/* Action buttons - Right side */}
+                <div className="absolute right-3 bottom-24 flex flex-col gap-4 pointer-events-auto">
                   <button
                     onClick={() => handleLike(reel._id)}
-                    className="flex flex-col items-center"
+                    className="flex flex-col items-center transition-transform active:scale-90"
                   >
-                    <div
-                      className={`p-2.5 rounded-full ${likedReels.has(reel._id) ? 'bg-red-500' : 'bg-black/40'}`}
-                    >
+                    <div className="p-2">
                       <Heart
-                        size={22}
-                        className="text-white"
-                        fill={likedReels.has(reel._id) ? 'white' : 'none'}
+                        size={28}
+                        className={likedReels.has(reel._id) ? 'text-[#FF3040] fill-[#FF3040]' : 'text-white'}
+                        fill={likedReels.has(reel._id) ? '#FF3040' : 'none'}
                       />
                     </div>
-                    <span className="text-white text-xs mt-1">{formatCount(reel.likes_count)}</span>
+                    <span className="text-white text-xs font-medium">{formatCount(reel.likes_count)}</span>
                   </button>
 
                   <button
                     onClick={() => setShowComments(true)}
-                    className="flex flex-col items-center"
+                    className="flex flex-col items-center transition-transform active:scale-90"
                   >
-                    <div className="p-2.5 rounded-full bg-black/40">
-                      <MessageCircle size={22} className="text-white" />
+                    <div className="p-2">
+                      <MessageCircle size={28} className="text-white" />
                     </div>
-                    <span className="text-white text-xs mt-1">
+                    <span className="text-white text-xs font-medium">
                       {formatCount(reel.comments_count)}
                     </span>
                   </button>
 
-                  <button className="flex flex-col items-center">
-                    <div className="p-2.5 rounded-full bg-black/40">
-                      <Share2 size={22} className="text-white" />
+                  <button className="flex flex-col items-center transition-transform active:scale-90">
+                    <div className="p-2">
+                      <Share2 size={26} className="text-white" />
                     </div>
-                    <span className="text-white text-xs mt-1">Share</span>
+                    <span className="text-white text-xs font-medium">Share</span>
                   </button>
+
+                  {/* Spinning album cover */}
+                  <div className="mt-2">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-zinc-700 to-zinc-900 animate-spin-slow border border-white/20 overflow-hidden">
+                      {reel.user_id.profilePicture ? (
+                        <img src={reel.user_id.profilePicture} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-white text-xs">🎵</div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
+        {/* Navigation arrows - Desktop only */}
         <div className="absolute right-6 top-1/2 -translate-y-1/2 hidden lg:flex flex-col gap-2">
           <button
             onClick={() => scrollToReel(activeIndex - 1)}
             disabled={activeIndex === 0}
-            className="p-2 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 transition"
+            className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-20 disabled:cursor-not-allowed transition"
           >
-            <ChevronUp className="text-white" size={24} />
+            <ChevronUp className="text-white" size={22} />
           </button>
           <button
             onClick={() => scrollToReel(activeIndex + 1)}
             disabled={activeIndex === reels.length - 1}
-            className="p-2 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 transition"
+            className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-20 disabled:cursor-not-allowed transition"
           >
-            <ChevronDown className="text-white" size={24} />
+            <ChevronDown className="text-white" size={22} />
           </button>
         </div>
 
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 hidden lg:flex flex-col gap-1.5">
+        {/* Progress indicator - Desktop only */}
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 hidden lg:flex flex-col gap-1">
           {reels.slice(0, 10).map((_, i) => (
             <button
               key={i}
               onClick={() => scrollToReel(i)}
-              className={`w-1.5 rounded-full transition-all ${i === activeIndex ? 'h-6 bg-white' : 'h-1.5 bg-white/40'}`}
+              className={`w-1 rounded-full transition-all duration-300 ${i === activeIndex ? 'h-5 bg-white' : 'h-1 bg-white/30 hover:bg-white/50'}`}
             />
           ))}
         </div>

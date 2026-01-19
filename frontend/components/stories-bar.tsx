@@ -189,16 +189,16 @@ export default function StoriesBar({
 
   return (
     <>
-      <div className="bg-card border border-border rounded-2xl p-4 mb-6">
-        <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-hide">
+      <div className="bg-card sm:border sm:border-border sm:rounded-lg py-4 mb-0 sm:mb-3">
+        <div className="flex items-center gap-4 overflow-x-auto px-4 pb-1 no-scrollbar">
           {/* Add Story Button */}
           <div className="flex-shrink-0">
             <button
               onClick={handleAddStory}
-              className="flex flex-col items-center gap-2 group"
+              className="flex flex-col items-center gap-1 group"
             >
               <div className="relative">
-                <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-border">
+                <div className="w-[66px] h-[66px] rounded-full overflow-hidden border border-border/50">
                   {currentUserAvatar ? (
                     <img
                       src={currentUserAvatar}
@@ -206,17 +206,17 @@ export default function StoriesBar({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl">
+                    <div className="w-full h-full bg-gradient-to-br from-zinc-200 to-zinc-300 dark:from-zinc-700 dark:to-zinc-800 flex items-center justify-center text-foreground font-semibold text-xl">
                       {currentUserName.charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
-                <div className="absolute bottom-0 right-0 w-5 h-5 bg-primary rounded-full flex items-center justify-center border-2 border-background">
-                  <Plus className="w-3 h-3 text-white" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 bg-[#0095F6] rounded-full flex items-center justify-center border-[3px] border-background shadow-sm">
+                  <Plus className="w-4 h-4 text-white" strokeWidth={3} />
                 </div>
               </div>
-              <span className="text-xs font-medium text-foreground">
-                {hasMyStory ? "Add" : "Your Story"}
+              <span className="text-[11px] text-muted-foreground mt-1">
+                Your story
               </span>
             </button>
           </div>
@@ -226,10 +226,10 @@ export default function StoriesBar({
             <div className="flex-shrink-0">
               <button
                 onClick={() => handleStoryClick(myStories)}
-                className="flex flex-col items-center gap-2 group"
+                className="flex flex-col items-center gap-1 group"
               >
-                <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500">
-                  <div className="w-full h-full rounded-full border-2 border-background overflow-hidden">
+                <div className="story-ring w-[70px] h-[70px] rounded-full p-[3px]">
+                  <div className="w-full h-full rounded-full border-[3px] border-background overflow-hidden">
                     {myStories[0]?.media?.type === "image" ? (
                       <img
                         src={myStories[0]?.media?.url}
@@ -244,7 +244,9 @@ export default function StoriesBar({
                     )}
                   </div>
                 </div>
-                <span className="text-xs font-medium text-foreground">You</span>
+                <span className="text-[11px] text-foreground mt-1 max-w-[70px] truncate">
+                  Your story
+                </span>
               </button>
             </div>
           )}
@@ -258,10 +260,10 @@ export default function StoriesBar({
                 <div key={user._id} className="flex-shrink-0">
                   <button
                     onClick={() => handleStoryClick(userStories)}
-                    className="flex flex-col items-center gap-2 group"
+                    className="flex flex-col items-center gap-1 group"
                   >
-                    <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500">
-                      <div className="w-full h-full rounded-full border-2 border-background overflow-hidden">
+                    <div className="story-ring w-[70px] h-[70px] rounded-full p-[3px] transition-transform group-active:scale-95">
+                      <div className="w-full h-full rounded-full border-[3px] border-background overflow-hidden">
                         {user.profilePicture || user.avatar ? (
                           <img
                             src={user.profilePicture || user.avatar}
@@ -269,13 +271,13 @@ export default function StoriesBar({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
+                          <div className="w-full h-full bg-gradient-to-br from-zinc-200 to-zinc-300 dark:from-zinc-700 dark:to-zinc-800 flex items-center justify-center text-foreground font-semibold">
                             {user.firstName.charAt(0).toUpperCase()}
                           </div>
                         )}
                       </div>
                     </div>
-                    <span className="text-xs font-medium text-foreground max-w-[64px] truncate">
+                    <span className="text-[11px] text-foreground mt-1 max-w-[70px] truncate">
                       {user.firstName}
                     </span>
                   </button>
@@ -283,13 +285,18 @@ export default function StoriesBar({
               );
             })}
 
+          {/* Loading skeletons */}
           {loading && (
-            <div className="flex-shrink-0">
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-16 h-16 rounded-full bg-muted animate-pulse" />
-                <div className="w-12 h-3 bg-muted rounded animate-pulse" />
-              </div>
-            </div>
+            <>
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex-shrink-0">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="w-[70px] h-[70px] rounded-full bg-muted skeleton-wave" />
+                    <div className="w-10 h-2.5 bg-muted rounded-sm skeleton-wave mt-1" />
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
       </div>

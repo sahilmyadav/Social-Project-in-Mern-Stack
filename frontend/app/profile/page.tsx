@@ -377,10 +377,7 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading profile...</p>
-        </div>
+        <div className="animate-spin rounded-full h-8 w-8 border-[3px] border-primary border-t-transparent" />
       </div>
     )
   }
@@ -389,7 +386,7 @@ export default function ProfilePage() {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <div className="text-center">
-          <p className="text-red-500 mb-4">{error}</p>
+          <p className="text-destructive mb-4">{error}</p>
           <Button onClick={loadUserProfile}>Retry</Button>
         </div>
       </div>
@@ -402,503 +399,430 @@ export default function ProfilePage() {
 
   return (
     <main className="min-h-screen bg-background pb-20 lg:pb-0">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Sidebar */}
-        <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
+      <div className="flex justify-center">
+        {/* Sidebar - Desktop */}
+        <aside className="hidden lg:flex lg:flex-col lg:w-[245px] xl:w-[335px] border-r border-border fixed left-0 top-0 h-screen">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
         {/* Main Content */}
-        <section className="lg:col-span-3">
-          {/* Header with gradient background */}
-          <div className="gradient-purple-peach h-48 relative">
-            <div className="absolute top-4 right-4 z-20">
+        <div className="w-full lg:ml-[245px] xl:ml-[335px] max-w-[935px]">
+          {/* Mobile Header */}
+          <header className="lg:hidden sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border px-4 py-3">
+            <div className="flex items-center justify-between">
               <button
                 onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                className="p-2 rounded-full bg-white/20 backdrop-blur hover:bg-white/30 transition"
-                aria-label="Settings menu"
+                className="p-1"
               >
-                <Settings size={20} className="text-white" />
+                <Settings size={24} />
               </button>
-
-              {showSettingsMenu && (
-                <div className="absolute right-0 top-12 w-56 bg-card rounded-lg border border-border shadow-2xl z-50">
-                  <button
-                    onClick={() => document.getElementById('coverPhotoInput')?.click()}
-                    disabled={uploadingImage}
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground disabled:opacity-50"
-                  >
-                    <span>🖼️</span>
-                    <span>{uploadingImage ? 'Uploading...' : 'Change Cover Photo'}</span>
-                  </button>
-                  <button
-                    onClick={() => document.getElementById('profilePictureInput')?.click()}
-                    disabled={uploadingImage}
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground disabled:opacity-50"
-                  >
-                    <span>📷</span>
-                    <span>{uploadingImage ? 'Uploading...' : 'Change Profile Picture'}</span>
-                  </button>
-                  <a
-                    href="/account-settings"
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground"
-                  >
-                    <span>⚙️</span>
-                    <span>Account Settings</span>
-                  </a>
-                  <button className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground">
-                    <span>🔒</span>
-                    <span>Privacy & Security</span>
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition flex items-center gap-3 text-red-500"
-                  >
-                    <span>🚪</span>
-                    <span>Logout</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Hidden file inputs */}
-              <input
-                id="coverPhotoInput"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleCoverPhotoUpload}
-              />
-              <input
-                id="profilePictureInput"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleProfilePictureUpload}
-              />
+              <h1 className="text-base font-semibold">{user.username || "Profile"}</h1>
+              <div className="w-6" />
             </div>
-          </div>
+          </header>
 
-          {/* Profile Info */}
-          <div className="px-4 pb-8">
-            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4 -mt-16 mb-8 relative z-10">
-              <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-6xl border-4 border-card shadow-lg overflow-hidden">
-                {(user.profilePicture || user.profileImage) ? (
-                  <img
-                    src={user.profilePicture || user.profileImage}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Fallback to emoji if image fails to load
-                      e.currentTarget.style.display = 'none';
-                      e.currentTarget.parentElement!.innerHTML = '<span>👤</span>';
-                    }}
-                  />
-                ) : (
-                  <span>👤</span>
-                )}
+          {/* Profile Header Section */}
+          <div className="px-4 lg:px-8 py-8">
+            <div className="flex flex-col sm:flex-row gap-8 mb-8">
+              {/* Profile Picture */}
+              <div className="flex-shrink-0 flex justify-center sm:justify-start">
+                <div className="w-[77px] h-[77px] sm:w-[150px] sm:h-[150px] rounded-full bg-gradient-to-br from-zinc-200 to-zinc-300 dark:from-zinc-700 dark:to-zinc-800 flex items-center justify-center overflow-hidden ring-1 ring-border">
+                  {(user.profilePicture || user.profileImage) ? (
+                    <img
+                      src={user.profilePicture || user.profileImage}
+                      alt="Profile"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span className="text-4xl sm:text-6xl">👤</span>
+                  )}
+                </div>
               </div>
+
+              {/* Profile Info */}
               <div className="flex-1">
-                <h1 className="text-4xl font-bold text-foreground">
-                  {user.firstName || user.name || "User"} {user.lastName || ""}
-                </h1>
-                <p className="text-lg text-muted-foreground">
-                  @{user.username || ((user.firstName || user.name || user.email || "user") + "").toLowerCase().replace(/\s+/g, "")}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => router.push('/chat')}
-                  className="p-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground"
-                >
-                  <MessageCircle size={20} />
-                </button>
-                <button className="p-2 rounded-lg bg-secondary hover:bg-secondary/90 text-secondary-foreground">
-                  <Share size={20} />
-                </button>
-                <Button
-                  onClick={() => setShowEditModal(true)}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
-                >
-                  <Edit2 size={18} />
-                  Edit Bio
-                </Button>
+                {/* Username row */}
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-5">
+                  <h1 className="text-xl font-normal text-center sm:text-left">
+                    {user.username || user.firstName?.toLowerCase().replace(/\s+/g, "")}
+                  </h1>
+                  <div className="flex items-center justify-center sm:justify-start gap-2">
+                    <Button
+                      onClick={() => setShowEditModal(true)}
+                      variant="secondary"
+                      size="sm"
+                      className="font-semibold text-sm h-8 px-4"
+                    >
+                      Edit profile
+                    </Button>
+                    <button
+                      onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                      className="p-1 hidden lg:block"
+                    >
+                      <Settings size={24} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Stats row - Desktop */}
+                <div className="hidden sm:flex items-center gap-10 mb-5">
+                  <div className="text-center sm:text-left">
+                    <span className="font-semibold">{userStats.posts}</span>
+                    <span className="text-sm ml-1">posts</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (user?._id) loadFollowers(user._id)
+                      setShowFollowersModal(true)
+                    }}
+                    className="text-center sm:text-left hover:opacity-70 transition"
+                  >
+                    <span className="font-semibold">{userStats.followers.toLocaleString()}</span>
+                    <span className="text-sm ml-1">followers</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (user?._id) loadFollowing(user._id)
+                      setShowFollowingModal(true)
+                    }}
+                    className="text-center sm:text-left hover:opacity-70 transition"
+                  >
+                    <span className="font-semibold">{userStats.following}</span>
+                    <span className="text-sm ml-1">following</span>
+                  </button>
+                </div>
+
+                {/* Bio */}
+                <div className="hidden sm:block">
+                  <p className="font-semibold text-sm">
+                    {user.firstName} {user.lastName}
+                  </p>
+                  <p className="text-sm whitespace-pre-wrap">{bio}</p>
+                </div>
               </div>
             </div>
 
-            {/* Bio Section */}
-            <div className="bg-card rounded-2xl border border-border p-6 mb-6">
-              <p className="text-foreground mb-6 leading-relaxed">{bio}</p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                <div className="text-center p-4 bg-muted rounded-xl hover:bg-muted/80 transition cursor-pointer">
-                  <p className="font-bold text-2xl text-primary">{userStats.posts}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Posts</p>
-                </div>
-                <div
-                  className="text-center p-4 bg-muted rounded-xl hover:bg-muted/80 transition cursor-pointer"
-                  onClick={() => {
-                    if (user?._id) {
-                      loadFollowers(user._id)
-                    }
-                    setShowFollowersModal(true)
-                  }}
-                >
-                  <p className="font-bold text-2xl text-primary">{userStats.followers.toLocaleString()}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Followers</p>
-                </div>
-                <div
-                  className="text-center p-4 bg-muted rounded-xl hover:bg-muted/80 transition cursor-pointer"
-                  onClick={() => {
-                    if (user?._id) {
-                      loadFollowing(user._id)
-                    }
-                    setShowFollowingModal(true)
-                  }}
-                >
-                  <p className="font-bold text-2xl text-primary">{userStats.following}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Following</p>
-                </div>
-              </div>
+            {/* Bio - Mobile */}
+            <div className="sm:hidden mb-4 -mt-2">
+              <p className="font-semibold text-sm">
+                {user.firstName} {user.lastName}
+              </p>
+              <p className="text-sm whitespace-pre-wrap">{bio}</p>
             </div>
 
-            {/* Posts and Saved Tabs */}
-            <div>
-              {/* Tab Headers */}
-              <div className="flex border-b border-border mb-6">
-                <button
-                  onClick={() => handleTabChange("posts")}
-                  className={`flex-1 py-3 font-semibold transition ${activeTab === "posts"
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                    }`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="text-xl">📸</span>
-                    <span>Posts</span>
-                    {userStats.posts > 0 && (
-                      <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                        {userStats.posts}
-                      </span>
-                    )}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleTabChange("reels")}
-                  className={`flex-1 py-3 font-semibold transition ${activeTab === "reels"
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                    }`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="text-xl">🎬</span>
-                    <span>Reels</span>
-                    {reels.length > 0 && (
-                      <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                        {reels.length}
-                      </span>
-                    )}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleTabChange("saved")}
-                  className={`flex-1 py-3 font-semibold transition ${activeTab === "saved"
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                    }`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="text-xl">🔖</span>
-                    <span>Saved</span>
-                    {savedPosts.length > 0 && (
-                      <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                        {savedPosts.length}
-                      </span>
-                    )}
-                  </div>
-                </button>
+            {/* Stats row - Mobile */}
+            <div className="sm:hidden flex items-center justify-around py-3 border-y border-border mb-4 -mx-4 px-4">
+              <div className="text-center">
+                <p className="font-semibold">{userStats.posts}</p>
+                <p className="text-xs text-muted-foreground">posts</p>
               </div>
-
-              {/* Posts Tab Content */}
-              {activeTab === "posts" && (
-                <div>
-                  <h2 className="text-2xl font-bold mb-4">My Posts</h2>
-                  {posts.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {posts.map((post) => {
-                        // Get the first media item (image or video)
-                        const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url
-                        const mediaType = post.media?.[0]?.type
-
-                        return (
-                          <div
-                            key={post._id || post.id}
-                            className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group"
-                            onClick={() => handleOpenPostDetails(post)}
-                          >
-                            {mediaUrl ? (
-                              mediaType === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                  muted
-                                />
-                              ) : (
-                                <img
-                                  src={mediaUrl}
-                                  alt={post.caption || "Post"}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                />
-                              )
-                            ) : (
-                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                                <div className="absolute inset-0 flex items-center justify-center text-5xl opacity-80 group-hover:opacity-100 transition">
-                                  📸
-                                </div>
-                              </div>
-                            )}
-                            <div className="p-4">
-                              <p className="font-semibold text-foreground line-clamp-2">
-                                {post.caption || post.content || "No caption"}
-                              </p>
-                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                                <span>❤️ {post.likes_count || 0}</span>
-                                <span>💬 {post.comments_count || 0}</span>
-                              </div>
-                              {post.media && post.media.length > 1 && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  +{post.media.length - 1} more
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 bg-card rounded-xl border border-border">
-                      <p className="text-muted-foreground mb-4">No posts yet</p>
-                      <Button onClick={() => router.push("/create")} className="bg-primary hover:bg-primary/90">
-                        Create Your First Post
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Reels Tab Content */}
-              {activeTab === "reels" && (
-                <div>
-                  <h2 className="text-2xl font-bold mb-4">My Reels</h2>
-                  {reelsLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                      <p className="ml-3 text-muted-foreground text-sm">Loading reels...</p>
-                    </div>
-                  ) : reels.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {reels.map((reel) => (
-                        <ReelCard
-                          key={reel._id || reel.id}
-                          reel={reel}
-                          currentUserId={user?._id}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 bg-card rounded-xl border border-border">
-                      <div className="text-6xl mb-4">🎬</div>
-                      <p className="text-muted-foreground mb-2 text-lg font-semibold">No Reels Yet</p>
-                      <p className="text-muted-foreground text-sm mb-4">
-                        Create your first reel to share with your followers
-                      </p>
-                      <Button onClick={() => router.push("/create")} className="bg-primary hover:bg-primary/90">
-                        Create Your First Reel
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Saved Tab Content */}
-              {activeTab === "saved" && (
-                <div>
-                  <h2 className="text-2xl font-bold mb-4">Saved Posts</h2>
-                  {savedPostsLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                      <p className="ml-3 text-muted-foreground text-sm">Loading saved posts...</p>
-                    </div>
-                  ) : savedPosts.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {savedPosts.map((post) => {
-                        // Get the first media item (image or video)
-                        const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url
-                        const mediaType = post.media?.[0]?.type
-
-                        return (
-                          <div
-                            key={post._id || post.id}
-                            className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group relative"
-                            onClick={() => handleOpenPostDetails(post)}
-                          >
-                            {/* 3-Dot Menu Button */}
-                            <div className="absolute top-2 right-2 z-20">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const postId = post._id || post.id;
-                                  setOpenMenuPostId(openMenuPostId === postId ? null : postId);
-                                }}
-                                className="p-2 bg-black/50 backdrop-blur hover:bg-black/70 rounded-full transition"
-                                title="Options"
-                              >
-                                <span className="text-white text-lg font-bold">⋮</span>
-                              </button>
-
-                              {/* Dropdown Menu */}
-                              {openMenuPostId === (post._id || post.id) && (
-                                <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl overflow-hidden">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setOpenMenuPostId(null);
-                                      handleOpenPostDetails(post);
-                                    }}
-                                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground"
-                                  >
-                                    <span>👁️</span>
-                                    <span>View Post</span>
-                                  </button>
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      setOpenMenuPostId(null);
-                                      try {
-                                        const postUrl = `${window.location.origin}/home?post=${post._id || post.id}`;
-                                        await navigator.clipboard.writeText(postUrl);
-                                        showToast.success('Link copied!', 'Post link copied to clipboard');
-                                      } catch (err) {
-                                        console.error('Error copying link:', err);
-                                        showToast.error('Failed to copy link');
-                                      }
-                                    }}
-                                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground"
-                                  >
-                                    <span>🔗</span>
-                                    <span>Copy Link</span>
-                                  </button>
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      setOpenMenuPostId(null);
-                                      try {
-                                        const postId = post._id || post.id;
-                                        const response = await postService.unsavePost(postId);
-                                        if (response.success) {
-                                          setSavedPosts(savedPosts.filter(p => (p._id || p.id) !== postId));
-                                          toasts.postUnsaved();
-                                        } else {
-                                          toasts.saveError();
-                                        }
-                                      } catch (err) {
-                                        console.error('Error unsaving post:', err);
-                                        toasts.saveError();
-                                      }
-                                    }}
-                                    className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-950/20 transition flex items-center gap-3 text-red-500"
-                                  >
-                                    <span>🗑️</span>
-                                    <span>Remove from Saved</span>
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Saved Badge */}
-                            <div className="absolute top-2 left-2 z-10 bg-primary text-primary-foreground px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
-                              <span>🔖</span>
-                              <span>Saved</span>
-                            </div>
-
-                            {mediaUrl ? (
-                              mediaType === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                  muted
-                                />
-                              ) : (
-                                <img
-                                  src={mediaUrl}
-                                  alt={post.caption || "Post"}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                />
-                              )
-                            ) : (
-                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                                <div className="absolute inset-0 flex items-center justify-center text-5xl opacity-80 group-hover:opacity-100 transition">
-                                  📸
-                                </div>
-                              </div>
-                            )}
-                            <div className="p-4">
-                              <p className="font-semibold text-foreground line-clamp-2">
-                                {post.caption || post.content || "No caption"}
-                              </p>
-                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                                <span>❤️ {post.likes_count || 0}</span>
-                                <span>💬 {post.comments_count || 0}</span>
-                              </div>
-                              {post.media && post.media.length > 1 && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  +{post.media.length - 1} more
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 bg-card rounded-xl border border-border">
-                      <div className="text-6xl mb-4">🔖</div>
-                      <p className="text-muted-foreground mb-2 text-lg font-semibold">No Saved Posts</p>
-                      <p className="text-muted-foreground text-sm mb-4">
-                        Save posts to keep them for later
-                      </p>
-                      <Button onClick={() => router.push("/home")} className="bg-primary hover:bg-primary/90">
-                        Explore Posts
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
+              <button
+                onClick={() => {
+                  if (user?._id) loadFollowers(user._id)
+                  setShowFollowersModal(true)
+                }}
+                className="text-center"
+              >
+                <p className="font-semibold">{userStats.followers.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">followers</p>
+              </button>
+              <button
+                onClick={() => {
+                  if (user?._id) loadFollowing(user._id)
+                  setShowFollowingModal(true)
+                }}
+                className="text-center"
+              >
+                <p className="font-semibold">{userStats.following}</p>
+                <p className="text-xs text-muted-foreground">following</p>
+              </button>
             </div>
           </div>
-        </section>
+
+          {/* Hidden file inputs */}
+          <input
+            id="coverPhotoInput"
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleCoverPhotoUpload}
+          />
+          <input
+            id="profilePictureInput"
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleProfilePictureUpload}
+          />
+
+          {/* Settings Dropdown */}
+          {showSettingsMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowSettingsMenu(false)} />
+              <div className="fixed lg:absolute right-4 top-16 lg:top-20 lg:right-8 w-[260px] bg-card rounded-xl border border-border shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                <button
+                  onClick={() => document.getElementById('profilePictureInput')?.click()}
+                  disabled={uploadingImage}
+                  className="w-full text-left px-4 py-3 hover:bg-muted/80 transition text-sm disabled:opacity-50"
+                >
+                  {uploadingImage ? 'Uploading...' : 'Change profile photo'}
+                </button>
+                <a
+                  href="/account-settings"
+                  className="block w-full text-left px-4 py-3 hover:bg-muted/80 transition text-sm"
+                >
+                  Settings
+                </a>
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left px-4 py-3 hover:bg-muted/80 transition text-sm text-destructive"
+                >
+                  Log out
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Tabs */}
+          <div className="border-t border-border">
+            <div className="flex items-center justify-center gap-16">
+              <button
+                onClick={() => handleTabChange("posts")}
+                className={`flex items-center gap-1.5 py-4 text-xs tracking-wider uppercase border-t-[1px] -mt-[1px] transition ${
+                  activeTab === "posts"
+                    ? "text-foreground border-foreground font-semibold"
+                    : "text-muted-foreground border-transparent"
+                }`}
+              >
+                <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor">
+                  <rect x="0" y="0" width="7" height="7" />
+                  <rect x="8.5" y="0" width="7" height="7" />
+                  <rect x="17" y="0" width="7" height="7" />
+                  <rect x="0" y="8.5" width="7" height="7" />
+                  <rect x="8.5" y="8.5" width="7" height="7" />
+                  <rect x="17" y="8.5" width="7" height="7" />
+                  <rect x="0" y="17" width="7" height="7" />
+                  <rect x="8.5" y="17" width="7" height="7" />
+                  <rect x="17" y="17" width="7" height="7" />
+                </svg>
+                Posts
+              </button>
+              <button
+                onClick={() => handleTabChange("reels")}
+                className={`flex items-center gap-1.5 py-4 text-xs tracking-wider uppercase border-t-[1px] -mt-[1px] transition ${
+                  activeTab === "reels"
+                    ? "text-foreground border-foreground font-semibold"
+                    : "text-muted-foreground border-transparent"
+                }`}
+              >
+                <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor">
+                  <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.6 0 12 0zm5 13h-4v4c0 .6-.4 1-1 1s-1-.4-1-1v-4H7c-.6 0-1-.4-1-1s.4-1 1-1h4V7c0-.6.4-1 1-1s1 .4 1 1v4h4c.6 0 1 .4 1 1s-.4 1-1 1z"/>
+                </svg>
+                Reels
+              </button>
+              <button
+                onClick={() => handleTabChange("saved")}
+                className={`flex items-center gap-1.5 py-4 text-xs tracking-wider uppercase border-t-[1px] -mt-[1px] transition ${
+                  activeTab === "saved"
+                    ? "text-foreground border-foreground font-semibold"
+                    : "text-muted-foreground border-transparent"
+                }`}
+              >
+                <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                </svg>
+                Saved
+              </button>
+            </div>
+          </div>
+
+          {/* Grid Content */}
+          <div className="pb-8">
+            {activeTab === "posts" && (
+              posts.length > 0 ? (
+                <div className="grid grid-cols-3 gap-1">
+                  {posts.map((post) => {
+                    const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url
+                    const mediaType = post.media?.[0]?.type
+                    return (
+                      <div
+                        key={post._id || post.id}
+                        className="aspect-square bg-muted overflow-hidden cursor-pointer group relative"
+                        onClick={() => handleOpenPostDetails(post)}
+                      >
+                        {mediaUrl ? (
+                          mediaType === 'video' ? (
+                            <video src={mediaUrl} className="w-full h-full object-cover" muted />
+                          ) : (
+                            <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                          )
+                        ) : (
+                          <div className="w-full h-full bg-muted flex items-center justify-center text-4xl">📸</div>
+                        )}
+                        {/* Hover overlay */}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-6">
+                          <div className="flex items-center gap-1.5 text-white font-semibold">
+                            <span>❤️</span>
+                            <span>{post.likes_count || 0}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-white font-semibold">
+                            <span>💬</span>
+                            <span>{post.comments_count || 0}</span>
+                          </div>
+                        </div>
+                        {/* Multi-image indicator */}
+                        {post.media?.length > 1 && (
+                          <div className="absolute top-2 right-2">
+                            <svg viewBox="0 0 24 24" className="w-5 h-5 text-white drop-shadow" fill="currentColor">
+                              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/>
+                              <rect x="7" y="7" width="10" height="10" rx="1"/>
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="py-16 text-center">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-full border-2 border-foreground flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="3" width="18" height="18" rx="2"/>
+                      <circle cx="8.5" cy="8.5" r="1.5"/>
+                      <path d="M21 15l-5-5L5 21"/>
+                    </svg>
+                  </div>
+                  <h3 className="text-2xl font-light mb-2">Share Photos</h3>
+                  <p className="text-sm text-muted-foreground">
+                    When you share photos, they will appear on your profile.
+                  </p>
+                </div>
+              )
+            )}
+            {activeTab === "reels" && (
+              reelsLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="animate-spin rounded-full h-8 w-8 border-[3px] border-primary border-t-transparent" />
+                </div>
+              ) : reels.length > 0 ? (
+                <div className="grid grid-cols-3 gap-1">
+                  {reels.map((reel) => {
+                    const videoUrl = reel.video?.url || reel.videoUrl
+                    return (
+                      <div
+                        key={reel._id || reel.id}
+                        className="aspect-[9/16] bg-black overflow-hidden cursor-pointer group relative"
+                      >
+                        {videoUrl && (
+                          <video src={videoUrl} className="w-full h-full object-cover" muted />
+                        )}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                          <div className="flex items-center gap-1.5 text-white font-semibold">
+                            <span>▶</span>
+                            <span>{reel.views_count || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="py-16 text-center">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-full border-2 border-foreground flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="3" width="18" height="18" rx="2"/>
+                      <polygon points="10,8 16,12 10,16"/>
+                    </svg>
+                  </div>
+                  <h3 className="text-2xl font-light mb-2">Share Reels</h3>
+                  <p className="text-sm text-muted-foreground">
+                    When you share reels, they will appear on your profile.
+                  </p>
+                </div>
+              )
+            )}
+
+            {activeTab === "saved" && (
+              savedPostsLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="animate-spin rounded-full h-8 w-8 border-[3px] border-primary border-t-transparent" />
+                </div>
+              ) : savedPosts.length > 0 ? (
+                <div className="grid grid-cols-3 gap-1">
+                  {savedPosts.map((post) => {
+                    const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url
+                    const mediaType = post.media?.[0]?.type
+                    return (
+                      <div
+                        key={post._id || post.id}
+                        className="aspect-square bg-muted overflow-hidden cursor-pointer group relative"
+                        onClick={() => handleOpenPostDetails(post)}
+                      >
+                        {mediaUrl ? (
+                          mediaType === 'video' ? (
+                            <video src={mediaUrl} className="w-full h-full object-cover" muted />
+                          ) : (
+                            <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
+                          )
+                        ) : (
+                          <div className="w-full h-full bg-muted flex items-center justify-center text-4xl">📸</div>
+                        )}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-6">
+                          <div className="flex items-center gap-1.5 text-white font-semibold">
+                            <span>❤️</span>
+                            <span>{post.likes_count || 0}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-white font-semibold">
+                            <span>💬</span>
+                            <span>{post.comments_count || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="py-16 text-center">
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-full border-2 border-foreground flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="w-10 h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                    </svg>
+                  </div>
+                  <h3 className="text-2xl font-light mb-2">Save</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Save photos and videos that you want to see again.
+                  </p>
+                </div>
+              )
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Edit Bio Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Edit Your Bio</DialogTitle>
+            <DialogTitle className="text-center font-semibold">Edit bio</DialogTitle>
           </DialogHeader>
           <textarea
             value={editBio}
             onChange={(e) => setEditBio(e.target.value)}
-            placeholder="Tell us about yourself..."
-            className="w-full p-4 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
-            rows={5}
-            maxLength={160}
+            placeholder="Bio"
+            className="w-full p-3 border border-border rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-primary bg-background text-foreground text-sm"
+            rows={4}
+            maxLength={150}
           />
-          <p className="text-xs text-muted-foreground">{editBio.length}/160 characters</p>
-          <DialogFooter>
-            <Button onClick={() => setShowEditModal(false)} variant="outline" className="bg-transparent">
+          <p className="text-xs text-muted-foreground text-right">{editBio.length}/150</p>
+          <DialogFooter className="gap-2">
+            <Button onClick={() => setShowEditModal(false)} variant="ghost" className="flex-1">
               Cancel
             </Button>
-            <Button onClick={handleSaveBio} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              Save Bio
+            <Button onClick={handleSaveBio} className="flex-1 bg-[#0095F6] hover:bg-[#1877F2] text-white">
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -922,12 +846,10 @@ export default function ProfilePage() {
         onFollowChange={(userId, isFollowing) => handleFollowChange(userId, isFollowing, "following")}
       />
 
-      {/* Post Details Modal */}
       {selectedPost && (
         <PostDetailsModal isOpen={showPostDetails} onClose={handleClosePostDetails} post={selectedPost} />
       )}
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   )
