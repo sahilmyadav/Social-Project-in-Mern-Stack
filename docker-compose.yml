@@ -9,7 +9,7 @@ services:
     container_name: social-backend
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=5000
