@@ -1,0 +1,81 @@
+# Root .gitignore for Social App
+
+# ===================
+# Environment Files
+# ===================
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+backend/.env
+backend/.env.production
+!.env.example
+!backend/.env.example
+
+# ===================
+# Dependencies
+# ===================
+node_modules/
+.pnpm-store/
+
+# ===================
+# Build Outputs
+# ===================
+dist/
+build/
+.next/
+out/
+
+# ===================
+# IDE & Editors
+# ===================
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# ===================
+# OS Files
+# ===================
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# ===================
+# SSL Certificates
+# ===================
+certbot/
+
+# ===================
+# Docker
+# ===================
+# Keep docker-compose files
+!docker-compose*.yml
+
+# ===================
+# Logs
+# ===================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ===================
+# Test & Coverage
+# ===================
+coverage/
+.nyc_output/
+
+# ===================
+# Misc
+# ===================
+*.tsbuildinfo
+.eslintcache
+backups/

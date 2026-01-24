@@ -1,0 +1,56 @@
+import { Router } from "express";
+import {
+  uploadPost,
+  deletePost,
+  getPostDetails,
+  likePost,
+  unlikePost,
+  commentOnPost,
+  deleteComment,
+  sharePost,
+  savePost,
+  unsavePost,
+  reportPost,
+  getCurrentUserPosts,
+  totalPostCount,
+  getUserSavedPosts,
+  getAllComments,
+  getExplorePosts
+} from "../controllers/post.controller.js";
+import { verifyJwt } from "../middleware/auth.middleware.js";
+import { uploadMultiple, handleUploadError } from "../middleware/upload.middleware.js";
+
+const router = Router();
+
+// Post routes - uploadMultiple handles up to 10 files (images/videos)
+router.route("/upload").post(verifyJwt, uploadMultiple, handleUploadError, uploadPost);
+
+// seaerch posts b title route will be here -
+// router.route("/search").get(verifyJwt, getPostDetails);
+router.route("/delete/:postId").delete(verifyJwt, deletePost);
+router.route("/details/:postId").get(getPostDetails);
+router.route("/like/:postId").post(verifyJwt, likePost);
+router.route("/unlike/:postId").delete(verifyJwt, unlikePost);
+router.route("/comment/:postId").post(verifyJwt, commentOnPost);
+router.route("/comment/:commentId").delete(verifyJwt, deleteComment);
+router.route("/share/:postId").post(verifyJwt, sharePost);
+router.route("/save/:postId").post(verifyJwt, savePost);
+router.route("/unsave/:postId").delete(verifyJwt, unsavePost);
+
+router.route("/user-saved-posts").get(verifyJwt, getUserSavedPosts);
+// router.route("/unsaved/:postId").post(verifyJwt,)
+router.route("/report/:postId").post(verifyJwt, reportPost);
+
+router.route("/save/user-saved-posts").get(verifyJwt, getUserSavedPosts);
+
+
+router.route("/totalPostCount").get(verifyJwt, totalPostCount);
+
+router.route("/comments/:postId").get(verifyJwt, getAllComments);
+
+// Explore posts - discover posts from users you're not following
+router.route("/explore").get(verifyJwt, getExplorePosts);
+
+
+
+export default router;

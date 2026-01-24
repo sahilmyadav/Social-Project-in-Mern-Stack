@@ -1,0 +1,103 @@
+# Docker Compose for Social App - Production
+# This file orchestrates backend, frontend, and supporting services
+# Note: Uses existing VPS Nginx - no Docker Nginx container
+
+services:
+  # ===========
+  # Backend API
+  # ===========
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: social-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env.production
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - REDIS_URL=redis://redis:6379
+      - MONGODB_URI=${MONGODB_URI}
+    ports:
+      - '5000:5000'
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - social-network
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--no-verbose',
+          '--tries=1',
+          '--spider',
+          'http://localhost:5000/api/v1/health',
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  # ================
+  # Frontend Next.js
+  # ================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://yourdomain.com/api/v1}
+        - NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL:-https://yourdomain.com}
+    container_name: social-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+    networks:
+      - social-network
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000']
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+  # =====
+  # Redis
+  # =====
+  redis:
+    image: redis:7-alpine
+    container_name: social-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    expose:
+      - '6379'
+    networks:
+      - social-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# ===========
+# Networks
+# ===========
+networks:
+  social-network:
+    driver: bridge
+
+# ===========
+# Volumes
+# ===========
+volumes:
+  redis-data:
+    driver: local

@@ -1,0 +1,148 @@
+"use client"
+
+import { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { postService } from "@/lib/api-services"
+import { toasts } from "@/lib/toast"
+
+interface ReportPostModalProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  postId: string
+  postAuthor: string
+}
+
+const reportReasons = [
+  { id: "spam", label: "Spam", description: "Unwanted commercial content or repetitive posts" },
+  { id: "inappropriate", label: "Inappropriate Content", description: "Offensive or explicit content" },
+  { id: "harassment", label: "Harassment", description: "Bullying or targeting individuals" },
+  { id: "violence", label: "Violence", description: "Graphic violence or dangerous organizations" },
+  { id: "copyright", label: "Copyright Violation", description: "Using someone else's work without permission" },
+  { id: "false_info", label: "False Information", description: "Misleading or fake news" },
+  { id: "other", label: "Other", description: "Something else that violates community guidelines" }
+]
+
+export default function ReportPostModal({ open, onOpenChange, postId, postAuthor }: ReportPostModalProps) {
+  const [selectedReason, setSelectedReason] = useState("")
+  const [additionalInfo, setAdditionalInfo] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!selectedReason) return
+
+    setIsSubmitting(true)
+
+    try {
+      const response = await postService.reportPost(postId, {
+        reason: selectedReason,
+        additionalInfo: additionalInfo || undefined
+      })
+
+      if (response.success) {
+
+        // Reset form and close modal
+        setSelectedReason("")
+        setAdditionalInfo("")
+        onOpenChange(false)
+
+        // Show success toast
+        toasts.postReported()
+      } else {
+        throw new Error(response.message || "Failed to submit report")
+      }
+
+    } catch (error: any) {
+      console.error("Error submitting post report:", error)
+      toasts.error(error.message || "Failed to submit report")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleClose = () => {
+    setSelectedReason("")
+    setAdditionalInfo("")
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(open) => {
+      if (!open) {
+        handleClose()
+      }
+    }}>
+      <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
+        <DialogHeader>
+          <DialogTitle>Report Post</DialogTitle>
+          <DialogDescription>
+            Help us keep the community safe by reporting this post from {postAuthor}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Why are you reporting this post?</label>
+            <div className="space-y-2">
+              {reportReasons.map((reason) => (
+                <div key={reason.id} className="flex items-start space-x-3">
+                  <input
+                    type="radio"
+                    id={reason.id}
+                    name="report-reason"
+                    value={reason.id}
+                    checked={selectedReason === reason.id}
+                    onChange={(e) => setSelectedReason(e.target.value)}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <label htmlFor={reason.id} className="text-sm font-medium cursor-pointer">
+                      {reason.label}
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {reason.description}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {selectedReason && (
+            <div className="space-y-2">
+              <label htmlFor="additional-info" className="text-sm font-medium">
+                Additional Information (Optional)
+              </label>
+              <textarea
+                id="additional-info"
+                placeholder="Provide any additional context that might help us review this post..."
+                value={additionalInfo}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAdditionalInfo(e.target.value)}
+                rows={3}
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+              />
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={(e) => {
+            e.stopPropagation()
+            handleClose()
+          }} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleSubmit()
+            }}
+            disabled={!selectedReason || isSubmitting}
+          >
+            {isSubmitting ? "Submitting..." : "Submit Report"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -1,0 +1,50 @@
+{
+  "name": "quick-js-jwt-es6",
+  "version": "1.0.1",
+  "description": "A quick setup for a JWT-based authentication system using ES6 modules.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon -r dotenv/config src/index.js",
+    "start": "node src/index.js",
+    "start:cluster": "NODE_ENV=production ENABLE_CLUSTER=true node src/cluster.js",
+    "dev:cluster": "ENABLE_CLUSTER=true nodemon -r dotenv/config src/cluster.js",
+    "clear-redis": "redis-cli FLUSHALL"
+  },
+  "author": {
+    "name": "Kunal Risaaanva",
+    "email": "kunalrisaanva12@gmail.com"
+  },
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "bcrypt": "^5.1.1",
+    "cloudinary": "^2.8.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^8.2.1",
+    "firebase-admin": "^13.6.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.8.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.4.1",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.2",
+    "nodemailer": "^7.0.11",
+    "redis": "^5.10.0",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "overrides": {
+    "glob": "^10.4.5",
+    "rimraf": "^5.0.5",
+    "inflight": "npm:noop2@1.0.0",
+    "are-we-there-yet": "^4.0.2",
+    "gauge": "^5.0.1"
+  }
+}

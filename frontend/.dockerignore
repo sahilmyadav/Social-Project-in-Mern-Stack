@@ -1,0 +1,51 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output
+.next
+out
+build
+dist
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Development files
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose*.yml
+README.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Test files
+coverage
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__
+cypress
+.nyc_output
+
+# TypeScript cache
+*.tsbuildinfo
