@@ -45,7 +45,7 @@ export const API_ENDPOINTS = {
     SHARE: (postId: string) => `/post/share/${postId}`,
     GET_SAVED_POSTS: '/post/save/user-saved-posts',
     REPORT: (postId: string) => `/post/report/${postId}`,
-    EXPLORE: '/posts/explore',
+    EXPLORE: '/post/explore',
 
     TOTAL_COUNT: '/post/totalPostCount', // todo update this into total followers and total following
   },

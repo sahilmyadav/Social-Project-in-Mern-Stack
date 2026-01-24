@@ -1,9 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { initSocket, emitUserOnline, emitUserOffline, disconnectSocket } from "@/lib/socket"
 
 export default function GlobalSocketHandler() {
+    const router = useRouter()
     const [isLoggedIn, setIsLoggedIn] = useState(false)
 
     useEffect(() => {
@@ -65,6 +68,19 @@ export default function GlobalSocketHandler() {
             emitUserOnline(user._id)
         })
 
+        // Listen for Live Stream Start
+        socket?.on("liveStreamStarted", (data) => {
+            const { streamId, title, streamerId } = data
+            toast.message("Live Stream Started", {
+                description: `${title || "A user"} is live now!`,
+                action: {
+                    label: "Watch",
+                    onClick: () => router.push(`/live/watch/${streamId}`)
+                },
+                duration: 10000, // Show for 10 seconds
+            })
+        })
+
         // Emit offline status before page unload (tab close, refresh, etc.)
         const handleBeforeUnload = () => {
             emitUserOffline(user._id)
@@ -75,6 +91,8 @@ export default function GlobalSocketHandler() {
         // Cleanup on unmount or logout
         return () => {
             window.removeEventListener("beforeunload", handleBeforeUnload)
+            socket?.off("liveStreamStarted")
+            socket?.off("connect")
 
             // If user logged out, emit offline and disconnect
             const currentToken = localStorage.getItem("accessToken")

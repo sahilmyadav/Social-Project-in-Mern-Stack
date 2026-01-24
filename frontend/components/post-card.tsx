@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, memo } from "react"
 import { Heart, MessageCircle, Share2, MoreHorizontal, Send, Trash2, Download } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { postService, commentService } from "@/lib/api-services"
@@ -12,14 +12,14 @@ import { useRouter } from "next/navigation"
 
 interface PostCardProps {
   post: any
-  onCommentClick?: () => void
+  onCommentClick?: (post: any) => void
   onLikeUpdate?: (postId: string, isLiked: boolean, likeCount: number) => void
   currentUserId?: string
-  onPostClick?: () => void
+  onPostClick?: (post: any) => void
   showComments?: boolean
 }
 
-export default function PostCard({ post, onCommentClick, onLikeUpdate, currentUserId, onPostClick, showComments }: PostCardProps) {
+function PostCard({ post, onCommentClick, onLikeUpdate, currentUserId, onPostClick, showComments }: PostCardProps) {
   const router = useRouter()
   const [liked, setLiked] = useState(post.isLiked || false)
   const [likeCount, setLikeCount] = useState(post.likes_count || 0)
@@ -631,9 +631,21 @@ export default function PostCard({ post, onCommentClick, onLikeUpdate, currentUs
       {mediaUrl && (
         <div className="relative w-full h-64 bg-muted overflow-hidden">
           {post.media?.[0]?.type === 'video' ? (
-            <video src={mediaUrl} controls className="w-full h-full object-cover" />
+            <video
+              src={mediaUrl}
+              controls
+              className="w-full h-full object-cover"
+              preload="metadata"
+              poster={post.media?.[0]?.thumbnail}
+            />
           ) : (
-            <img src={mediaUrl} alt="Post" className="w-full h-full object-cover" />
+            <img
+              src={mediaUrl}
+              alt="Post"
+              className="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
+            />
           )}
         </div>
       )}
@@ -664,7 +676,7 @@ export default function PostCard({ post, onCommentClick, onLikeUpdate, currentUs
           <button
             onClick={(e) => {
               e.stopPropagation()
-              onCommentClick?.()
+              onCommentClick?.(post)
             }}
             className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-muted transition font-semibold text-muted-foreground flex-1 justify-center"
           >
@@ -893,4 +905,7 @@ export default function PostCard({ post, onCommentClick, onLikeUpdate, currentUs
       />
     </article>
   )
+
 }
+
+export default memo(PostCard)

@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
+
+import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import {
   Settings,
@@ -24,9 +27,12 @@ import {
   Heart,
 } from "lucide-react"
 import Navigation from "@/components/navigation"
-import FollowersModal from "@/components/followers-modal"
-import PostDetailsModal from "@/components/post-details-modal"
+
+// Dynamic imports to reduce initial bundle size
+const FollowersModal = dynamic(() => import("@/components/followers-modal"), { ssr: false })
+const PostDetailsModal = dynamic(() => import("@/components/post-details-modal"), { ssr: false })
 import ReelCard from "@/components/reel-card"
+import { useConfirmDialog, ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { authService, feedService, followService, postService, reelService } from "@/lib/api-services"
 import { ApiError } from "@/lib/api-client"
@@ -35,9 +41,10 @@ import { toasts, showToast } from "@/lib/toast"
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showProfileImageModal, setShowProfileImageModal] = useState(false)
   const [showFollowersModal, setShowFollowersModal] = useState(false)
   const [showFollowingModal, setShowFollowingModal] = useState(false)
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+
   const [showPostDetails, setShowPostDetails] = useState(false)
   const [selectedPost, setSelectedPost] = useState<any>(null)
   const [bio, setBio] = useState("")
@@ -52,11 +59,16 @@ export default function ProfilePage() {
     savedPosts: 0,
   })
 
+  const { confirm, dialogProps } = useConfirmDialog()
+
   const [followers, setFollowers] = useState<any[]>([])
   const [following, setFollowing] = useState<any[]>([])
   const [followersLoading, setFollowersLoading] = useState(false)
   const [followingLoading, setFollowingLoading] = useState(false)
-  const [uploadingImage, setUploadingImage] = useState(false)
+
+  // Split upload states
+  const [isUploadingProfilePic, setIsUploadingProfilePic] = useState(false)
+  const [isUploadingCoverPhoto, setIsUploadingCoverPhoto] = useState(false)
 
   const [posts, setPosts] = useState<any[]>([])
   const [reels, setReels] = useState<any[]>([])
@@ -273,37 +285,27 @@ export default function ProfilePage() {
           localStorage.setItem("user", JSON.stringify(updatedUser))
         }
       } else {
-        alert("Failed to update bio. Please try again.")
+        showToast.error("Failed to update bio", "Please try again.")
       }
     } catch (err) {
       console.error("Failed to update bio:", err)
-      alert("Failed to update bio. Please try again.")
+      showToast.error("Failed to update bio", "Please try again.")
     }
   }
 
   const handleFollowChange = async (userId: string, isFollowing: boolean, list: "followers" | "following") => {
     try {
-      // Note: The followers modal now handles all API calls directly
-      // This function only updates the local state based on the modal's actions
-
       if (isFollowing) {
-        // User was followed (either public account auto-approved or private request sent)
-        // Get the user to check their current state
         const targetUser = list === "followers"
           ? followers.find((u) => (u._id === userId || u.id === userId))
           : following.find((u) => (u._id === userId || u.id === userId))
 
-        // Check if it was auto-approved (public) or pending (private)
-        // The modal will have already updated its local state
-        // We just need to update our stats if it was auto-approved
         const isPrivate = targetUser?.isPrivate || targetUser?.profile_type === 'private'
 
         if (!isPrivate) {
-          // Public account - was auto-approved, increase following count
           setUserStats(prev => ({ ...prev, following: prev.following + 1 }))
         }
 
-        // Update local state (modal already updated, but we sync here)
         if (list === "followers") {
           setFollowers(followers.map((u) =>
             (u._id === userId || u.id === userId)
@@ -318,8 +320,6 @@ export default function ProfilePage() {
           ))
         }
       } else {
-        // User was unfollowed or request was canceled
-        // Get the user to check if they were following or pending
         const targetUser = list === "followers"
           ? followers.find((u) => (u._id === userId || u.id === userId))
           : following.find((u) => (u._id === userId || u.id === userId))
@@ -327,18 +327,13 @@ export default function ProfilePage() {
         const wasFollowing = targetUser?.isFollowing
 
         if (wasFollowing) {
-          // Was actually following, decrease count
           setUserStats(prev => ({ ...prev, following: Math.max(0, prev.following - 1) }))
         }
-        // If was pending, don't change count (it was never increased)
 
-        // Update local state
         if (list === "following") {
-          // Remove from following list if they were actually following
           if (wasFollowing) {
             setFollowing(following.filter((u) => (u._id !== userId && u.id !== userId)))
           } else {
-            // Just update state for pending requests
             setFollowing(following.map((u) =>
               (u._id === userId || u.id === userId)
                 ? { ...u, isFollowing: false, isPending: false }
@@ -346,7 +341,6 @@ export default function ProfilePage() {
             ))
           }
         } else {
-          // Update followers list
           setFollowers(followers.map((u) =>
             (u._id === userId || u.id === userId)
               ? { ...u, isFollowing: false, isPending: false }
@@ -365,36 +359,42 @@ export default function ProfilePage() {
     if (!file) return
 
     try {
-      setUploadingImage(true)
+      setIsUploadingProfilePic(true)
 
-      // Try different FormData approaches
       const formData = new FormData()
-
-      // Method 1: Standard append
       formData.append('file', file)
-
-      // Method 2: Check all FormData entries
-      for (let [key, value] of formData.entries()) {
-      }
-
-      // Method 3: Create new FormData and test
-      const testFormData = new FormData()
-      testFormData.append('file', file)
 
       const response = await authService.updateProfilePicture(formData)
 
       if (response.success) {
-        // Reload profile to get updated image
         await loadUserProfile()
-        alert('Profile picture updated successfully!')
+        confirm({
+          title: "Success",
+          message: "Profile picture updated successfully!",
+          variant: "success",
+          confirmText: "OK",
+          cancelText: null
+        })
       } else {
-        alert('Failed to update profile picture')
+        confirm({
+          title: "Error",
+          message: "Failed to update profile picture",
+          variant: "danger",
+          confirmText: "OK",
+          cancelText: null
+        })
       }
     } catch (err) {
       console.error('Error uploading profile picture:', err)
-      alert('Failed to update profile picture')
+      confirm({
+        title: "Error",
+        message: "Failed to update profile picture",
+        variant: "danger",
+        confirmText: "OK",
+        cancelText: null
+      })
     } finally {
-      setUploadingImage(false)
+      setIsUploadingProfilePic(false)
     }
   }
 
@@ -403,24 +403,41 @@ export default function ProfilePage() {
     if (!file) return
 
     try {
-      setUploadingImage(true)
+      setIsUploadingCoverPhoto(true)
       const formData = new FormData()
       formData.append('coverPhoto', file)
 
       const response = await authService.updateCoverPhoto(formData)
 
       if (response.success) {
-        // Reload profile to get updated image
         await loadUserProfile()
-        alert('Cover photo updated successfully!')
+        confirm({
+          title: "Success",
+          message: "Cover photo updated successfully!",
+          variant: "success",
+          confirmText: "OK",
+          cancelText: null
+        })
       } else {
-        alert('Failed to update cover photo')
+        confirm({
+          title: "Error",
+          message: "Failed to update cover photo",
+          variant: "danger",
+          confirmText: "OK",
+          cancelText: null
+        })
       }
     } catch (err) {
       console.error('Error uploading cover photo:', err)
-      alert('Failed to update cover photo')
+      confirm({
+        title: "Error",
+        message: "Failed to update cover photo",
+        variant: "danger",
+        confirmText: "OK",
+        cancelText: null
+      })
     } finally {
-      setUploadingImage(false)
+      setIsUploadingCoverPhoto(false)
     }
   }
 
@@ -479,6 +496,7 @@ export default function ProfilePage() {
 
   return (
     <main className="min-h-screen bg-background pb-20 lg:pb-0">
+      <ConfirmDialog {...dialogProps} />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
@@ -487,118 +505,107 @@ export default function ProfilePage() {
 
         {/* Main Content */}
         <section className="lg:col-span-3">
-          {/* Header with gradient background */}
-          <div className="gradient-purple-peach h-48 relative">
+          {/* Header with Cover Photo */}
+          <div className="h-48 md:h-64 relative bg-muted group overflow-hidden">
+            {user.coverPhoto ? (
+              <img
+                src={user.coverPhoto}
+                alt="Cover"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full gradient-purple-peach" />
+            )}
+
+            {/* Camera Icon Overlay for Quick Upload */}
+
+
             <div className="absolute top-4 right-4 z-20">
               <button
-                onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                onClick={() => router.push("/account-settings")}
                 className="p-2 rounded-full bg-white/20 backdrop-blur hover:bg-white/30 transition cursor-pointer"
-                aria-label="Settings menu"
+                aria-label="Settings"
               >
                 <Settings size={20} className="text-white" />
               </button>
-
-              {showSettingsMenu && (
-                <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-50">
-                  <button
-                    onClick={() => document.getElementById('coverPhotoInput')?.click()}
-                    disabled={uploadingImage}
-                    className="w-full text-left px-3 py-2.5 hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground disabled:opacity-50 text-sm cursor-pointer"
-                  >
-                    <ImageIcon size={16} />
-                    <span>{uploadingImage ? 'Uploading...' : 'Cover Photo'}</span>
-                  </button>
-                  <button
-                    onClick={() => document.getElementById('profilePictureInput')?.click()}
-                    disabled={uploadingImage}
-                    className="w-full text-left px-3 py-2.5 hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground disabled:opacity-50 text-sm cursor-pointer"
-                  >
-                    <Camera size={16} />
-                    <span>{uploadingImage ? 'Uploading...' : 'Profile Picture'}</span>
-                  </button>
-                  <a
-                    href="/account-settings"
-                    className="w-full text-left px-3 py-2.5 hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground text-sm cursor-pointer"
-                  >
-                    <Settings size={16} />
-                    <span>Settings</span>
-                  </a>
-                  <button className="w-full text-left px-3 py-2.5 hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground text-sm cursor-pointer">
-                    <Lock size={16} />
-                    <span>Privacy</span>
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-3 py-2.5 hover:bg-muted transition flex items-center gap-2 text-red-500 text-sm cursor-pointer"
-                  >
-                    <LogOut size={16} />
-                    <span>Logout</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Hidden file inputs */}
-              <input
-                id="coverPhotoInput"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleCoverPhotoUpload}
-              />
-              <input
-                id="profilePictureInput"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleProfilePictureUpload}
-              />
             </div>
+
+            {/* Hidden file inputs */}
+            <input
+              id="coverPhotoInput"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleCoverPhotoUpload}
+            />
+            <input
+              id="profilePictureInput"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleProfilePictureUpload}
+            />
           </div>
 
           {/* Profile Info */}
           <div className="px-4 pb-8">
-            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4 -mt-16 mb-8 relative z-10">
-              <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-6xl border-4 border-card shadow-lg overflow-hidden">
-                {(user.profilePicture || user.profileImage) ? (
-                  <img
-                    src={user.profilePicture || user.profileImage}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Fallback to emoji if image fails to load
-                      e.currentTarget.style.display = 'none';
-                      e.currentTarget.parentElement!.innerHTML = '<span>👤</span>';
-                    }}
-                  />
-                ) : (
-                  <User size={64} className="text-muted-foreground" />
+            <div className="flex flex-col md:flex-row items-center md:items-end -mt-16 md:-mt-20 gap-6 mb-8 relative z-10">
+              <div
+                className="relative w-32 h-32 cursor-pointer hover:opacity-90 transition shrink-0"
+                onClick={() => {
+                  const pp = user.profileImage || user.avatar || user.profilePicture;
+                  if (pp && pp !== "👤" && (pp.startsWith("http") || pp.startsWith("/"))) setShowProfileImageModal(true);
+                }}
+              >
+                {(() => {
+                  const pp = user.profileImage || user.avatar || user.profilePicture;
+                  if (pp && pp !== "👤" && (pp.startsWith("http") || pp.startsWith("/"))) {
+                    return (
+                      <img
+                        src={pp}
+                        alt="Profile"
+                        className="w-full h-full rounded-full object-cover border-4 border-card shadow-lg"
+                      />
+                    );
+                  }
+                  return (
+                    <div className="w-full h-full rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center border-4 border-card shadow-lg text-white">
+                      <span className="text-5xl font-bold">
+                        {(user.firstName?.[0] || user.name?.[0] || "U").toUpperCase()}
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                {user.isVerified && (
+                  <div className="absolute bottom-1 right-1 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center border-2 border-card z-10" title="Verified">
+                    <span className="text-white text-sm font-bold">✓</span>
+                  </div>
                 )}
               </div>
-              <div className="flex-1">
-                <h1 className="text-4xl font-bold text-foreground">
-                  {user.firstName || user.name || "User"} {user.lastName || ""}
-                </h1>
-                <p className="text-lg text-muted-foreground">
-                  @{user.username || ((user.firstName || user.name || user.email || "user") + "").toLowerCase().replace(/\s+/g, "")}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => router.push('/chat')}
-                  className="p-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer"
-                >
-                  <MessageCircle size={20} />
-                </button>
-                <button className="p-2 rounded-lg bg-secondary hover:bg-secondary/90 text-secondary-foreground cursor-pointer">
-                  <Share size={20} />
-                </button>
-                <Button
-                  onClick={() => setShowEditModal(true)}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 cursor-pointer"
-                >
-                  <Edit2 size={18} />
-                  Edit Bio
-                </Button>
+
+              <div className="flex-1 text-center md:text-left mt-4 md:mt-0 pt-4 md:pt-24 w-full">
+                <div className="flex flex-col md:flex-row items-center md:items-center justify-between gap-4">
+                  <div>
+                    <h1 className="text-3xl font-bold text-foreground">
+                      {user.firstName || user.name || "User"} {user.lastName || ""}
+                    </h1>
+                    <p className="text-lg text-muted-foreground">
+                      @{user.username || ((user.firstName || user.name || user.email || "user") + "").toLowerCase().replace(/\s+/g, "")}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setShowEditModal(true)}
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 cursor-pointer"
+                    >
+                      <Edit2 size={18} />
+                      Edit Bio
+                    </Button>
+
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -712,27 +719,32 @@ export default function ProfilePage() {
                             className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group"
                             onClick={() => handleOpenPostDetails(post)}
                           >
-                            {mediaUrl ? (
-                              mediaType === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                  muted
-                                />
+                            <div className="relative w-full h-48 bg-muted">
+                              {mediaUrl ? (
+                                mediaType === 'video' ? (
+                                  <video
+                                    src={mediaUrl}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300 absolute inset-0"
+                                    muted
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <Image
+                                    src={mediaUrl}
+                                    alt={post.caption || "Post"}
+                                    fill
+                                    className="object-cover group-hover:scale-105 transition duration-300"
+                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                  />
+                                )
                               ) : (
-                                <img
-                                  src={mediaUrl}
-                                  alt={post.caption || "Post"}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                />
-                              )
-                            ) : (
-                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                                <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
-                                  <Camera size={48} className="text-white" />
+                                <div className="absolute inset-0 bg-gradient-to-br from-primary to-secondary overflow-hidden group-hover:scale-105 transition duration-300">
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
+                                    <Camera size={48} className="text-white" />
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
                             <div className="p-4">
                               <p className="font-semibold text-foreground line-clamp-2">
                                 {post.caption || post.content || "No caption"}
@@ -897,27 +909,32 @@ export default function ProfilePage() {
                               <span>Saved</span>
                             </div>
 
-                            {mediaUrl ? (
-                              mediaType === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                  muted
-                                />
+                            <div className="relative w-full h-48 bg-muted">
+                              {mediaUrl ? (
+                                mediaType === 'video' ? (
+                                  <video
+                                    src={mediaUrl}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300 absolute inset-0"
+                                    muted
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <Image
+                                    src={mediaUrl}
+                                    alt={post.caption || "Post"}
+                                    fill
+                                    className="object-cover group-hover:scale-105 transition duration-300"
+                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                  />
+                                )
                               ) : (
-                                <img
-                                  src={mediaUrl}
-                                  alt={post.caption || "Post"}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                />
-                              )
-                            ) : (
-                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                                <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
-                                  <Camera size={48} className="text-white" />
+                                <div className="absolute inset-0 bg-gradient-to-br from-primary to-secondary overflow-hidden group-hover:scale-105 transition duration-300">
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
+                                    <Camera size={48} className="text-white" />
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
                             <div className="p-4">
                               <p className="font-semibold text-foreground line-clamp-2">
                                 {post.caption || post.content || "No caption"}
@@ -953,10 +970,10 @@ export default function ProfilePage() {
             </div>
           </div>
         </section>
-      </div>
+      </div >
 
       {/* Edit Bio Modal */}
-      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+      < Dialog open={showEditModal} onOpenChange={setShowEditModal} >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Your Bio</DialogTitle>
@@ -979,7 +996,7 @@ export default function ProfilePage() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       <FollowersModal
         open={showFollowersModal}
@@ -1000,12 +1017,31 @@ export default function ProfilePage() {
       />
 
       {/* Post Details Modal */}
-      {selectedPost && (
-        <PostDetailsModal isOpen={showPostDetails} onClose={handleClosePostDetails} post={selectedPost} />
-      )}
+      {
+        selectedPost && (
+          <PostDetailsModal isOpen={showPostDetails} onClose={handleClosePostDetails} post={selectedPost} />
+        )
+      }
 
       {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
-    </main>
+
+      {/* Profile Picture Modal */}
+      <Dialog open={showProfileImageModal} onOpenChange={setShowProfileImageModal}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black/95 border-none sm:max-w-3xl md:max-w-4xl [&>button]:text-white [&>button]:bg-white/10 [&>button]:hover:bg-white/20">
+          <DialogTitle className="sr-only">Profile Picture</DialogTitle>
+          <div className="relative w-full h-[80vh] flex items-center justify-center group">
+            <Image
+              src={user.profilePicture || user.profileImage}
+              alt={user.username || "Profile Picture"}
+              fill
+              className="object-contain"
+              quality={100}
+              priority
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </main >
   )
 }

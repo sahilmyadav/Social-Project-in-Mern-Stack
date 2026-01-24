@@ -277,7 +277,7 @@ export default function AccountSettingsPage() {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-4 mb-8 border-b border-border">
+            <div className="flex gap-4 mb-8 border-b border-border overflow-x-auto pb-px scrollbar-hide">
               {[
                 { id: "general", label: "General", icon: "⚙️" },
                 { id: "security", label: "Security", icon: "🔒" },
@@ -287,7 +287,7 @@ export default function AccountSettingsPage() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`cursor-pointer px-4 py-3 font-semibold flex items-center gap-2 border-b-2 transition ${activeTab === tab.id
+                  className={`cursor-pointer px-4 py-3 font-semibold flex items-center gap-2 border-b-2 transition whitespace-nowrap flex-shrink-0 ${activeTab === tab.id
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                     }`}
@@ -352,9 +352,9 @@ export default function AccountSettingsPage() {
                   <h2 className="text-xl font-bold mb-4 text-foreground">Appearance</h2>
 
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10">
+                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg gap-4">
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 flex-shrink-0">
                           {mounted && theme === "dark" ? <Moon size={16} className="text-primary" /> : <Sun size={16} className="text-primary" />}
                         </div>
                         <div>
@@ -367,7 +367,7 @@ export default function AccountSettingsPage() {
                       <button
                         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                         disabled={!mounted}
-                        className={`cursor-pointer w-12 h-7 rounded-full transition ${mounted && theme === "dark" ? "bg-primary" : "bg-muted-foreground"
+                        className={`cursor-pointer w-12 h-7 rounded-full transition flex-shrink-0 ${mounted && theme === "dark" ? "bg-primary" : "bg-muted-foreground"
                           } disabled:opacity-50`}
                       >
                         <div
@@ -489,14 +489,14 @@ export default function AccountSettingsPage() {
                       { key: "likes", label: "Likes on your posts", icon: "❤️" },
                       { key: "comments", label: "Comments on your posts", icon: "💬" },
                     ] as const).map((notif) => (
-                      <div key={notif.key} className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                        <div className="flex items-center gap-3">
+                      <div key={notif.key} className="flex items-center justify-between p-4 bg-muted rounded-lg gap-4">
+                        <div className="flex items-center gap-3 flex-1">
                           <span className="text-2xl">{notif.icon}</span>
                           <span className="text-foreground font-semibold">{notif.label}</span>
                         </div>
                         <button
                           onClick={() => handleNotificationChange(notif.key)}
-                          className={`cursor-pointer w-12 h-7 rounded-full transition ${notifications[notif.key as keyof typeof notifications]
+                          className={`cursor-pointer w-12 h-7 rounded-full transition flex-shrink-0 ${notifications[notif.key as keyof typeof notifications]
                             ? "bg-primary"
                             : "bg-muted-foreground"
                             }`}
@@ -520,8 +520,8 @@ export default function AccountSettingsPage() {
                   <h2 className="text-xl font-bold mb-4 text-foreground">Privacy & Safety</h2>
 
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                      <div>
+                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg gap-4">
+                      <div className="flex-1">
                         <p className="font-semibold text-foreground">Private Account</p>
                         <p className="text-sm text-muted-foreground">
                           {isPrivateAccount
@@ -532,7 +532,7 @@ export default function AccountSettingsPage() {
                       <button
                         onClick={handleTogglePrivateAccount}
                         disabled={privacyLoading}
-                        className={`cursor-pointer w-12 h-7 rounded-full transition ${isPrivateAccount ? "bg-primary" : "bg-muted-foreground"
+                        className={`cursor-pointer w-12 h-7 rounded-full transition flex-shrink-0 ${isPrivateAccount ? "bg-primary" : "bg-muted-foreground"
                           } disabled:opacity-50`}
                       >
                         <div
@@ -542,8 +542,8 @@ export default function AccountSettingsPage() {
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                      <div>
+                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg gap-4">
+                      <div className="flex-1">
                         <p className="font-semibold text-foreground">Allow Downloads</p>
                         <p className="text-sm text-muted-foreground">
                           {allowDownloads
@@ -554,7 +554,7 @@ export default function AccountSettingsPage() {
                       <button
                         onClick={handleToggleDownloads}
                         disabled={downloadLoading}
-                        className={`cursor-pointer w-12 h-7 rounded-full transition ${allowDownloads ? "bg-primary" : "bg-muted-foreground"
+                        className={`cursor-pointer w-12 h-7 rounded-full transition flex-shrink-0 ${allowDownloads ? "bg-primary" : "bg-muted-foreground"
                           } disabled:opacity-50`}
                       >
                         <div
@@ -564,12 +564,12 @@ export default function AccountSettingsPage() {
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                      <div>
+                    <div className="flex items-center justify-between p-4 bg-muted rounded-lg gap-4">
+                      <div className="flex-1">
                         <p className="font-semibold text-foreground">Block Messages from Strangers</p>
                         <p className="text-sm text-muted-foreground">Only people you follow can message you</p>
                       </div>
-                      <button className="cursor-pointer w-12 h-7 rounded-full bg-primary cursor-pointer">
+                      <button className="cursor-pointer w-12 h-7 rounded-full bg-primary flex-shrink-0">
                         <div className="w-5 h-5 rounded-full bg-white translate-x-6" />
                       </button>
                     </div>

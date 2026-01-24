@@ -138,7 +138,29 @@ export const authService = {
 
   // Update Cover Photo
   updateCoverPhoto: async (formData: FormData) => {
-    return api.put(API_ENDPOINTS.AUTH.UPDATE_COVER_PHOTO, formData, true);
+    const token = getToken();
+    const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.UPDATE_COVER_PHOTO}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+      credentials: "include",
+    });
+
+    const data = await response.json();
+
+    // Normalize response to match ApiResponse interface if needed
+    if (!response.ok) {
+      throw {
+        message: data.message || "Failed to update cover photo",
+        success: false,
+        data: null
+      };
+    }
+
+    // If backend returns the raw user object or data wrapped in data
+    return data;
   },
 
   // Update Profile

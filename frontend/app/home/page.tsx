@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import dynamic from "next/dynamic"
 import { CloudCog, Plus } from "lucide-react"
 import Navigation from "@/components/navigation"
 import PostCard from "@/components/post-card"
-import CreatePostModal from "@/components/create-post-modal"
+const CreatePostModal = dynamic(() => import("@/components/create-post-modal"), { ssr: false })
 import StoriesBar from "@/components/stories-bar"
-import { feedService, reelService, followService } from "@/lib/api-services"
+import { feedService, reelService, followService, searchService } from "@/lib/api-services"
 import ReelCard from "@/components/reel-card"
 import ReelComments from "@/components/reel-comments"
 import Link from "next/link"
@@ -21,6 +22,7 @@ export default function HomePage() {
   const [reels, setReels] = useState<any[]>([])
   const [feed, setFeed] = useState<any[]>([])
   const [suggestions, setSuggestions] = useState<any[]>([])
+  const [trending, setTrending] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
   const router = useRouter()
@@ -53,8 +55,8 @@ export default function HomePage() {
       setLoading(true)
 
 
-      // Fetch both posts and reels concurrently
-      const [postsResponse, reelsResponse, suggestionsResponse] = await Promise.all([
+      // Fetch posts, reels, suggestions, and trending concurrently
+      const [postsResponse, reelsResponse, suggestionsResponse, trendingResponse] = await Promise.all([
         feedService.getHomeFeed({ limit: 10 }).catch(err => {
           console.error("Posts API error:", err)
           return { success: false, data: null, error: err }
@@ -66,6 +68,10 @@ export default function HomePage() {
         followService.getSuggestions({ limit: 5 }).catch(err => {
           console.error("Suggestions API error:", err)
           return { success: false, data: null }
+        }),
+        searchService.getTrending({ limit: 5 }).catch(err => {
+          console.error("Trending API error:", err)
+          return { success: false, data: null }
         })
       ])
 
@@ -76,6 +82,10 @@ export default function HomePage() {
 
       if (suggestionsResponse.success && suggestionsResponse.data) {
         setSuggestions(suggestionsResponse.data.suggestions || [])
+      }
+
+      if (trendingResponse.success && trendingResponse.data) {
+        setTrending(trendingResponse.data.trending_topics || [])
       }
 
       // Mix posts and reels together
@@ -134,8 +144,7 @@ export default function HomePage() {
     router.push("/login")
   }
 
-  const handleOpenPostDetails = (post: any) => {
-    // Toggle inline comments for the post
+  const handleOpenPostDetails = useCallback((post: any) => {
     setFeed(prevFeed =>
       prevFeed.map(item => {
         if (item.type === 'post' && (item._id === post._id || item.id === post._id)) {
@@ -144,14 +153,14 @@ export default function HomePage() {
         return item
       })
     )
-  }
+  }, [])
 
-  const handleOpenReelComments = (reel: any) => {
+  const handleOpenReelComments = useCallback((reel: any) => {
     setSelectedReel(reel)
     setShowReelComments(true)
-  }
+  }, [])
 
-  const handleReelLikeUpdate = (reelId: string, isLiked: boolean, likeCount: number) => {
+  const handleReelLikeUpdate = useCallback((reelId: string, isLiked: boolean, likeCount: number) => {
     setFeed(prevFeed =>
       prevFeed.map(item => {
         if (item.type === 'reel' && (item._id === reelId || item.id === reelId)) {
@@ -164,9 +173,9 @@ export default function HomePage() {
         return item
       })
     )
-  }
+  }, [])
 
-  const handlePostLikeUpdate = (postId: string, isLiked: boolean, likeCount: number) => {
+  const handlePostLikeUpdate = useCallback((postId: string, isLiked: boolean, likeCount: number) => {
     setFeed(prevFeed =>
       prevFeed.map(item => {
         if (item.type === 'post' && (item._id === postId || item.id === postId)) {
@@ -179,7 +188,7 @@ export default function HomePage() {
         return item
       })
     )
-  }
+  }, [])
 
   if (!user) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>
@@ -246,10 +255,10 @@ export default function HomePage() {
                   <PostCard
                     key={`post-${item._id || item.id}`}
                     post={item}
-                    onCommentClick={() => handleOpenPostDetails(item)}
-                    onLikeUpdate={(postId: string, isLiked: boolean, likeCount: number) => handlePostLikeUpdate(postId, isLiked, likeCount)}
+                    onCommentClick={handleOpenPostDetails}
+                    onLikeUpdate={handlePostLikeUpdate}
                     currentUserId={user?._id}
-                    onPostClick={() => handleOpenPostDetails(item)}
+                    onPostClick={handleOpenPostDetails}
                     showComments={item.showComments}
                   />
                 ) : (
@@ -314,12 +323,18 @@ export default function HomePage() {
           <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
             <h3 className="font-bold text-lg mb-4">Trending Now</h3>
             <div className="space-y-3">
-              {["#DesignTrends", "#WebDevelopment", "#Photography", "#CreativeArt"].map((trend, i) => (
-                <div key={i} className="p-3 hover:bg-muted rounded-lg cursor-pointer transition">
-                  <p className="text-primary font-semibold">{trend}</p>
-                  <p className="text-sm text-muted-foreground">12.5K posts</p>
+              {trending.length > 0 ? (
+                trending.map((trend, i) => (
+                  <div key={i} className="p-3 hover:bg-muted rounded-lg cursor-pointer transition">
+                    <p className="text-primary font-semibold">#{trend.topic}</p>
+                    <p className="text-sm text-muted-foreground">{trend.posts_count || 0} posts</p>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  <p>No trending topics yet</p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </aside>

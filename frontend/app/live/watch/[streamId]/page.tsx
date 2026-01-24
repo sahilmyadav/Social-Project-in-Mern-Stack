@@ -311,10 +311,10 @@ export default function WatchLivePage() {
                         {/* Stream Info */}
                         <Card className="bg-gray-900 border-gray-800 p-4">
                             <div className="flex items-start gap-3">
-                                {stream?.streamer.profilePicture ? (
+                                {stream?.streamer?.profilePicture ? (
                                     <img
                                         src={stream.streamer.profilePicture}
-                                        alt={stream.streamer.username}
+                                        alt={stream.streamer.username || "User"}
                                         className="w-12 h-12 rounded-full"
                                     />
                                 ) : (
@@ -322,7 +322,7 @@ export default function WatchLivePage() {
                                 )}
                                 <div className="flex-1">
                                     <h2 className="font-bold text-lg">{stream?.title}</h2>
-                                    <p className="text-gray-400 text-sm">{stream?.streamer.fullName}</p>
+                                    <p className="text-gray-400 text-sm">{stream?.streamer?.fullName}</p>
                                     {stream?.description && (
                                         <p className="text-gray-300 text-sm mt-2">{stream.description}</p>
                                     )}

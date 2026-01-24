@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus } from "lucide-react";
-import { storyService, feedService } from "@/lib/api-services";
+import { Plus, Video } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { storyService, feedService, liveStreamService } from "@/lib/api-services";
 import AddStoryModal from "./add-story-modal";
 import StoryViewer from "./story-viewer";
 
@@ -30,6 +31,21 @@ interface Story {
   createdAt: string;
 }
 
+interface LiveStream {
+  _id: string;
+  title: string;
+  streamer: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    username: string;
+    profilePicture?: string;
+    avatar?: string;
+  };
+  thumbnail?: string;
+  viewerCount: number;
+}
+
 interface StoriesBarProps {
   currentUserId: string;
   currentUserName: string;
@@ -41,8 +57,10 @@ export default function StoriesBar({
   currentUserName,
   currentUserAvatar,
 }: StoriesBarProps) {
+  const router = useRouter();
   const [stories, setStories] = useState<Story[]>([]);
   const [myStories, setMyStories] = useState<Story[]>([]);
+  const [liveStreams, setLiveStreams] = useState<LiveStream[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [selectedStoryIndex, setSelectedStoryIndex] = useState(0);
@@ -61,113 +79,97 @@ export default function StoriesBar({
 
   const uniqueUsers = Object.values(groupedStories);
 
-  const loadStories = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
 
-      // Load current user's stories with cache busting
-      const myStoriesResponse = await storyService.getUserStories(currentUserId);
+      // Parallel fetch: Stories + Live Streams
+      const [myStoriesResponse, feedStoriesResponse, liveResponse] = await Promise.all([
+        storyService.getUserStories(currentUserId),
+        storyService.getAllStories({ page: 1, limit: 50 }),
+        liveStreamService.getActiveLiveStreams({ limit: 10 })
+      ]);
+
+      // 1. Handle My Stories
       if (myStoriesResponse.success && myStoriesResponse.data) {
         let userStories: any[] = [];
-
-        // Handle nested structure: [{ user: ..., stories: [...] }] or direct array
+        // Handle nested structure
         if (myStoriesResponse.data.stories && Array.isArray(myStoriesResponse.data.stories)) {
-          // Check if it's the nested structure
           if (myStoriesResponse.data.stories[0]?.stories) {
             myStoriesResponse.data.stories.forEach((userStoryGroup: any) => {
               if (userStoryGroup.stories && Array.isArray(userStoryGroup.stories)) {
-                const flattenedStories = userStoryGroup.stories.map((story: any) => ({
+                userStories.push(...userStoryGroup.stories.map((story: any) => ({
                   ...story,
                   user: story.user || userStoryGroup.user
-                }));
-                userStories.push(...flattenedStories);
+                })));
               }
             });
           } else {
-            // Direct array structure
             userStories = myStoriesResponse.data.stories;
           }
         } else {
-          // Fallback to direct array
           userStories = myStoriesResponse.data || [];
         }
 
-        // Transform backend user_id to user field if needed
-        userStories = userStories.map((story: any) => {
-          if (story.user_id && !story.user) {
-            return {
-              ...story,
-              user: {
-                _id: story.user_id._id || story.user_id,
-                firstName: story.user_id.firstName || story.user_id.username || 'Unknown',
-                username: story.user_id.username,
-                profilePicture: story.user_id.profileImage || story.user_id.profilePicture,
-                avatar: story.user_id.avatar,
-              },
-            };
-          }
-          return story;
-        });
-
-        setMyStories(userStories);
+        // Transform
+        setMyStories(transformStories(userStories));
       }
 
-      // Load all stories using the getAllStories endpoint
-      const storiesFeedResponse = await storyService.getAllStories({ page: 1, limit: 50 });
-      if (storiesFeedResponse.success && storiesFeedResponse.data) {
+      // 2. Handle Feed Stories
+      if (feedStoriesResponse.success && feedStoriesResponse.data) {
         let feedStories: any[] = [];
-
-        // Handle nested structure: [{ user: ..., stories: [...] }]
-        if (storiesFeedResponse.data.stories && Array.isArray(storiesFeedResponse.data.stories)) {
-          storiesFeedResponse.data.stories.forEach((userStoryGroup: any) => {
+        if (feedStoriesResponse.data.stories && Array.isArray(feedStoriesResponse.data.stories)) {
+          feedStoriesResponse.data.stories.forEach((userStoryGroup: any) => {
             if (userStoryGroup.stories && Array.isArray(userStoryGroup.stories)) {
-              // Add user info to each story and flatten the array
-              const flattenedStories = userStoryGroup.stories.map((story: any) => ({
+              feedStories.push(...userStoryGroup.stories.map((story: any) => ({
                 ...story,
-                user: story.user || userStoryGroup.user // Use story's user if available, otherwise group's user
-              }));
-              feedStories.push(...flattenedStories);
+                user: story.user || userStoryGroup.user
+              })));
             }
           });
         } else {
-          // Fallback to direct array if structure is different
-          feedStories = storiesFeedResponse.data || [];
+          feedStories = feedStoriesResponse.data || [];
         }
-
-        // Transform backend user_id to user field if needed
-        feedStories = feedStories.map((story: any) => {
-          if (story.user_id && !story.user) {
-            return {
-              ...story,
-              user: {
-                _id: story.user_id._id || story.user_id,
-                firstName: story.user_id.firstName || story.user_id.username || 'Unknown',
-                username: story.user_id.username,
-                profilePicture: story.user_id.profileImage || story.user_id.profilePicture,
-                avatar: story.user_id.avatar,
-              },
-            };
-          }
-          return story;
-        });
-
-        // Debug: Check if filters are coming from backend
-        setStories(feedStories);
+        setStories(transformStories(feedStories));
       }
+
+      // 3. Handle Live Streams
+      if (liveResponse.success && liveResponse.data) {
+        // Filter out streams where streamer might be null (e.g. deleted user)
+        setLiveStreams(liveResponse.data.filter((s: any) => s.streamer));
+      }
+
     } catch (error) {
-      console.error("Error loading stories:", error);
+      console.error("Error loading stories/live:", error);
     } finally {
       setLoading(false);
     }
   };
 
+  // Helper to normalize story user structure
+  const transformStories = (list: any[]) => {
+    return list.map((story: any) => {
+      if (story.user_id && !story.user) {
+        return {
+          ...story,
+          user: {
+            _id: story.user_id._id || story.user_id,
+            firstName: story.user_id.firstName || story.user_id.username || 'Unknown',
+            username: story.user_id.username,
+            profilePicture: story.user_id.profileImage || story.user_id.profilePicture,
+            avatar: story.user_id.avatar,
+          },
+        };
+      }
+      return story;
+    });
+  }
+
   useEffect(() => {
-    loadStories();
+    loadData();
   }, [currentUserId]);
 
-  const handleAddStory = () => {
-    setIsAddModalOpen(true);
-  };
+  const handleAddStory = () => setIsAddModalOpen(true);
 
   const handleStoryClick = (userStories: Story[], index: number = 0) => {
     setSelectedUserStories(userStories);
@@ -175,12 +177,15 @@ export default function StoriesBar({
     setIsViewerOpen(true);
   };
 
+  const handleLiveClick = (streamId: string) => {
+    router.push(`/live/watch/${streamId}`);
+  };
+
   const handleDeleteStory = async (storyId: string) => {
     try {
       const response = await storyService.deleteStory(storyId);
       if (response.success) {
-        // Reload stories
-        await loadStories();
+        await loadData();
       }
     } catch (error) {
       console.error("Error deleting story:", error);
@@ -188,7 +193,6 @@ export default function StoriesBar({
   };
 
   const hasMyStory = myStories.length > 0;
-
 
   return (
     <>
@@ -223,6 +227,42 @@ export default function StoriesBar({
               </span>
             </button>
           </div>
+
+          {/* Live Streams (Priority) */}
+          {liveStreams.map((stream) => (
+            <div key={stream._id} className="flex-shrink-0">
+              <button
+                onClick={() => handleLiveClick(stream._id)}
+                className="flex flex-col items-center gap-2 group cursor-pointer"
+              >
+                <div className="relative">
+                  {/* Red Pulse Ring for Live */}
+                  <div className="absolute -inset-0.5 rounded-full bg-red-600 blur opacity-75 group-hover:opacity-100 animate-pulse transition"></div>
+                  <div className="relative w-16 h-16 rounded-full p-0.5 bg-red-600">
+                    <div className="w-full h-full rounded-full border-2 border-background overflow-hidden relative">
+                      {stream.streamer?.profilePicture || stream.streamer?.avatar ? (
+                        <img
+                          src={stream.streamer?.profilePicture || stream.streamer?.avatar}
+                          alt={stream.streamer?.username}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
+                          <Video className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 bg-red-600 text-[10px] text-white font-bold px-1.5 rounded-sm border-2 border-background">
+                    LIVE
+                  </div>
+                </div>
+                <span className="text-xs font-medium text-foreground max-w-[64px] truncate">
+                  {stream.streamer?.firstName}
+                </span>
+              </button>
+            </div>
+          ))}
 
           {/* My Stories */}
           {hasMyStory && (
@@ -301,7 +341,7 @@ export default function StoriesBar({
       <AddStoryModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        onSuccess={loadStories}
+        onSuccess={loadData}
       />
 
       {/* Story Viewer */}

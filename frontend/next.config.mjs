@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Enable standalone output for Docker deployment
-  output: 'standalone',
+  output: 'standalone', // Required for Docker
   typescript: {
     ignoreBuildErrors: false,
   },

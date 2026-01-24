@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowLeft,
   MessageCircle,
@@ -35,6 +37,7 @@ export default function UserProfilePage() {
   const params = useParams();
   const userId = params.userId as string;
   const { confirm, dialogProps } = useConfirmDialog();
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [profileUser, setProfileUser] = useState<any>(null);
@@ -50,6 +53,7 @@ export default function UserProfilePage() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [activeTab, setActiveTab] = useState<"posts" | "reels">("posts");
   const [showPostDetails, setShowPostDetails] = useState(false);
+  const [showProfileImageModal, setShowProfileImageModal] = useState(false);
 
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [notFound, setNotFound] = useState(false);
@@ -76,8 +80,10 @@ export default function UserProfilePage() {
         // Try to fetch from API
         const response = await authService.getCurrentUser();
         if (response.success && response.data) {
-          setCurrentUser(response.data);
-          localStorage.setItem("user", JSON.stringify(response.data));
+          // Handle potential nested data structure { data: user, ... }
+          const userData = response.data.data || response.data;
+          setCurrentUser(userData);
+          localStorage.setItem("user", JSON.stringify(userData));
         }
       }
     } catch (error) {
@@ -90,9 +96,11 @@ export default function UserProfilePage() {
     setNotFound(false);
     try {
       const response = await authService.getUserProfile(userId);
+      console.log("getUserProfile response:", response);
 
       if (response.success && response.data) {
         const user = response.data;
+        console.log("Setting profile user with coverPhoto:", user.coverPhoto);
 
         setProfileUser({
           _id: user._id || userId,
@@ -103,7 +111,8 @@ export default function UserProfilePage() {
             user.username ||
             `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
           bio: user.bio || "",
-          profilePicture: user.profilePicture || user.avatar || "👤",
+          // Use profileImage (backend convention), falling back to avatar, then legacy profilePicture, then default
+          profilePicture: user.profileImage || user.avatar || user.profilePicture || "👤",
           coverPhoto: user.coverPhoto || null,
           followersCount: user.followersCount || 0,
           followingCount: user.followingCount || 0,
@@ -306,6 +315,45 @@ export default function UserProfilePage() {
     router.push(`/chat?userId=${userId}&userName=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`);
   };
 
+  const handleCoverPhotoUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toasts.error("File size too large (max 5MB)");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("coverPhoto", file);
+
+    const previousCover = profileUser.coverPhoto;
+    const objectUrl = URL.createObjectURL(file);
+
+    // Optimistic update
+    setProfileUser((prev: any) => ({ ...prev, coverPhoto: objectUrl }));
+
+    try {
+      const response = await authService.updateCoverPhoto(formData);
+      if (response.success && response.data) {
+        showToast.success("Cover photo updated successfully");
+        setProfileUser((prev: any) => ({ ...prev, coverPhoto: response.data.coverPhoto }));
+      } else {
+        setProfileUser((prev: any) => ({ ...prev, coverPhoto: previousCover }));
+        toasts.error(response.message || "Failed to update cover photo");
+      }
+    } catch (error: any) {
+      console.error("Error updating cover photo:", error);
+      // Try to log generic error details if error object is empty
+      if (Object.keys(error).length === 0) {
+        console.error("Empty error object received. Check network tab or server logs.");
+      }
+      setProfileUser((prev: any) => ({ ...prev, coverPhoto: previousCover }));
+      const errorMsg = error?.message || "Failed to update cover photo";
+      showToast.error(errorMsg);
+    }
+  };
+
   const handleBlockUser = async () => {
     setShowOptionsMenu(false);
 
@@ -432,301 +480,337 @@ export default function UserProfilePage() {
           </Button>
 
           {/* Profile Header */}
-          <div className="bg-card rounded-2xl border border-border p-8 mb-6">
-            <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
-              {/* Profile Picture */}
-              <div className="relative">
-                {profileUser.profilePicture &&
-                  profileUser.profilePicture !== "👤" &&
-                  profileUser.profilePicture.startsWith("http") ? (
-                  <img
-                    src={profileUser.profilePicture}
-                    alt={
-                      profileUser.fullName ||
-                      `${profileUser.firstName} ${profileUser.lastName}`
-                    }
-                    className="w-32 h-32 rounded-full object-cover border-4 border-primary/20"
+          <div className="bg-card rounded-2xl border border-border overflow-hidden mb-6">
+            {/* Cover Photo */}
+            <div className="h-48 md:h-64 relative bg-muted group">
+              {profileUser.coverPhoto ? (
+                <img
+                  src={profileUser.coverPhoto}
+                  alt="Cover"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-r from-primary/10 to-secondary/10" />
+              )}
+
+              {isOwnProfile && (
+                <>
+                  <button
+                    onClick={() => coverInputRef.current?.click()}
+                    className="absolute bottom-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-sm transition opacity-0 group-hover:opacity-100"
+                    title="Change Cover Photo"
+                  >
+                    <Camera size={20} />
+                  </button>
+                  <input
+                    type="file"
+                    ref={coverInputRef}
+                    className="hidden"
+                    onChange={handleCoverPhotoUpdate}
+                    accept="image/*"
                   />
-                ) : (
-                  <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-5xl border-4 border-primary/20">
-                    {profileUser.profilePicture === "👤" ||
-                      !profileUser.profilePicture
-                      ? (profileUser.firstName?.[0] || "U").toUpperCase()
-                      : profileUser.profilePicture}
-                  </div>
-                )}
-                {profileUser.isVerified && (
-                  <div className="absolute bottom-2 right-2 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center border-2 border-card">
-                    <span className="text-white text-sm">✓</span>
-                  </div>
-                )}
-              </div>
+                </>
+              )}
+            </div>
 
-              {/* Profile Info */}
-              <div className="flex-1 text-center md:text-left">
-                <div className="flex flex-col md:flex-row items-center md:items-start gap-4 mb-4">
-                  <div>
-                    <h1 className="text-3xl font-bold text-foreground flex items-center gap-2 justify-center md:justify-start">
-                      {profileUser.fullName ||
-                        `${profileUser.firstName} ${profileUser.lastName}`}
-                      {profileUser.isPrivate && (
-                        <span className="text-muted-foreground text-lg">
-                          🔒
-                        </span>
-                      )}
-                    </h1>
-                    <p className="text-muted-foreground">
-                      @{profileUser.username}
-                    </p>
-                  </div>
-
-                  {/* Action Buttons */}
-                  {!isOwnProfile && (
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={handleFollowAction}
-                        disabled={isProcessing}
-                        variant={
-                          followStatus === "none" ? "default" : "outline"
-                        }
-                        className="gap-2"
-                      >
-                        {followStatus === "following" && (
-                          <UserCheck size={16} />
-                        )}
-                        {followStatus === "pending" && <Clock size={16} />}
-                        {followStatus === "none" && <UserPlus size={16} />}
-                        {followStatus === "following"
-                          ? "Unfollow"
-                          : followStatus === "pending"
-                            ? "Requested"
-                            : profileUser.isPrivate
-                              ? "Request"
-                              : "Follow"}
-                      </Button>
-                      <Button
-                        onClick={handleMessage}
-                        variant="outline"
-                        className="gap-2"
-                      >
-                        <MessageCircle size={16} />
-                        Message
-                      </Button>
-
-                      {/* 3-Dot Options Menu */}
-                      <div className="relative">
-                        <Button
-                          onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                          variant="outline"
-                          size="icon"
-                          className="relative"
-                        >
-                          <MoreHorizontal size={20} />
-                        </Button>
-
-                        {/* Dropdown Menu */}
-                        {showOptionsMenu && (
-                          <>
-                            {/* Backdrop to close menu */}
-                            <div
-                              className="fixed inset-0 z-40"
-                              onClick={() => setShowOptionsMenu(false)}
-                            />
-
-                            <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-50 overflow-hidden">
-                              {/* Share Profile */}
-                              <button
-                                onClick={async () => {
-                                  setShowOptionsMenu(false);
-                                  const profileUrl = `${window.location.origin}/profile/${userId}`;
-                                  if (navigator.share) {
-                                    try {
-                                      await navigator.share({
-                                        title: `${profileUser.fullName || profileUser.username}'s Profile`,
-                                        text: `Check out ${profileUser.fullName || profileUser.username} on our platform!`,
-                                        url: profileUrl,
-                                      });
-                                    } catch (err) {
-                                    }
-                                  } else {
-                                    await navigator.clipboard.writeText(profileUrl);
-                                    showToast.success('Link copied', 'Profile link copied to clipboard!');
-                                  }
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
-                              >
-                                <Share2 size={16} />
-                                <span>Share Profile</span>
-                              </button>
-
-                              {/* Copy Profile Link */}
-                              <button
-                                onClick={async () => {
-                                  setShowOptionsMenu(false);
-                                  const profileUrl = `${window.location.origin}/profile/${userId}`;
-                                  await navigator.clipboard.writeText(profileUrl);
-                                  showToast.success('Link copied', 'Profile link copied to clipboard!');
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
-                              >
-                                <LinkIcon size={16} />
-                                <span>Copy Link</span>
-                              </button>
-
-                              {/* Report User */}
-                              <button
-                                onClick={() => {
-                                  setShowOptionsMenu(false);
-                                  const reason = prompt('Please specify the reason for reporting this user:');
-                                  if (reason && reason.trim()) {
-                                    // TODO: Implement report user API call
-                                    confirm({
-                                      title: "User Reported",
-                                      message: `User reported for: ${reason}\n\nThank you for helping keep our community safe.`,
-                                      variant: "success",
-                                      confirmText: "OK",
-                                      cancelText: null
-                                    });
-                                  }
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-orange-500 cursor-pointer"
-                              >
-                                <Flag size={16} />
-                                <span>Report User</span>
-                              </button>
-
-                              {/* Block/Unblock User */}
-                              {isBlocked ? (
-                                <button
-                                  onClick={() => {
-                                    setShowOptionsMenu(false);
-                                    handleUnblockUser();
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-green-50 dark:hover:bg-green-950/20 transition flex items-center gap-2 text-green-600 cursor-pointer"
-                                >
-                                  <Unlock size={16} />
-                                  <span>Unblock User</span>
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    setShowOptionsMenu(false);
-                                    handleBlockUser();
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 dark:hover:bg-red-950/20 transition flex items-center gap-2 text-destructive cursor-pointer"
-                                >
-                                  <Ban size={16} />
-                                  <span>Block User</span>
-                                </button>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
+            <div className="px-8 pb-8">
+              <div className="flex flex-col md:flex-row items-center md:items-end -mt-16 md:-mt-20 gap-6">
+                {/* Profile Picture */}
+                <div
+                  className="relative cursor-pointer hover:opacity-90 transition"
+                  onClick={() => (profileUser.profilePicture && profileUser.profilePicture !== "👤") && setShowProfileImageModal(true)}
+                >
+                  {profileUser.profilePicture &&
+                    profileUser.profilePicture !== "👤" &&
+                    profileUser.profilePicture.startsWith("http") ? (
+                    <img
+                      src={profileUser.profilePicture}
+                      alt={
+                        profileUser.fullName ||
+                        `${profileUser.firstName} ${profileUser.lastName}`
+                      }
+                      className="w-32 h-32 rounded-full object-cover border-4 border-card"
+                    />
+                  ) : (
+                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-5xl border-4 border-card text-white">
+                      {profileUser.profilePicture === "👤" ||
+                        !profileUser.profilePicture
+                        ? (profileUser.firstName?.[0] || "U").toUpperCase()
+                        : profileUser.profilePicture}
                     </div>
                   )}
-
-                  {isOwnProfile && (
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => router.push("/account-settings")}
-                        variant="outline"
-                        className="gap-2 cursor-pointer"
-                      >
-                        <Edit2 size={16} />
-                        Edit Profile
-                      </Button>
-
-                      <div className="relative">
-                        <Button
-                          onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-                          variant="outline"
-                          size="icon"
-                          className="relative cursor-pointer"
-                        >
-                          <MoreHorizontal size={20} />
-                        </Button>
-
-                        {showOptionsMenu && (
-                          <>
-                            <div
-                              className="fixed inset-0 z-40"
-                              onClick={() => setShowOptionsMenu(false)}
-                            />
-
-                            <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-50 overflow-hidden">
-                              <button
-                                onClick={async () => {
-                                  setShowOptionsMenu(false);
-                                  const profileUrl = `${window.location.origin}/profile/${userId}`;
-                                  if (navigator.share) {
-                                    try {
-                                      await navigator.share({
-                                        title: `${profileUser.fullName || profileUser.username}'s Profile`,
-                                        text: `Check out ${profileUser.fullName || profileUser.username} on our platform!`,
-                                        url: profileUrl,
-                                      });
-                                    } catch (err) {
-                                    }
-                                  } else {
-                                    await navigator.clipboard.writeText(profileUrl);
-                                    showToast.success('Link copied', 'Profile link copied to clipboard!');
-                                  }
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
-                              >
-                                <Share2 size={16} />
-                                <span>Share Profile</span>
-                              </button>
-
-                              <button
-                                onClick={async () => {
-                                  setShowOptionsMenu(false);
-                                  const profileUrl = `${window.location.origin}/profile/${userId}`;
-                                  await navigator.clipboard.writeText(profileUrl);
-                                  showToast.success('Link copied', 'Profile link copied to clipboard!');
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
-                              >
-                                <LinkIcon size={16} />
-                                <span>Copy Link</span>
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                  {profileUser.isVerified && (
+                    <div className="absolute bottom-2 right-2 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center border-2 border-card">
+                      <span className="text-white text-sm">✓</span>
                     </div>
                   )}
                 </div>
 
-                {/* Stats */}
-                <div className="flex justify-center md:justify-start gap-8 mb-4">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-foreground">
-                      {profileUser.postsCount || 0}
-                    </p>
-                    <p className="text-sm text-muted-foreground">Posts</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-foreground">
-                      {profileUser.followersCount || 0}
-                    </p>
-                    <p className="text-sm text-muted-foreground">Followers</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-foreground">
-                      {profileUser.followingCount || 0}
-                    </p>
-                    <p className="text-sm text-muted-foreground">Following</p>
-                  </div>
-                </div>
+                <div className="flex-1 text-center md:text-left mt-4 md:mt-0 pt-4 md:pt-24 w-full">
+                  <div className="flex flex-col md:flex-row items-center md:items-start gap-4 mb-4">
+                    <div>
+                      <h1 className="text-3xl font-bold text-foreground flex items-center gap-2 justify-center md:justify-start">
+                        {profileUser.fullName ||
+                          `${profileUser.firstName} ${profileUser.lastName}`}
+                        {profileUser.isPrivate && (
+                          <span className="text-muted-foreground text-lg">
+                            🔒
+                          </span>
+                        )}
+                      </h1>
+                      <p className="text-muted-foreground">
+                        @{profileUser.username}
+                      </p>
+                    </div>
 
-                {/* Bio */}
-                {profileUser.bio ? (
-                  <p className="text-foreground text-lg">{profileUser.bio}</p>
-                ) : (
-                  <p className="text-muted-foreground italic">No bio yet</p>
-                )}
+                    {/* Action Buttons */}
+                    {!isOwnProfile && (
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handleFollowAction}
+                          disabled={isProcessing}
+                          variant={
+                            followStatus === "none" ? "default" : "outline"
+                          }
+                          className="gap-2"
+                        >
+                          {followStatus === "following" && (
+                            <UserCheck size={16} />
+                          )}
+                          {followStatus === "pending" && <Clock size={16} />}
+                          {followStatus === "none" && <UserPlus size={16} />}
+                          {followStatus === "following"
+                            ? "Unfollow"
+                            : followStatus === "pending"
+                              ? "Requested"
+                              : profileUser.isPrivate
+                                ? "Request"
+                                : "Follow"}
+                        </Button>
+                        <Button
+                          onClick={handleMessage}
+                          variant="outline"
+                          className="gap-2 hover:bg-primary/10 hover:text-primary dark:hover:text-primary transition-colors"
+                        >
+                          <MessageCircle size={16} />
+                          Message
+                        </Button>
+
+                        {/* 3-Dot Options Menu */}
+                        <div className="relative">
+                          <Button
+                            onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                            variant="outline"
+                            size="icon"
+                            className="relative"
+                          >
+                            <MoreHorizontal size={20} />
+                          </Button>
+
+                          {/* Dropdown Menu */}
+                          {showOptionsMenu && (
+                            <>
+                              {/* Backdrop to close menu */}
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setShowOptionsMenu(false)}
+                              />
+
+                              <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-50 overflow-hidden">
+                                {/* Share Profile */}
+                                <button
+                                  onClick={async () => {
+                                    setShowOptionsMenu(false);
+                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    if (navigator.share) {
+                                      try {
+                                        await navigator.share({
+                                          title: `${profileUser.fullName || profileUser.username}'s Profile`,
+                                          text: `Check out ${profileUser.fullName || profileUser.username} on our platform!`,
+                                          url: profileUrl,
+                                        });
+                                      } catch (err) {
+                                      }
+                                    } else {
+                                      await navigator.clipboard.writeText(profileUrl);
+                                      showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                    }
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
+                                >
+                                  <Share2 size={16} />
+                                  <span>Share Profile</span>
+                                </button>
+
+                                {/* Copy Profile Link */}
+                                <button
+                                  onClick={async () => {
+                                    setShowOptionsMenu(false);
+                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    await navigator.clipboard.writeText(profileUrl);
+                                    showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
+                                >
+                                  <LinkIcon size={16} />
+                                  <span>Copy Link</span>
+                                </button>
+
+                                {/* Report User */}
+                                <button
+                                  onClick={() => {
+                                    setShowOptionsMenu(false);
+                                    const reason = prompt('Please specify the reason for reporting this user:');
+                                    if (reason && reason.trim()) {
+                                      // TODO: Implement report user API call
+                                      confirm({
+                                        title: "User Reported",
+                                        message: `User reported for: ${reason}\n\nThank you for helping keep our community safe.`,
+                                        variant: "success",
+                                        confirmText: "OK",
+                                        cancelText: null
+                                      });
+                                    }
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-orange-500 cursor-pointer"
+                                >
+                                  <Flag size={16} />
+                                  <span>Report User</span>
+                                </button>
+
+                                {/* Block/Unblock User */}
+                                {isBlocked ? (
+                                  <button
+                                    onClick={() => {
+                                      setShowOptionsMenu(false);
+                                      handleUnblockUser();
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition flex items-center gap-2 text-foreground cursor-pointer"
+                                  >
+                                    <Unlock size={16} />
+                                    <span>Unblock User</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setShowOptionsMenu(false);
+                                      handleBlockUser();
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition flex items-center gap-2 text-destructive cursor-pointer"
+                                  >
+                                    <Ban size={16} />
+                                    <span>Block User</span>
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {isOwnProfile && (
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => router.push("/account-settings")}
+                          variant="outline"
+                          className="gap-2 cursor-pointer"
+                        >
+                          <Edit2 size={16} />
+                          Edit Profile
+                        </Button>
+
+                        <div className="relative">
+                          <Button
+                            onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                            variant="outline"
+                            size="icon"
+                            className="relative cursor-pointer"
+                          >
+                            <MoreHorizontal size={20} />
+                          </Button>
+
+                          {showOptionsMenu && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setShowOptionsMenu(false)}
+                              />
+
+                              <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-50 overflow-hidden">
+                                <button
+                                  onClick={async () => {
+                                    setShowOptionsMenu(false);
+                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    if (navigator.share) {
+                                      try {
+                                        await navigator.share({
+                                          title: `${profileUser.fullName || profileUser.username}'s Profile`,
+                                          text: `Check out ${profileUser.fullName || profileUser.username} on our platform!`,
+                                          url: profileUrl,
+                                        });
+                                      } catch (err) {
+                                      }
+                                    } else {
+                                      await navigator.clipboard.writeText(profileUrl);
+                                      showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                    }
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
+                                >
+                                  <Share2 size={16} />
+                                  <span>Share Profile</span>
+                                </button>
+
+                                <button
+                                  onClick={async () => {
+                                    setShowOptionsMenu(false);
+                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    await navigator.clipboard.writeText(profileUrl);
+                                    showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
+                                >
+                                  <LinkIcon size={16} />
+                                  <span>Copy Link</span>
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stats */}
+                  <div className="flex justify-center md:justify-start gap-8 mb-4">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-foreground">
+                        {profileUser.postsCount || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Posts</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-foreground">
+                        {profileUser.followersCount || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Followers</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-foreground">
+                        {profileUser.followingCount || 0}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Following</p>
+                    </div>
+                  </div>
+
+                  {/* Bio */}
+                  {profileUser.bio ? (
+                    <p className="text-foreground text-lg">{profileUser.bio}</p>
+                  ) : (
+                    <p className="text-muted-foreground italic">No bio yet</p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -772,105 +856,109 @@ export default function UserProfilePage() {
           </div>
 
           {/* Posts Section */}
-          {activeTab === "posts" && (
-            <div className="mb-6">
-              {!posts || posts.length === 0 ? (
-                <div className="bg-card rounded-2xl border border-border p-12 text-center">
-                  <p className="text-muted-foreground">
-                    {profileUser.isPrivate && followStatus !== "following"
-                      ? "This account is private. Follow to see their posts."
-                      : "No posts yet"}
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {Array.isArray(posts) &&
-                    posts.map((post) => {
-                      const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url;
-                      const mediaType = post.media?.[0]?.type;
+          {
+            activeTab === "posts" && (
+              <div className="mb-6">
+                {!posts || posts.length === 0 ? (
+                  <div className="bg-card rounded-2xl border border-border p-12 text-center">
+                    <p className="text-muted-foreground">
+                      {profileUser.isPrivate && followStatus !== "following"
+                        ? "This account is private. Follow to see their posts."
+                        : "No posts yet"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Array.isArray(posts) &&
+                      posts.map((post) => {
+                        const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url;
+                        const mediaType = post.media?.[0]?.type;
 
-                      return (
-                        <div
-                          key={post._id || post.id}
-                          className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group"
-                          onClick={() => {
-                            setSelectedPost(post);
-                            setShowPostDetails(true);
-                          }}
-                        >
-                          {mediaUrl ? (
-                            mediaType === 'video' ? (
-                              <video
-                                src={mediaUrl}
-                                className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                muted
-                              />
+                        return (
+                          <div
+                            key={post._id || post.id}
+                            className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group"
+                            onClick={() => {
+                              setSelectedPost(post);
+                              setShowPostDetails(true);
+                            }}
+                          >
+                            {mediaUrl ? (
+                              mediaType === 'video' ? (
+                                <video
+                                  src={mediaUrl}
+                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
+                                  muted
+                                />
+                              ) : (
+                                <img
+                                  src={mediaUrl}
+                                  alt={post.caption || "Post"}
+                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
+                                />
+                              )
                             ) : (
-                              <img
-                                src={mediaUrl}
-                                alt={post.caption || "Post"}
-                                className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                              />
-                            )
-                          ) : (
-                            <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                              <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
-                                <Camera size={48} className="text-white" />
+                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
+                                <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
+                                  <Camera size={48} className="text-white" />
+                                </div>
+                              </div>
+                            )}
+                            <div className="p-4">
+                              <p className="font-semibold text-foreground line-clamp-2">
+                                {post.caption || post.content || "No caption"}
+                              </p>
+                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1"><Heart size={14} className="text-red-500" /> {post.likes_count || 0}</span>
+                                <span className="flex items-center gap-1"><MessageCircle size={14} /> {post.comments_count || 0}</span>
                               </div>
                             </div>
-                          )}
-                          <div className="p-4">
-                            <p className="font-semibold text-foreground line-clamp-2">
-                              {post.caption || post.content || "No caption"}
-                            </p>
-                            <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1"><Heart size={14} className="text-red-500" /> {post.likes_count || 0}</span>
-                              <span className="flex items-center gap-1"><MessageCircle size={14} /> {post.comments_count || 0}</span>
-                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-          )}
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            )
+          }
 
           {/* Reels Section */}
-          {activeTab === "reels" && (
-            <div className="mb-6">
-              {reelsLoading ? (
-                <div className="bg-card rounded-2xl border border-border p-12 text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                  <p className="text-muted-foreground">Loading reels...</p>
-                </div>
-              ) : !reels || reels.length === 0 ? (
-                <div className="bg-card rounded-2xl border border-border p-12 text-center">
-                  <p className="text-muted-foreground">
-                    {profileUser.isPrivate && followStatus !== "following"
-                      ? "This account is private. Follow to see their reels."
-                      : "No reels yet"}
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {Array.isArray(reels) &&
-                    reels.map((reel) => (
-                      <ReelCard
-                        key={reel.id || reel._id}
-                        reel={reel}
-                        currentUserId={currentUser?._id}
-                      />
-                    ))}
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      </div>
+          {
+            activeTab === "reels" && (
+              <div className="mb-6">
+                {reelsLoading ? (
+                  <div className="bg-card rounded-2xl border border-border p-12 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-muted-foreground">Loading reels...</p>
+                  </div>
+                ) : !reels || reels.length === 0 ? (
+                  <div className="bg-card rounded-2xl border border-border p-12 text-center">
+                    <p className="text-muted-foreground">
+                      {profileUser.isPrivate && followStatus !== "following"
+                        ? "This account is private. Follow to see their reels."
+                        : "No reels yet"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Array.isArray(reels) &&
+                      reels.map((reel) => (
+                        <ReelCard
+                          key={reel.id || reel._id}
+                          reel={reel}
+                          currentUserId={currentUser?._id}
+                        />
+                      ))}
+                  </div>
+                )}
+              </div>
+            )
+          }
+        </section >
+      </div >
 
       {/* Mobile Navigation */}
-      <Navigation user={currentUser} onLogout={handleLogout} isMobile={true} />
+      < Navigation user={currentUser} onLogout={handleLogout} isMobile={true} />
 
       {selectedPost && (
         <PostDetailsModal
@@ -878,7 +966,26 @@ export default function UserProfilePage() {
           onClose={() => setShowPostDetails(false)}
           post={selectedPost}
         />
-      )}
-    </main>
+      )
+      }
+
+      {/* Profile Picture Modal */}
+      <Dialog open={showProfileImageModal} onOpenChange={setShowProfileImageModal}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black/95 border-none sm:max-w-3xl md:max-w-4xl [&>button]:text-white [&>button]:bg-white/10 [&>button]:hover:bg-white/20">
+          <DialogTitle className="sr-only">Profile Picture</DialogTitle>
+          <div className="relative w-full h-[80vh] flex items-center justify-center group">
+            <Image
+              src={profileUser?.profilePicture}
+              alt={profileUser?.username || "Profile"}
+              fill
+              className="object-contain"
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
+              quality={100}
+              priority
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </main >
   );
 }
