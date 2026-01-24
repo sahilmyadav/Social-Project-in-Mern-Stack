@@ -22,11 +22,17 @@ WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nodeuser
 
+# Create uploads directory with proper permissions
+RUN mkdir -p /app/uploads && chown -R nodeuser:nodejs /app/uploads
+
 # Copy node_modules from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
 # Copy source code
 COPY --chown=nodeuser:nodejs . .
+
+# Ensure uploads directory exists and is writable
+RUN mkdir -p /app/uploads && chown -R nodeuser:nodejs /app/uploads
 
 # Set environment variables
 ENV NODE_ENV=production
