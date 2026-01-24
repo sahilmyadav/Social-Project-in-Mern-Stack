@@ -53,8 +53,8 @@ export default function LoginPage() {
         // Store user data in localStorage
         localStorage.setItem('user', JSON.stringify(response.data.user));
 
-        // Redirect to home page
-        router.push('/home');
+        // Force full page reload to ensure tokens are picked up
+        window.location.href = '/home';
       } else {
         setError(response.message || 'Login failed. Please try again.');
       }
