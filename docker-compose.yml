@@ -1,6 +1,6 @@
 # Social App - Docker Compose
 # Domain: clikkme.in
-# Usage: sudo docker-compose down && sudo docker-compose up -d --build
+# Usage: sudo docker compose down && sudo docker compose up -d --build
 
 services:
   # Backend API
@@ -14,10 +14,12 @@ services:
       - NODE_ENV=production
       - PORT=5000
       - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongo:27017/social_media_app
     ports:
       - '5000:5000'
     depends_on:
       - redis
+      - mongo
     networks:
       - social-network
 
@@ -40,6 +42,16 @@ services:
     networks:
       - social-network
 
+  # MongoDB
+  mongo:
+    image: mongo:7
+    container_name: social-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - social-network
+
   # Redis
   redis:
     image: redis:7-alpine
@@ -57,3 +69,4 @@ networks:
 
 volumes:
   redis-data:
+  mongo-data:
