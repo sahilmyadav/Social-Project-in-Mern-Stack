@@ -1,5 +1,5 @@
 # Docker Compose for Local Development
-# Use this for local testing before deploying to VPS
+# Usage: cp .env.development.example .env.development && docker compose -f docker-compose.dev.yml up --build
 
 services:
   # ===========
@@ -14,7 +14,7 @@ services:
     ports:
       - '5000:5000'
     env_file:
-      - ./backend/.env
+      - .env.development
     environment:
       - NODE_ENV=development
       - PORT=5000
@@ -35,12 +35,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://localhost:5000/api/v1
-        - NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        - NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
     container_name: social-frontend-dev
     restart: unless-stopped
     ports:
       - '3000:3000'
+    env_file:
+      - .env.development
     environment:
       - NODE_ENV=development
     depends_on:
