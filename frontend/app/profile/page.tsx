@@ -1,42 +1,38 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
-import dynamic from "next/dynamic"
-import { Button } from "@/components/ui/button"
-import {
-  Settings,
-  Edit2,
-  MessageCircle,
-  Share,
-  Image as ImageIcon,
-  Camera,
-  Lock,
-  LogOut,
-  Grid,
-  Clapperboard,
-  Bookmark,
-  MoreVertical,
-  Eye,
-  Link as LinkIcon,
-  User,
-  Film,
-  Trash2,
-  Heart,
-} from "lucide-react"
 import Navigation from "@/components/navigation"
+import ReelCard from "@/components/reel-card"
+import { Button } from "@/components/ui/button"
+import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ApiError } from "@/lib/api-client"
+import { authService, feedService, followService, postService, reelService } from "@/lib/api-services"
+import { showToast, toasts } from "@/lib/toast"
+import {
+    Bookmark,
+    Camera,
+    Clapperboard,
+    Edit2,
+    Eye,
+    Film,
+    Grid,
+    Heart,
+    ImageIcon,
+    Link as LinkIcon,
+    MessageCircle,
+    MoreVertical,
+    Settings,
+    Trash2
+} from "lucide-react"
+import dynamic from "next/dynamic"
 
 // Dynamic imports to reduce initial bundle size
 const FollowersModal = dynamic(() => import("@/components/followers-modal"), { ssr: false })
 const PostDetailsModal = dynamic(() => import("@/components/post-details-modal"), { ssr: false })
-import ReelCard from "@/components/reel-card"
-import { useConfirmDialog, ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { authService, feedService, followService, postService, reelService } from "@/lib/api-services"
-import { ApiError } from "@/lib/api-client"
-import { toasts, showToast } from "@/lib/toast"
 
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null)
@@ -77,6 +73,7 @@ export default function ProfilePage() {
   const [savedPostsLoading, setSavedPostsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<"posts" | "reels" | "saved">("posts")
   const [openMenuPostId, setOpenMenuPostId] = useState<string | null>(null)
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
 
   const router = useRouter()
 
@@ -90,11 +87,14 @@ export default function ProfilePage() {
       if (openMenuPostId) {
         setOpenMenuPostId(null);
       }
+      if (showSettingsMenu) {
+        setShowSettingsMenu(false);
+      }
     };
 
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
-  }, [openMenuPostId])
+  }, [openMenuPostId, showSettingsMenu])
 
   const loadUserProfile = async () => {
     try {
@@ -517,17 +517,69 @@ export default function ProfilePage() {
               <div className="w-full h-full gradient-purple-peach" />
             )}
 
-            {/* Camera Icon Overlay for Quick Upload */}
+            {/* Camera Icon Overlay for Quick Cover Photo Upload */}
+            <button
+              onClick={() => document.getElementById("coverPhotoInput")?.click()}
+              className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all duration-300 cursor-pointer"
+              aria-label="Change cover photo"
+            >
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center gap-2 text-white">
+                <Camera size={32} />
+                <span className="text-sm font-medium">Change Cover Photo</span>
+              </div>
+            </button>
 
-
-            <div className="absolute top-4 right-4 z-20">
+            {/* Settings Button */}
+            <div className="absolute top-2 right-2 md:top-4 md:right-4 z-20">
               <button
-                onClick={() => router.push("/account-settings")}
-                className="p-2 rounded-full bg-white/20 backdrop-blur hover:bg-white/30 transition cursor-pointer"
-                aria-label="Settings"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowSettingsMenu(!showSettingsMenu);
+                }}
+                className="p-2 md:p-3 rounded-full bg-black/40 backdrop-blur-sm hover:bg-black/60 transition cursor-pointer shadow-lg"
+                aria-label="Profile Settings"
               >
-                <Settings size={20} className="text-white" />
+                <Settings size={20} className="text-white md:w-[22px] md:h-[22px]" />
               </button>
+
+              {/* Settings Dropdown Menu */}
+              {showSettingsMenu && (
+                <div className="absolute top-10 md:top-12 right-0 bg-card rounded-xl shadow-lg border border-border py-2 min-w-[160px] md:min-w-[180px] z-50">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      document.getElementById("profilePictureInput")?.click();
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base"
+                  >
+                    <Camera size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                    <span>Change Profile</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      document.getElementById("coverPhotoInput")?.click();
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base"
+                  >
+                    <ImageIcon size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                    <span>Change Cover</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      router.push("/account-settings");
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base"
+                  >
+                    <Settings size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                    <span>Settings</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Hidden file inputs */}
@@ -548,63 +600,74 @@ export default function ProfilePage() {
           </div>
 
           {/* Profile Info */}
-          <div className="px-4 pb-8">
-            <div className="flex flex-col md:flex-row items-center md:items-end -mt-16 md:-mt-20 gap-6 mb-8 relative z-10">
+          <div className="px-3 md:px-4 pb-6 md:pb-8">
+            <div className="flex flex-col items-center -mt-12 md:-mt-20 gap-4 md:gap-6 mb-6 md:mb-8 relative z-10">
               <div
-                className="relative w-32 h-32 cursor-pointer hover:opacity-90 transition shrink-0"
-                onClick={() => {
-                  const pp = user.profileImage || user.avatar || user.profilePicture;
-                  if (pp && pp !== "👤" && (pp.startsWith("http") || pp.startsWith("/"))) setShowProfileImageModal(true);
-                }}
+                className="relative w-24 h-24 md:w-32 md:h-32 shrink-0 group/avatar"
               >
-                {(() => {
-                  const pp = user.profileImage || user.avatar || user.profilePicture;
-                  if (pp && pp !== "👤" && (pp.startsWith("http") || pp.startsWith("/"))) {
+                <div
+                  className="w-full h-full cursor-pointer"
+                  onClick={() => {
+                    const pp = user.profileImage || user.avatar || user.profilePicture;
+                    if (pp && pp !== "👤" && (pp.startsWith("http") || pp.startsWith("/"))) setShowProfileImageModal(true);
+                  }}
+                >
+                  {(() => {
+                    const pp = user.profileImage || user.avatar || user.profilePicture;
+                    if (pp && pp !== "👤" && (pp.startsWith("http") || pp.startsWith("/"))) {
+                      return (
+                        <img
+                          src={pp}
+                          alt="Profile"
+                          className="w-full h-full rounded-full object-cover border-3 md:border-4 border-card shadow-lg"
+                        />
+                      );
+                    }
                     return (
-                      <img
-                        src={pp}
-                        alt="Profile"
-                        className="w-full h-full rounded-full object-cover border-4 border-card shadow-lg"
-                      />
+                      <div className="w-full h-full rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center border-3 md:border-4 border-card shadow-lg text-white">
+                        <span className="text-4xl md:text-5xl font-bold">
+                          {(user.firstName?.[0] || user.name?.[0] || "U").toUpperCase()}
+                        </span>
+                      </div>
                     );
-                  }
-                  return (
-                    <div className="w-full h-full rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center border-4 border-card shadow-lg text-white">
-                      <span className="text-5xl font-bold">
-                        {(user.firstName?.[0] || user.name?.[0] || "U").toUpperCase()}
-                      </span>
-                    </div>
-                  );
-                })()}
+                  })()}
+                </div>
+
+                {/* Camera button to change profile picture */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    document.getElementById("profilePictureInput")?.click();
+                  }}
+                  className="absolute bottom-0 left-0 md:bottom-1 md:left-1 w-7 h-7 md:w-9 md:h-9 bg-primary hover:bg-primary/90 rounded-full flex items-center justify-center border-2 border-card shadow-lg cursor-pointer transition-transform hover:scale-110"
+                  title="Change profile picture"
+                >
+                  <Camera size={14} className="text-white md:w-[16px] md:h-[16px]" />
+                </button>
 
                 {user.isVerified && (
-                  <div className="absolute bottom-1 right-1 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center border-2 border-card z-10" title="Verified">
-                    <span className="text-white text-sm font-bold">✓</span>
+                  <div className="absolute bottom-0 right-0 md:bottom-1 md:right-1 w-6 h-6 md:w-8 md:h-8 bg-blue-500 rounded-full flex items-center justify-center border-2 border-card z-10" title="Verified">
+                    <span className="text-white text-xs md:text-sm font-bold">✓</span>
                   </div>
                 )}
               </div>
 
-              <div className="flex-1 text-center md:text-left mt-4 md:mt-0 pt-4 md:pt-24 w-full">
-                <div className="flex flex-col md:flex-row items-center md:items-center justify-between gap-4">
-                  <div>
-                    <h1 className="text-3xl font-bold text-foreground">
-                      {user.firstName || user.name || "User"} {user.lastName || ""}
-                    </h1>
-                    <p className="text-lg text-muted-foreground">
-                      @{user.username || ((user.firstName || user.name || user.email || "user") + "").toLowerCase().replace(/\s+/g, "")}
-                    </p>
-                  </div>
+              <div className="text-center w-full">
+                <h1 className="text-2xl md:text-3xl font-bold text-foreground">
+                  {user.firstName || user.name || "User"} {user.lastName || ""}
+                </h1>
+                <p className="text-base md:text-lg text-muted-foreground">
+                  @{user.username || ((user.firstName || user.name || user.email || "user") + "").toLowerCase().replace(/\s+/g, "")}
+                </p>
 
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => setShowEditModal(true)}
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 cursor-pointer"
-                    >
-                      <Edit2 size={18} />
-                      Edit Bio
-                    </Button>
-
-                  </div>
+                <div className="flex justify-center mt-4">
+                  <Button
+                    onClick={() => setShowEditModal(true)}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 cursor-pointer text-sm md:text-base"
+                  >
+                    <Edit2 size={16} className="md:w-[18px] md:h-[18px]" />
+                    Edit Bio
+                  </Button>
                 </div>
               </div>
             </div>
