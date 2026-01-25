@@ -1,10 +1,10 @@
-import { Post } from "../models/post.model.js";
 import mongoose from "mongoose";
-import { Reel } from "../models/reel.model.js";
-import { Story } from "../models/story.model.js";
+import { Comment } from "../models/comment.model.js";
 import { Followers } from "../models/followers.model.js";
 import { Like } from "../models/like.model.js";
-import { Comment } from "../models/comment.model.js";
+import { Post } from "../models/post.model.js";
+import { Reel } from "../models/reel.model.js";
+import { Story } from "../models/story.model.js";
 import { User } from "../models/user.model.js";
 import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
@@ -26,7 +26,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
   let posts = [];
   const limitNum = parseInt(limit);
 
-  // STRATEGY: 
+  // STRATEGY:
   // 1. If user follows people: Show standard feed (Own posts + Following)
   // 2. If user follows NO ONE: Show "Discovery Feed" (All public posts, sorted by new)
 
@@ -142,7 +142,7 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
   const limitNum = parseInt(limit);
   const skip = (parseInt(page) - 1) * limitNum;
 
-  // STEP 1: Get following list
+  // Get following list for tracking purposes
   const following = await Followers.find({
     follower_id: userId,
     status: 'accepted'
@@ -150,77 +150,58 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
 
   const followingIds = following.map(f => f.following_id);
 
-  let reels = [];
-
-  if (followingIds.length > 0) {
-    // --- STANDARD FEED ---
-    const userIdsToShow = [...followingIds, userId];
-
-    reels = await Reel.find({
-      user_id: { $in: userIdsToShow },
-      is_deleted: false
-    })
-      .populate('user_id', 'firstName lastName username profileImage profilePicture avatar')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
-  } else {
-    // --- DISCOVERY REELS FEED ---
-    // User follows no one -> Show latest/popular public reels
-
-    // Using aggregation for privacy filter
-    const pipeline = [
-      { $match: { is_deleted: false } },
-      { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limitNum * 3 }, // Fetch extra for privacy filtering
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'user_id',
-          foreignField: '_id',
-          as: 'userInfo'
-        }
-      },
-      { $unwind: '$userInfo' },
-      {
-        $match: {
-          'userInfo.isPrivate': false,
-          'userInfo.status': 'active',
-          'userInfo._id': { $ne: req.user._id }
-        }
-      },
-      { $limit: limitNum },
-      {
-        $project: {
-          caption: 1,
-          media: 1, // Preserve original media object structure
-          music: 1,
-          likes_count: 1,
-          comments_count: 1,
-          shares_count: 1,
-          views_count: 1,
-          is_deleted: 1,
-          createdAt: 1,
-          updatedAt: 1,
-          user_id: {
-            _id: '$userInfo._id',
-            firstName: '$userInfo.firstName',
-            lastName: '$userInfo.lastName',
-            username: '$userInfo.username',
-            profileImage: '$userInfo.profileImage',
-            profilePicture: '$userInfo.profilePicture',
-            avatar: '$userInfo.avatar'
-          }
+  // --- PUBLIC REELS FEED ---
+  // Show all reels from all users (public discovery for everyone)
+  // Using aggregation to get user info and filter active users
+  const pipeline = [
+    { $match: { is_deleted: false } },
+    { $sort: { createdAt: -1 } },
+    { $skip: skip },
+    { $limit: limitNum * 3 }, // Fetch extra for filtering
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'user_id',
+        foreignField: '_id',
+        as: 'userInfo'
+      }
+    },
+    { $unwind: '$userInfo' },
+    {
+      $match: {
+        'userInfo.status': 'active'
+      }
+    },
+    { $limit: limitNum },
+    {
+      $project: {
+        caption: 1,
+        media: 1,
+        music: 1,
+        tags: 1,
+        likes_count: 1,
+        comments_count: 1,
+        shares_count: 1,
+        views_count: 1,
+        is_deleted: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        user_id: {
+          _id: '$userInfo._id',
+          firstName: '$userInfo.firstName',
+          lastName: '$userInfo.lastName',
+          username: '$userInfo.username',
+          profileImage: '$userInfo.profileImage',
+          profilePicture: '$userInfo.profilePicture',
+          avatar: '$userInfo.avatar'
         }
       }
-    ];
+    }
+  ];
 
-    reels = await Reel.aggregate(pipeline);
-  }
+  const reels = await Reel.aggregate(pipeline);
 
-  // STEP 3: Add like/comment counts
+  // Add like/comment counts and following status
   const reelsWithData = await Promise.all(
     reels.map(async (reel) => {
       const [isLiked, likesCount, commentsCount] = await Promise.all([
@@ -229,12 +210,16 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
         Comment.countDocuments({ target_type: 'reel', target_id: reel._id })
       ]);
 
+      // Check if user is following the reel creator
+      const isFollowing = followingIds.some(id => id.toString() === reel.user_id._id.toString());
+
       return {
         ...reel,
         isLiked: !!isLiked,
         likes_count: likesCount,
         comments_count: commentsCount,
-        isSuggested: followingIds.length === 0
+        isFollowing: isFollowing,
+        isSuggested: !isFollowing && reel.user_id._id.toString() !== userId.toString()
       };
     })
   );
