@@ -1,7 +1,8 @@
-import { LiveStream } from '../models/liveStream.model.js';
-import { LiveStreamViewer } from '../models/liveStreamViewer.model.js';
-import { LiveStreamComment } from '../models/liveStreamComment.model.js';
 import { Followers } from '../models/followers.model.js';
+import { LiveStream } from '../models/liveStream.model.js';
+import { LiveStreamComment } from '../models/liveStreamComment.model.js';
+import { LiveStreamViewer } from '../models/liveStreamViewer.model.js';
+import { Notification } from '../models/notification.model.js';
 import { User } from '../models/user.model.js';
 
 export const liveStreamSocket = (io, socket, userId) => {
@@ -30,6 +31,9 @@ export const liveStreamSocket = (io, socket, userId) => {
             liveStream.startedAt = new Date();
             await liveStream.save();
 
+            // Get streamer info for notifications
+            const streamer = await User.findById(userId).select('firstName lastName username profilePicture avatar');
+
             // Join broadcaster to their own stream room
             socket.join(`stream:${streamId}`);
 
@@ -41,14 +45,46 @@ export const liveStreamSocket = (io, socket, userId) => {
 
             const followerIds = followers.map(f => f.follower_id.toString());
 
-            followerIds.forEach(followerId => {
-                io.to(followerId).emit('liveStreamStarted', {
-                    streamId,
-                    streamerId: userId,
-                    title: liveStream.title,
-                    thumbnail: liveStream.thumbnail
-                });
+            // Create notifications for all followers (like Instagram)
+            const notificationPromises = followerIds.map(async (followerId) => {
+                try {
+                    // Create database notification
+                    const notification = await Notification.create({
+                        recipient_id: followerId,
+                        sender_id: userId,
+                        type: 'live_started',
+                        reference_id: streamId,
+                        reference_type: 'User',
+                        title: 'Live Video',
+                        message: `${streamer?.firstName || 'Someone'} ${streamer?.lastName || ''} started a live video`,
+                        thumbnail: liveStream.thumbnail || streamer?.profilePicture,
+                        action_url: `/live/watch/${streamId}`,
+                    });
+
+                    // Populate sender details
+                    await notification.populate('sender_id', 'firstName lastName username profilePicture avatar');
+
+                    // Emit real-time notification to each follower
+                    io.to(followerId).emit('liveStreamStarted', {
+                        streamId,
+                        streamerId: userId,
+                        streamerName: `${streamer?.firstName || ''} ${streamer?.lastName || ''}`.trim(),
+                        streamerUsername: streamer?.username,
+                        streamerAvatar: streamer?.profilePicture || streamer?.avatar,
+                        title: liveStream.title,
+                        thumbnail: liveStream.thumbnail
+                    });
+
+                    // Also emit as regular notification
+                    io.to(followerId).emit('newNotification', {
+                        notification: notification.toObject(),
+                    });
+                } catch (err) {
+                    console.error(`Failed to create notification for follower ${followerId}:`, err);
+                }
             });
+
+            await Promise.all(notificationPromises);
 
             socket.emit('liveStreamStartSuccess', { streamId, status: 'live' });
 
@@ -149,8 +185,27 @@ export const liveStreamSocket = (io, socket, userId) => {
             const viewerInfo = await User.findById(userId).select('firstName lastName username profilePicture avatar');
 
             // Notify broadcaster and all viewers about new viewer
+            // Include viewerId (the userId) for WebRTC signaling
             io.to(`stream:${streamId}`).emit('viewerJoined', {
                 streamId,
+                viewerId: userId.toString(), // Used for WebRTC peer connection
+                viewerSocketId: socket.id, // Socket ID for direct communication
+                viewerCount: liveStream.viewerCount,
+                viewer: {
+                    _id: userId,
+                    firstName: viewerInfo?.firstName,
+                    lastName: viewerInfo?.lastName,
+                    username: viewerInfo?.username,
+                    profilePicture: viewerInfo?.profilePicture,
+                    avatar: viewerInfo?.avatar
+                }
+            });
+
+            // Also notify the broadcaster specifically so they can initiate WebRTC
+            io.to(liveStream.streamerId.toString()).emit('viewerJoined', {
+                streamId,
+                viewerId: userId.toString(),
+                viewerSocketId: socket.id,
                 viewerCount: liveStream.viewerCount,
                 viewer: {
                     _id: userId,
@@ -164,7 +219,8 @@ export const liveStreamSocket = (io, socket, userId) => {
 
             socket.emit('liveStreamJoinSuccess', {
                 streamId,
-                viewerCount: liveStream.viewerCount
+                viewerCount: liveStream.viewerCount,
+                broadcasterId: liveStream.streamerId.toString()
             });
 
         } catch (error) {

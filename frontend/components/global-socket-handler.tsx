@@ -73,14 +73,15 @@ export default function GlobalSocketHandler() {
 
         // Listen for Live Stream Start
         socket?.on("liveStreamStarted", (data) => {
-            const { streamId, title, streamerId } = data
-            toast.message("Live Stream Started", {
-                description: `${title || "A user"} is live now!`,
+            const { streamId, title, streamerName, streamerUsername } = data
+            const displayName = streamerName || streamerUsername || "Someone you follow"
+            toast.message(`${displayName} is now Live! 🔴`, {
+                description: title || "Tap to watch the live video",
                 action: {
-                    label: "Watch",
+                    label: "Watch Now",
                     onClick: () => router.push(`/live/watch/${streamId}`)
                 },
-                duration: 10000, // Show for 10 seconds
+                duration: 15000, // Show for 15 seconds like Instagram
             })
         })
 

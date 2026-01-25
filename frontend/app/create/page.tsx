@@ -1,13 +1,21 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Upload } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import Navigation from "@/components/navigation"
-import { postService, reelService } from "@/lib/api-services"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { ApiError } from "@/lib/api-client"
+import { postService, reelService } from "@/lib/api-services"
+import { CheckCircle2, Upload } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 export default function CreatePage() {
   const [user, setUser] = useState<any>(null)
@@ -16,6 +24,7 @@ export default function CreatePage() {
   const [contentType, setContentType] = useState<"post" | "reel">("post")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -44,7 +53,7 @@ export default function CreatePage() {
     try {
       // Create FormData
       const formData = new FormData()
-      formData.append("file", uploadedFile)
+      formData.append("files", uploadedFile)
       formData.append("caption", caption.trim())
 
       // Call appropriate API based on content type
@@ -56,11 +65,9 @@ export default function CreatePage() {
       }
 
       if (response.success) {
-        alert(`${contentType === "post" ? "Post" : "Reel"} published successfully!`)
         setCaption("")
         setUploadedFile(null)
-        // Redirect to home to see the new post/reel
-        router.push("/home")
+        setShowSuccessDialog(true)
       } else {
         setError(response.message || `Failed to publish ${contentType}`)
       }
@@ -230,6 +237,43 @@ export default function CreatePage() {
 
       {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+          <DialogHeader className="text-center sm:text-center">
+            <div className="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-4">
+              <CheckCircle2 className="w-10 h-10 text-green-600 dark:text-green-400" />
+            </div>
+            <DialogTitle className="text-xl">
+              {contentType === "post" ? "Post" : "Reel"} Published! 🎉
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              Your {contentType} has been successfully uploaded and is now visible to your followers.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center gap-2 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSuccessDialog(false)
+              }}
+              className="flex-1 sm:flex-none"
+            >
+              Create Another
+            </Button>
+            <Button
+              onClick={() => {
+                setShowSuccessDialog(false)
+                router.push("/home")
+              }}
+              className="flex-1 sm:flex-none bg-primary hover:bg-primary/90"
+            >
+              View Feed
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }

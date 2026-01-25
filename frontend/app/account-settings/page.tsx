@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { ArrowLeft, Eye, EyeOff, Bell, Lock, Shield, Trash2, Moon, Sun } from "lucide-react"
 import Navigation from "@/components/navigation"
+import { Button } from "@/components/ui/button"
+import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog"
+import { Input } from "@/components/ui/input"
 import { authService } from "@/lib/api-services"
-import { useConfirmDialog, ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { ArrowLeft, Bell, Eye, EyeOff, Lock, Moon, Shield, Sun, Trash2 } from "lucide-react"
 import { useTheme } from "next-themes"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 export default function AccountSettingsPage() {
   const [user, setUser] = useState<any>(null)
@@ -53,7 +53,7 @@ export default function AccountSettingsPage() {
         ...formData,
         email: parsedUser.email || "",
         username: parsedUser.name || "",
-        phone: "+91 9876543210",
+        phone: parsedUser.phone || "",
       })
       // Set private account status from user data
       setIsPrivateAccount(parsedUser.profile_type === 'private' || parsedUser.isPrivate || false)

@@ -1,50 +1,46 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import {
-    Video,
-    VideoOff,
-    Mic,
-    MicOff,
-    Users,
-    MessageCircle,
-    X,
-    Send,
-    Loader2,
-    Radio
-} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { liveStreamService } from '@/lib/api-services';
 import {
-    getSocket,
-    emitStartLiveStream,
     emitEndLiveStream,
     emitLiveComment,
-    onViewerJoined,
-    onViewerLeft,
-    onViewerCountUpdate,
-    onLiveComment,
-    offViewerJoined,
-    offViewerLeft,
-    offViewerCountUpdate,
-    offLiveComment,
-    onLiveStreamOffer,
-    onLiveStreamAnswer,
-    onLiveStreamIceCandidate,
-    emitLiveStreamOffer,
-    emitLiveStreamAnswer,
     emitLiveStreamIceCandidate,
-    offLiveStreamOffer,
+    emitLiveStreamOffer,
+    emitStartLiveStream,
+    offLiveComment,
     offLiveStreamAnswer,
     offLiveStreamIceCandidate,
+    offViewerCountUpdate,
+    offViewerJoined,
+    offViewerLeft,
+    onLiveComment,
+    onLiveStreamAnswer,
+    onLiveStreamIceCandidate,
+    onViewerCountUpdate,
+    onViewerJoined,
+    onViewerLeft
 } from '@/lib/socket';
 import { LiveComment, LiveViewer } from '@/types/live';
+import {
+    Loader2,
+    MessageCircle,
+    Mic,
+    MicOff,
+    Radio,
+    Send,
+    Users,
+    Video,
+    VideoOff,
+    X
+} from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 export default function BroadcastPage() {
     const params = useParams();
@@ -120,8 +116,15 @@ export default function BroadcastPage() {
             setLocalStream(stream);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
+                // Ensure video plays
+                try {
+                    await videoRef.current.play();
+                } catch (playError) {
+                    console.warn('Auto-play failed, user interaction may be needed:', playError);
+                }
             }
             setLoading(false);
+            toast.success('Camera ready! Click "Go Live" when ready to start.');
         } catch (error: any) {
             console.error('Error accessing media devices:', error);
             const errorMessage = error.name === 'NotAllowedError'
@@ -307,11 +310,26 @@ export default function BroadcastPage() {
         };
 
         const handleViewerCountUpdateEvent = (data: any) => {
-            setViewerCount(data.count);
+            setViewerCount(data.count || data.viewerCount || 0);
         };
 
-        const handleCommentEvent = (data: LiveComment) => {
-            setComments((prev) => [...prev, data]);
+        const handleCommentEvent = (data: any) => {
+            // Backend sends { streamId, comment: { _id, text, user: {...}, createdAt } }
+            const commentData = data.comment || data;
+            const formattedComment: LiveComment = {
+                _id: commentData._id,
+                liveStreamId: data.streamId || streamId,
+                userId: commentData.user?._id || commentData.userId,
+                user: {
+                    _id: commentData.user?._id || '',
+                    username: commentData.user?.username || '',
+                    fullName: `${commentData.user?.firstName || ''} ${commentData.user?.lastName || ''}`.trim(),
+                    profilePicture: commentData.user?.profilePicture || commentData.user?.avatar,
+                },
+                text: commentData.text,
+                createdAt: new Date(commentData.createdAt),
+            };
+            setComments((prev) => [...prev, formattedComment]);
             // Auto-scroll to latest comment
             setTimeout(() => {
                 commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -381,10 +399,11 @@ export default function BroadcastPage() {
                     {/* Video Section */}
                     <div className="lg:col-span-2 flex flex-col gap-4">
                         {/* Video */}
-                        <div className="relative flex-1 bg-gray-900 rounded-lg overflow-hidden">
+                        <div className="relative flex-1 bg-gray-900 rounded-lg overflow-hidden min-h-[300px] lg:min-h-[400px]">
                             {loading ? (
                                 <div className="absolute inset-0 flex items-center justify-center">
                                     <Loader2 className="h-12 w-12 animate-spin text-white" />
+                                    <p className="text-gray-400 ml-3">Initializing camera...</p>
                                 </div>
                             ) : (
                                 <>
@@ -393,17 +412,25 @@ export default function BroadcastPage() {
                                         autoPlay
                                         muted
                                         playsInline
-                                        className="w-full h-full object-cover"
+                                        className={`w-full h-full object-cover ${!isCameraOn ? 'hidden' : ''}`}
+                                        style={{ transform: 'scaleX(-1)' }}
                                     />
                                     {!isCameraOn && (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                                            <VideoOff className="h-16 w-16 text-gray-500" />
+                                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900">
+                                            <VideoOff className="h-16 w-16 text-gray-500 mb-2" />
+                                            <p className="text-gray-400">Camera is off</p>
                                         </div>
                                     )}
                                     {isLive && (
                                         <div className="absolute top-4 left-4 bg-red-500 px-4 py-2 rounded-full flex items-center gap-2 animate-pulse">
                                             <Radio className="h-4 w-4" />
                                             <span className="font-semibold">LIVE</span>
+                                        </div>
+                                    )}
+                                    {!isLive && localStream && (
+                                        <div className="absolute top-4 left-4 bg-yellow-500/80 px-4 py-2 rounded-full flex items-center gap-2">
+                                            <Radio className="h-4 w-4" />
+                                            <span className="font-semibold">Preview</span>
                                         </div>
                                     )}
                                     <div className="absolute top-4 right-4 bg-black/70 px-3 py-2 rounded-full flex items-center gap-2">

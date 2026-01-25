@@ -28,6 +28,7 @@ const notificationSchema = new mongoose.Schema(
         "mention",
         "tag",
         "live_invite",
+        "live_started",
       ],
       required: true,
       index: true,

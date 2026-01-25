@@ -398,11 +398,11 @@ export const offViewerCountUpdate = (callback: (data: any) => void) => {
 };
 
 export const onLiveComment = (callback: (data: any) => void) => {
-  socket?.on('liveComment', callback);
+  socket?.on('newLiveComment', callback);
 };
 
 export const offLiveComment = (callback: (data: any) => void) => {
-  socket?.off('liveComment', callback);
+  socket?.off('newLiveComment', callback);
 };
 
 // Live stream WebRTC signaling events
@@ -466,10 +466,10 @@ export const emitLiveStreamOffer = (streamId: string, viewerId: string, offer: a
   });
 };
 
-export const emitLiveStreamAnswer = (streamId: string, streamerId: string, answer: any) => {
+export const emitLiveStreamAnswer = (streamId: string, broadcasterId: string, answer: any) => {
   socket?.emit('liveStreamAnswer', {
     streamId,
-    streamerId,
+    broadcasterId,
     answer,
   });
 };

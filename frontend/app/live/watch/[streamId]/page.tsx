@@ -1,41 +1,41 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import {
-    Users,
-    MessageCircle,
-    Send,
-    Loader2,
-    Radio,
-    ArrowLeft,
-    Volume2,
-    VolumeX
-} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { liveStreamService } from '@/lib/api-services';
 import {
-    getSocket,
     emitJoinLiveStream,
     emitLeaveLiveStream,
     emitLiveComment,
-    onLiveStreamEnded,
-    onViewerCountUpdate,
-    onLiveComment,
-    offLiveStreamEnded,
-    offViewerCountUpdate,
-    offLiveComment,
-    onLiveStreamOffer,
     emitLiveStreamAnswer,
     emitLiveStreamIceCandidate,
-    offLiveStreamOffer,
-    onLiveStreamIceCandidate,
+    getSocket,
+    offLiveComment,
+    offLiveStreamEnded,
     offLiveStreamIceCandidate,
+    offLiveStreamOffer,
+    offViewerCountUpdate,
+    onLiveComment,
+    onLiveStreamEnded,
+    onLiveStreamIceCandidate,
+    onLiveStreamOffer,
+    onViewerCountUpdate,
 } from '@/lib/socket';
 import { LiveComment, LiveStream } from '@/types/live';
+import {
+    ArrowLeft,
+    Loader2,
+    MessageCircle,
+    Radio,
+    Send,
+    Users,
+    Volume2,
+    VolumeX
+} from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 export default function WatchLivePage() {
@@ -144,7 +144,7 @@ export default function WatchLivePage() {
 
     // Handle offer from broadcaster
     const handleOffer = useCallback(async (data: any) => {
-        const { offer, streamerId } = data;
+        const { offer, broadcasterId } = data;
         const pc = peerConnectionRef.current;
 
         if (pc) {
@@ -152,7 +152,7 @@ export default function WatchLivePage() {
                 await pc.setRemoteDescription(new RTCSessionDescription(offer));
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
-                emitLiveStreamAnswer(streamId, streamerId, answer);
+                emitLiveStreamAnswer(streamId, broadcasterId, answer);
             } catch (error) {
                 console.error('Error handling offer:', error);
                 toast.error('Failed to connect to stream');
@@ -207,11 +207,26 @@ export default function WatchLivePage() {
         };
 
         const handleViewerCountUpdateEvent = (data: any) => {
-            setViewerCount(data.count);
+            setViewerCount(data.count || data.viewerCount || 0);
         };
 
-        const handleCommentEvent = (data: LiveComment) => {
-            setComments((prev) => [...prev, data]);
+        const handleCommentEvent = (data: any) => {
+            // Backend sends { streamId, comment: { _id, text, user: {...}, createdAt } }
+            const commentData = data.comment || data;
+            const formattedComment: LiveComment = {
+                _id: commentData._id,
+                liveStreamId: data.streamId || streamId,
+                userId: commentData.user?._id || commentData.userId,
+                user: {
+                    _id: commentData.user?._id || '',
+                    username: commentData.user?.username || '',
+                    fullName: `${commentData.user?.firstName || ''} ${commentData.user?.lastName || ''}`.trim(),
+                    profilePicture: commentData.user?.profilePicture || commentData.user?.avatar,
+                },
+                text: commentData.text,
+                createdAt: new Date(commentData.createdAt),
+            };
+            setComments((prev) => [...prev, formattedComment]);
         };
 
         onLiveStreamEnded(handleStreamEndedEvent);
