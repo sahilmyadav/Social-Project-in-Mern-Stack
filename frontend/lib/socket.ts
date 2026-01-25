@@ -2,11 +2,26 @@ import { io, Socket } from 'socket.io-client';
 import { API_CONFIG } from './api-config';
 
 let socket: Socket | null = null;
+let isConnecting = false;
 
 export const initSocket = (token: string) => {
+  // If socket exists and is connected, return it
   if (socket?.connected) {
     return socket;
   }
+
+  // If socket exists and is still connecting, wait for it
+  if (socket && isConnecting) {
+    return socket;
+  }
+
+  // If socket exists but is truly disconnected (not connecting), create new one
+  if (socket && !socket.connected && !isConnecting) {
+    socket.disconnect();
+    socket = null;
+  }
+
+  isConnecting = true;
 
   socket = io(API_CONFIG.SOCKET_URL, {
     auth: {
@@ -16,19 +31,33 @@ export const initSocket = (token: string) => {
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: Infinity, // Keep trying to reconnect
+    timeout: 20000, // Connection timeout
   });
 
   socket.on('connect', () => {
-    // Socket connected
+    isConnecting = false;
   });
 
   socket.on('disconnect', (reason) => {
-    // Socket disconnected
+    isConnecting = false;
+    // If the server closed the connection, try to reconnect
+    if (reason === 'io server disconnect') {
+      isConnecting = true;
+      socket?.connect();
+    }
   });
 
-  socket.on('connect_error', (error) => {
-    // Connection error occurred
+  socket.on('connect_error', () => {
+    isConnecting = false;
+  });
+
+  socket.on('reconnect', () => {
+    isConnecting = false;
+  });
+
+  socket.on('reconnect_attempt', () => {
+    isConnecting = true;
   });
 
   return socket;
@@ -40,6 +69,7 @@ export const getSocket = () => {
 
 export const disconnectSocket = () => {
   if (socket) {
+    isConnecting = false;
     socket.disconnect();
     socket = null;
   }
@@ -455,4 +485,3 @@ export const emitLiveStreamIceCandidate = (streamId: string, recipientId: string
     },
   });
 };
-

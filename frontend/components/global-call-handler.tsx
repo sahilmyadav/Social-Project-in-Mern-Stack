@@ -1,11 +1,11 @@
 'use client'
 
+import { emitRejectCall, initSocket, offCallEnded, offCallRejected, offIncomingCall, onCallEnded, onCallRejected, onIncomingCall } from '@/lib/socket'
 import { useEffect, useState } from 'react'
-import { initSocket, onIncomingCall, offIncomingCall, emitRejectCall, onCallRejected, offCallRejected, onCallEnded, offCallEnded } from '@/lib/socket'
-import IncomingVideoCallNotification from './incoming-video-call-notification'
 import IncomingCallNotification from './incoming-call-notification'
-import VoiceCallModal from './voice-call-modal'
+import IncomingVideoCallNotification from './incoming-video-call-notification'
 import VideoCallModal from './video-call-modal'
+import VoiceCallModal from './voice-call-modal'
 
 interface IncomingCall {
   callerId: string
@@ -56,10 +56,15 @@ export default function GlobalCallHandler() {
   // Listen for incoming calls only after socket is ready
   useEffect(() => {
     if (!isSocketReady) {
+      console.log('⏳ Socket not ready, waiting...')
       return
     }
 
+    console.log('✅ Socket ready, setting up call listeners')
+
     const handleIncomingCall = (data: any) => {
+      console.log('📞 Global: Incoming call received:', data)
+
       const callType = data.callType || 'voice'
 
       const callData = {
@@ -70,11 +75,13 @@ export default function GlobalCallHandler() {
         callType: callType,
       }
 
+      console.log('📞 Global: Setting incoming call:', callData)
       setIncomingCall(callData)
     }
 
     // Handle when remote user rejects our call
     const handleCallRejected = (data: any) => {
+      console.log('📞 Global: Call rejected:', data)
       setIncomingCall(null)
       setIsVoiceCallOpen(false)
       setIsVideoCallOpen(false)
@@ -82,6 +89,7 @@ export default function GlobalCallHandler() {
 
     // Handle when remote user ends the call
     const handleCallEndedByRemote = (data: any) => {
+      console.log('📞 Global: Call ended by remote:', data)
       setIncomingCall(null)
       setIsVoiceCallOpen(false)
       setIsVideoCallOpen(false)

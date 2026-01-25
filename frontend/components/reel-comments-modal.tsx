@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { MessageCircle, Send, X, Heart } from "lucide-react"
-import { reelService } from "@/lib/api-services"
 import UserAvatar from "@/components/user-avatar"
+import { reelService } from "@/lib/api-services"
+import { Heart, MessageCircle, Send } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 interface Comment {
   _id: string
@@ -37,12 +37,12 @@ interface ReelCommentsModalProps {
   currentUserId?: string
 }
 
-export default function ReelCommentsModal({ 
-  open, 
-  onOpenChange, 
-  reelId, 
+export default function ReelCommentsModal({
+  open,
+  onOpenChange,
+  reelId,
   commentsCount,
-  currentUserId 
+  currentUserId
 }: ReelCommentsModalProps) {
   const router = useRouter()
   const [comments, setComments] = useState<Comment[]>([])
@@ -60,7 +60,7 @@ export default function ReelCommentsModal({
     setLoading(true)
     try {
       const response = await reelService.getReelComments(reelId)
-      
+
       if (response.success) {
         setComments(response.data.comments || [])
       } else {
@@ -82,7 +82,7 @@ export default function ReelCommentsModal({
     setSubmitting(true)
     try {
       const response = await reelService.commentOnReel(reelId, { text: newComment.trim() })
-      
+
       if (response.success) {
         setComments([response.data.comment, ...comments])
         setNewComment("")
@@ -96,12 +96,13 @@ export default function ReelCommentsModal({
 
   const getUserName = (user: any) => {
     if (!user) return 'Unknown User'
-    return `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown User'
+    return `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || 'Unknown User'
   }
 
   const getUserAvatar = (user: any) => {
     if (!user) return '?'
-    return user.profilePicture || getUserName(user).charAt(0)
+    const name = getUserName(user)
+    return user.profilePicture || (name ? name.charAt(0).toUpperCase() : 'U')
   }
 
   return (
@@ -134,7 +135,7 @@ export default function ReelCommentsModal({
                   {user && <UserAvatar user={user} size="md" />}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      {user && <span 
+                      {user && <span
                         className="font-semibold text-sm cursor-pointer hover:text-primary transition"
                         onClick={() => router.push(`/profile/${user._id}`)}
                       >

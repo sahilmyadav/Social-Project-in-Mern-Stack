@@ -1,26 +1,25 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { X, Mic, MicOff, PhoneOff, Phone, Volume2, VolumeX } from 'lucide-react'
-import { 
-  emitOffer, 
-  emitAnswer, 
-  emitIceCandidate,
-  emitAcceptCall,
-  emitRejectCall,
-  emitEndCall,
-  onOffer,
-  offOffer,
-  onAnswer,
-  offAnswer,
-  onIceCandidate,
-  offIceCandidate,
-  onCallEnded,
-  offCallEnded,
-  onCallAccepted,
-  offCallAccepted,
-  getSocket,
+import {
+    emitAcceptCall,
+    emitAnswer,
+    emitEndCall,
+    emitIceCandidate,
+    emitOffer,
+    emitRejectCall,
+    offAnswer,
+    offCallAccepted,
+    offCallEnded,
+    offIceCandidate,
+    offOffer,
+    onAnswer,
+    onCallAccepted,
+    onCallEnded,
+    onIceCandidate,
+    onOffer
 } from '@/lib/socket'
+import { Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
 interface VoiceCallModalProps {
   isOpen: boolean
@@ -59,7 +58,7 @@ export default function VoiceCallModal({
   const remoteDescriptionSet = useRef(false)
   const isEndingCall = useRef(false)
   const pendingOffer = useRef<any>(null)
-  
+
   // Store handlers for cleanup
   const handlersRef = useRef<{
     offer?: (data: any) => void
@@ -70,7 +69,8 @@ export default function VoiceCallModal({
   }>({})
 
   useEffect(() => {
-    
+    console.log('📞 Voice Call Modal - isOpen:', isOpen, 'isIncomingCall:', isIncomingCall)
+
     if (isOpen) {
       // Reset state when modal opens
       setCallDuration(0)
@@ -78,48 +78,49 @@ export default function VoiceCallModal({
       remoteDescriptionSet.current = false
       iceCandidatesQueue.current = []
       isEndingCall.current = false
-      
+
       // Listen for call ended from remote user
       const handleCallEndedByRemote = () => {
+        console.log('📞 Remote user ended the call')
         endCall()
       }
       handlersRef.current.callEnded = handleCallEndedByRemote
       onCallEnded(handleCallEndedByRemote)
-      
+
       // For outgoing calls, listen for when other user accepts
       if (!isIncomingCall) {
         const handleCallAccepted = async (data: any) => {
           setCallStatus('connecting')
-          
+
           // Now initiate WebRTC connection
           try {
             const peerConnection = await createPeerConnection()
-            
+
             // Create and send offer
             const offer = await peerConnection.createOffer()
             await peerConnection.setLocalDescription(offer)
-            
+
             emitOffer(recipientId, offer as any)
 
             // Set up answer handler
             const handleAnswer = async (answerData: any) => {
               try {
-                
+
                 // Only block if connection is actually closed or failed
                 if (!peerConnection || peerConnection.connectionState === 'closed' || peerConnection.connectionState === 'failed') {
                   return
                 }
-                
+
                 // Check if we're in the correct state to receive an answer
                 if (peerConnection.signalingState !== 'have-local-offer') {
                   return
                 }
-                
+
                 // Backend sends answer directly, not nested
                 const answer = new RTCSessionDescription(answerData.answer)
                 await peerConnection.setRemoteDescription(answer)
                 remoteDescriptionSet.current = true
-                
+
                 // Process queued ICE candidates
                 for (const candidate of iceCandidatesQueue.current) {
                   try {
@@ -129,7 +130,7 @@ export default function VoiceCallModal({
                   }
                 }
                 iceCandidatesQueue.current = []
-                
+
                 setCallStatus('active')
               } catch (error) {
                 console.error('❌ Error setting remote description:', error)
@@ -142,14 +143,14 @@ export default function VoiceCallModal({
                 if (!peerConnection || peerConnection.connectionState === 'closed') {
                   return
                 }
-                
+
                 if (candidateData.candidate && candidateData.candidate.candidate) {
                   const candidate = new RTCIceCandidate({
                     candidate: candidateData.candidate.candidate,
                     sdpMLineIndex: candidateData.candidate.sdpMLineIndex,
                     sdpMid: candidateData.candidate.sdpMid,
                   })
-                  
+
                   // Queue candidates if remote description not set yet
                   if (!remoteDescriptionSet.current) {
                     iceCandidatesQueue.current.push(candidate)
@@ -169,7 +170,7 @@ export default function VoiceCallModal({
             if (handlersRef.current.iceCandidate) {
               offIceCandidate(handlersRef.current.iceCandidate)
             }
-            
+
             handlersRef.current.answer = handleAnswer
             handlersRef.current.iceCandidate = handleCandidate
             onAnswer(handleAnswer)
@@ -179,11 +180,11 @@ export default function VoiceCallModal({
             setCallStatus('ended')
           }
         }
-        
+
         handlersRef.current.callAccepted = handleCallAccepted
         onCallAccepted(handleCallAccepted)
       }
-      
+
       // Cleanup function
       return () => {
         if (handlersRef.current.callAccepted) {
@@ -290,29 +291,29 @@ export default function VoiceCallModal({
 
   const handleAcceptCall = async () => {
     setCallStatus('connecting')
-    
+
     try {
       // Set up offer handler BEFORE notifying caller to avoid race condition
       const processOffer = async (offerData: any, peerConnection: RTCPeerConnection) => {
         try {
-          
+
           // Check if we're in the correct state to receive an offer
           if (peerConnection.signalingState !== 'stable') {
             return
           }
-          
+
           // Backend sends offer directly
           const offer = new RTCSessionDescription(offerData.offer)
           await peerConnection.setRemoteDescription(offer)
           remoteDescriptionSet.current = true
-          
+
           // Create and send answer
           const answer = await peerConnection.createAnswer()
           await peerConnection.setLocalDescription(answer)
-          
+
           // Send answer to caller
           emitAnswer(callerId || '', answer as any)
-          
+
           // Process queued ICE candidates
           for (const candidate of iceCandidatesQueue.current) {
             try {
@@ -322,21 +323,21 @@ export default function VoiceCallModal({
             }
           }
           iceCandidatesQueue.current = []
-          
+
           setCallStatus('active')
         } catch (error) {
           console.error('❌ Error processing offer:', error)
         }
       }
-      
+
       const handleOffer = async (offerData: any) => {
-        
+
         // If peer connection doesn't exist yet, store offer for later
         if (!peerConnectionRef.current) {
           pendingOffer.current = offerData
           return
         }
-        
+
         // Process offer immediately if peer connection is ready
         await processOffer(offerData, peerConnectionRef.current)
       }
@@ -347,14 +348,14 @@ export default function VoiceCallModal({
           if (!peerConnectionRef.current || peerConnectionRef.current.connectionState === 'closed') {
             return
           }
-          
+
           if (candidateData.candidate && candidateData.candidate.candidate) {
             const candidate = new RTCIceCandidate({
               candidate: candidateData.candidate.candidate,
               sdpMLineIndex: candidateData.candidate.sdpMLineIndex,
               sdpMid: candidateData.candidate.sdpMid,
             })
-            
+
             // Queue candidates if remote description not set yet
             if (!remoteDescriptionSet.current) {
               iceCandidatesQueue.current.push(candidate)
@@ -374,23 +375,23 @@ export default function VoiceCallModal({
       if (handlersRef.current.iceCandidate) {
         offIceCandidate(handlersRef.current.iceCandidate)
       }
-      
+
       handlersRef.current.offer = handleOffer
       handlersRef.current.iceCandidate = handleCandidate
       onOffer(handleOffer)
       onIceCandidate(handleCandidate)
-      
-      
+
+
       // Create peer connection FIRST before notifying caller
       const peerConnection = await createPeerConnection()
       peerConnectionRef.current = peerConnection
-      
-      
+
+
       // NOW notify caller that we accepted (peer connection is ready)
       if (callerId && threadId) {
         emitAcceptCall(callerId, threadId)
       }
-      
+
       // Process pending offer if one arrived while we were setting up
       if (pendingOffer.current) {
         await processOffer(pendingOffer.current, peerConnection)
@@ -417,9 +418,9 @@ export default function VoiceCallModal({
     if (isEndingCall.current) {
       return
     }
-    
+
     isEndingCall.current = true
-    
+
     // Clean up all event listeners
     if (handlersRef.current.offer) {
       offOffer(handlersRef.current.offer)
@@ -441,19 +442,19 @@ export default function VoiceCallModal({
       offCallEnded(handlersRef.current.callEnded)
       handlersRef.current.callEnded = undefined
     }
-    
+
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close()
       peerConnectionRef.current = null
     }
-    
+
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         track.stop()
       })
       localStreamRef.current = null
     }
-    
+
     // Reset state
     remoteDescriptionSet.current = false
     iceCandidatesQueue.current = []
@@ -464,7 +465,7 @@ export default function VoiceCallModal({
 
     setCallStatus('ended')
     onCallEnd?.()
-    
+
     setTimeout(() => {
       onClose()
     }, 1500)
@@ -494,7 +495,7 @@ export default function VoiceCallModal({
     <div className='fixed inset-0 z-[9999] bg-black flex items-center justify-center'>
       {/* Background gradient effect */}
       <div className='absolute inset-0 bg-gradient-to-b from-slate-900/50 via-black to-black pointer-events-none' />
-      
+
       {/* Close button */}
       <button
         onClick={onClose}
@@ -521,7 +522,7 @@ export default function VoiceCallModal({
                 recipientAvatar
               )}
             </div>
-            
+
             {/* Status indicator */}
             <div className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center ${
               callStatus === 'active' ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
@@ -545,7 +546,7 @@ export default function VoiceCallModal({
                 </div>
               </div>
             )}
-            
+
             {callStatus === 'connecting' && (
               <div className='space-y-2'>
                 <p>Connecting...</p>
@@ -556,13 +557,13 @@ export default function VoiceCallModal({
                 </div>
               </div>
             )}
-            
+
             {callStatus === 'active' && (
               <p className='font-mono text-3xl tracking-widest'>
                 {formatDuration(callDuration)}
               </p>
             )}
-            
+
             {callStatus === 'ended' && (
               <p className='text-lg'>Call ended</p>
             )}

@@ -29,14 +29,14 @@ app.use(helmet()); // Set security HTTP headers
 // app.use(mongoSanitize()); // Prevent NoSQL injection (Disabled due to Express 5 conflict)
 
 // Global Rate Limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Limit each IP to 1000 requests per `window` (per 15 minutes)
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: "Too many requests from this IP, please try again after 15 minutes",
-});
-app.use("/api", limiter);
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 1000, // Limit each IP to 1000 requests per `window` (per 15 minutes)
+//   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+//   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+//   message: "Too many requests from this IP, please try again after 15 minutes",
+// });
+// app.use("/api", limiter);
 
 // Serve uploaded files
 app.use("/uploads", express.static("uploads"));

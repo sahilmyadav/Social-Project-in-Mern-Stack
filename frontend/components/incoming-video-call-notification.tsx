@@ -1,7 +1,6 @@
 "use client";
 
 import { Video, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 interface IncomingVideoCallNotificationProps {
   callerName: string;
@@ -37,7 +36,7 @@ export default function IncomingVideoCallNotification({
                 />
               ) : (
                 <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-3xl font-bold text-white">
-                  {callerName.charAt(0).toUpperCase()}
+                  {(callerName || 'U').charAt(0).toUpperCase()}
                 </div>
               )}
             </div>

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { X, ChevronLeft, ChevronRight, Trash2, Eye, Music } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { storyService } from "@/lib/api-services";
-import { useConfirmDialog, ConfirmDialog } from "@/components/ui/confirm-dialog";
 import "@/styles/filters.css";
+import { ChevronLeft, ChevronRight, Eye, Music, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 interface Story {
   _id: string;
@@ -323,7 +322,7 @@ export default function StoryViewer({
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
-                {currentStory.user.firstName.charAt(0).toUpperCase()}
+                {(currentStory.user.firstName || 'U').charAt(0).toUpperCase()}
               </div>
             )}
           </div>
@@ -517,7 +516,7 @@ export default function StoryViewer({
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
-                            {viewer.firstName?.charAt(0).toUpperCase()}
+                            {(viewer.firstName || 'U').charAt(0).toUpperCase()}
                           </div>
                         )}
                       </div>

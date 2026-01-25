@@ -1,127 +1,131 @@
-'use client';
+"use client"
 
-import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api-client';
-import { postService } from '@/lib/api-services';
-import { Image as ImageIcon, X } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { X, Upload, Image as ImageIcon } from "lucide-react"
+import { postService } from "@/lib/api-services"
+import { ApiError } from "@/lib/api-client"
 
 interface CreatePostModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit?: (post: any) => void;
+  isOpen: boolean
+  onClose: () => void
+  onSubmit?: (post: any) => void
 }
 
 export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePostModalProps) {
-  const [caption, setCaption] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [user, setUser] = useState<any>(null);
+  const [caption, setCaption] = useState("")
+  const [file, setFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string>("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [user, setUser] = useState<any>(null)
 
   // Get user from localStorage on mount
   useEffect(() => {
     if (isOpen) {
-      const userData = localStorage.getItem('user');
+      const userData = localStorage.getItem("user")
       if (userData) {
-        setUser(JSON.parse(userData));
+        setUser(JSON.parse(userData))
       } else {
       }
     }
-  }, [isOpen]);
+  }, [isOpen])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
+    const selectedFile = e.target.files?.[0]
     if (selectedFile) {
       // Validate file type
       if (!selectedFile.type.startsWith('image/')) {
-        setError('Please select an image file');
-        return;
+        setError("Please select an image file")
+        return
       }
 
       // Validate file size (max 10MB)
       if (selectedFile.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB');
-        return;
+        setError("File size must be less than 10MB")
+        return
       }
 
-      setFile(selectedFile);
-      setError('');
-
+      setFile(selectedFile)
+      setError("")
+      
       // Create preview
-      const reader = new FileReader();
+      const reader = new FileReader()
       reader.onloadend = () => {
-        setPreviewUrl(reader.result as string);
-      };
-      reader.readAsDataURL(selectedFile);
+        setPreviewUrl(reader.result as string)
+      }
+      reader.readAsDataURL(selectedFile)
     }
-  };
+  }
 
   const handleRemoveFile = () => {
-    setFile(null);
-    setPreviewUrl('');
-  };
+    setFile(null)
+    setPreviewUrl("")
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+   
+    e.preventDefault()
+    setError("")
+
 
     // Validation
     if (!file) {
-      setError('Please select an image to upload');
-      return;
+      setError("Please select an image to upload")
+      return
     }
 
-    setLoading(true);
+
+    setLoading(true)
 
     try {
       // Create FormData
-      const formData = new FormData();
-      formData.append('files', file); // Backend expects "files" (plural)
-      formData.append('caption', caption.trim());
+      const formData = new FormData()
+      formData.append("files", file) // Backend expects "files" (plural)
+      formData.append("caption", caption.trim())
 
       for (let pair of formData.entries()) {
       }
 
       // Call API
-      const response = await postService.createPost(formData);
+      const response = await postService.createPost(formData)
 
       if (response.success) {
         // Success - clear form and close modal
-        setCaption('');
-        setFile(null);
-        setPreviewUrl('');
-
+        setCaption("")
+        setFile(null)
+        setPreviewUrl("")
+        
         // Call parent onSubmit if provided
         if (onSubmit) {
-          onSubmit(response.data);
+          onSubmit(response.data)
         }
-
-        onClose();
-
+        
+        onClose()
+        
         // Optionally reload the page to show new post
-        window.location.reload();
+        window.location.reload()
       } else {
-        setError(response.message || 'Failed to create post');
+        setError(response.message || "Failed to create post")
       }
     } catch (err) {
-      const apiError = err as ApiError;
-      console.error('Failed to create post:', apiError);
-
+      const apiError = err as ApiError
+      console.error("Failed to create post:", apiError)
+      
       if (apiError.statusCode === 401) {
-        setError('Please login to create a post');
+        setError("Please login to create a post")
       } else if (apiError.statusCode === 413) {
-        setError('File size too large. Please choose a smaller image.');
+        setError("File size too large. Please choose a smaller image.")
       } else {
-        setError(apiError.message || 'Failed to create post. Please try again.');
+        setError(apiError.message || "Failed to create post. Please try again.")
       }
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  if (!isOpen) return null;
+  if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -129,8 +133,8 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
           <h2 className="text-xl font-bold">Create Post</h2>
-          <button
-            onClick={onClose}
+          <button 
+            onClick={onClose} 
             className="p-1 hover:bg-muted rounded-full transition"
             disabled={loading}
           >
@@ -146,9 +150,7 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
               😊
             </div>
             <div>
-              <p className="font-semibold">
-                {user?.firstName || user?.name || 'User'} {user?.lastName || ''}
-              </p>
+              <p className="font-semibold">{user?.firstName || user?.name || "User"} {user?.lastName || ""}</p>
               <p className="text-sm text-muted-foreground">Public</p>
             </div>
           </div>
@@ -170,16 +172,14 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
             disabled={loading}
             maxLength={500}
           />
-          <p className="text-xs text-muted-foreground text-right">
-            {caption.length}/500 characters
-          </p>
+          <p className="text-xs text-muted-foreground text-right">{caption.length}/500 characters</p>
 
           {/* File Upload */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground block">
               Add Photo <span className="text-red-500">*</span>
             </label>
-
+            
             {!previewUrl ? (
               <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary transition cursor-pointer">
                 <input
@@ -224,20 +224,20 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
           <Button
             type="button"
             onClick={async () => {
-              const testUrl = 'http://localhost:3000/api/v1/post/upload';
+              const testUrl = "http://localhost:3333/api/v1/post/upload"
               try {
                 const response = await fetch(testUrl, {
                   method: 'POST',
                   headers: {
-                    Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-                  },
-                });
-                const data = await response.json();
-
-                alert(`API Test: ${response.status} - ${JSON.stringify(data)}`);
+                    'Authorization': `Bearer ${localStorage.getItem("accessToken")}`
+                  }
+                })
+                const data = await response.json()
+                
+                alert(`API Test: ${response.status} - ${JSON.stringify(data)}`)
               } catch (err: any) {
-                console.error('Test Error:', err);
-                alert(`API Test Error: ${err.message}`);
+                console.error("Test Error:", err)
+                alert(`API Test Error: ${err.message}`)
               }
             }}
             className="w-full bg-yellow-500 text-black mb-2"
@@ -247,10 +247,10 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
 
           {/* Buttons */}
           <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              onClick={onClose}
-              variant="outline"
+            <Button 
+              type="button" 
+              onClick={onClose} 
+              variant="outline" 
               className="flex-1 bg-transparent"
               disabled={loading}
             >
@@ -267,12 +267,12 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                   Posting...
                 </span>
               ) : (
-                'Post'
+                "Post"
               )}
             </Button>
           </div>
         </form>
       </div>
     </div>
-  );
+  )
 }

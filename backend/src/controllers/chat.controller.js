@@ -1,20 +1,20 @@
-import { ChatThread } from "../models/chatThread.model.js";
-import { ChatMessage } from "../models/chatMessage.model.js";
 import { CallLog } from "../models/callLog.model.js";
-import { User } from "../models/user.model.js";
+import { ChatMessage } from "../models/chatMessage.model.js";
+import { ChatThread } from "../models/chatThread.model.js";
 import { Post } from "../models/post.model.js";
 import { Reel } from "../models/reel.model.js";
+import { User } from "../models/user.model.js";
+import { getIO } from "../socket/socket.js";
 import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
-import {
-  encryptMessage,
-  decryptMessage,
-  generateSessionKey,
-  encryptMediaUrl,
-} from "../utils/encryption.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
-import { getIO } from "../socket/socket.js";
+import {
+    decryptMessage,
+    encryptMediaUrl,
+    encryptMessage,
+    generateSessionKey,
+} from "../utils/encryption.js";
 
 // 1.5. Get all threads for current user (NEW)
 export const getAllThreads = asyncHandler(async (req, res) => {
@@ -47,6 +47,7 @@ export const getAllThreads = asyncHandler(async (req, res) => {
   // Transform threads to include participant info and decrypt last message
   const transformedThreads = threads.map((thread) => {
     const otherParticipant = thread.participants?.[0] || null;
+    console.log('👤 Other participant for thread', thread._id, ':', JSON.stringify(otherParticipant, null, 2));
     const lastMessage = thread.lastMessage;
     const userIdStr = userId.toString();
 
@@ -111,6 +112,9 @@ export const getAllThreads = asyncHandler(async (req, res) => {
       updatedAt: thread.updatedAt,
     };
   });
+
+  console.log('📤 Sending transformed threads:', transformedThreads.length, 'threads');
+  console.log('📤 First thread sample:', JSON.stringify(transformedThreads[0], null, 2));
 
   // Get total count for pagination
   const totalCount = await ChatThread.countDocuments({

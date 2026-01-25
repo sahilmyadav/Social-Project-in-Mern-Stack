@@ -30,11 +30,13 @@ export default function UserAvatar({
   const router = useRouter()
 
   const getUserName = () => {
-    return user.fullName || user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown User'
+    const name = user.fullName || user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || 'Unknown User'
+    return name || 'Unknown User'
   }
 
   const getUserAvatar = () => {
-    return user.profileImage || user.profilePicture || user.avatar || getUserName().charAt(0)
+    const name = getUserName()
+    return user.profileImage || user.profilePicture || user.avatar || (name ? name.charAt(0).toUpperCase() : 'U')
   }
 
   const sizeClasses = {
@@ -52,16 +54,16 @@ export default function UserAvatar({
   const avatarContent = (
     <div
       className={`
-        ${sizeClasses[size]} 
-        rounded-full 
-        bg-gradient-to-br 
-        from-primary 
-        to-secondary 
-        flex 
-        items-center 
-        justify-center 
-        text-white 
-        font-bold 
+        ${sizeClasses[size]}
+        rounded-full
+        bg-gradient-to-br
+        from-primary
+        to-secondary
+        flex
+        items-center
+        justify-center
+        text-white
+        font-bold
         flex-shrink-0
         ${clickable ? 'cursor-pointer hover:ring-2 hover:ring-primary/50 transition' : ''}
         ${className}

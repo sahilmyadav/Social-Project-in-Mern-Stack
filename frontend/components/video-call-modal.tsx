@@ -1,27 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { X, Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { 
-  emitOffer, 
-  emitAnswer, 
-  emitIceCandidate,
-  emitAcceptCall,
-  emitRejectCall,
-  emitEndCall,
-  onOffer,
-  offOffer,
-  onAnswer,
-  offAnswer,
-  onIceCandidate,
-  offIceCandidate,
-  onCallEnded,
-  offCallEnded,
-  onCallAccepted,
-  offCallAccepted,
-  getSocket,
+import {
+    emitAcceptCall,
+    emitAnswer,
+    emitEndCall,
+    emitIceCandidate,
+    emitOffer,
+    emitRejectCall,
+    offAnswer,
+    offCallAccepted,
+    offCallEnded,
+    offIceCandidate,
+    offOffer,
+    onAnswer,
+    onCallAccepted,
+    onCallEnded,
+    onIceCandidate,
+    onOffer
 } from "@/lib/socket";
+import { Mic, MicOff, PhoneOff, Video, VideoOff, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 interface VideoCallModalProps {
   isOpen: boolean;
@@ -63,7 +62,7 @@ export default function VideoCallModal({
   const remoteDescriptionSet = useRef(false);
   const isEndingCall = useRef(false);
   const pendingOffer = useRef<any>(null);
-  
+
   // Store handlers for cleanup
   const handlersRef = useRef<{
     offer?: (data: any) => void
@@ -172,24 +171,24 @@ export default function VideoCallModal({
       // Set up offer handler BEFORE notifying caller to avoid race condition
       const processOffer = async (offerData: any, pc: RTCPeerConnection) => {
         try {
-          
+
           // Check if we're in the correct state to receive an offer
           if (pc.signalingState !== 'stable') {
             return;
           }
-          
+
           // Backend sends offer directly
           const offer = new RTCSessionDescription(offerData.offer);
           await pc.setRemoteDescription(offer);
           remoteDescriptionSet.current = true;
-          
+
           // Create and send answer
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          
+
           // Send answer to caller
           emitAnswer(callerId || '', answer as any);
-          
+
           // Process queued ICE candidates
           for (const candidate of iceCandidatesQueue.current) {
             try {
@@ -199,21 +198,21 @@ export default function VideoCallModal({
             }
           }
           iceCandidatesQueue.current = [];
-          
+
           setCallStatus('active');
         } catch (error) {
           console.error('❌ Error processing offer:', error);
         }
       };
-      
+
       const handleOffer = async (offerData: any) => {
-        
+
         // If peer connection doesn't exist yet, store offer for later
         if (!peerConnectionRef.current) {
           pendingOffer.current = offerData;
           return;
         }
-        
+
         // Process offer immediately if peer connection is ready
         await processOffer(offerData, peerConnectionRef.current);
       };
@@ -224,14 +223,14 @@ export default function VideoCallModal({
           if (!peerConnectionRef.current || peerConnectionRef.current.connectionState === 'closed') {
             return;
           }
-          
+
           if (candidateData.candidate && candidateData.candidate.candidate) {
             const candidate = new RTCIceCandidate({
               candidate: candidateData.candidate.candidate,
               sdpMLineIndex: candidateData.candidate.sdpMLineIndex,
               sdpMid: candidateData.candidate.sdpMid,
             });
-            
+
             // Queue candidates if remote description not set yet
             if (!remoteDescriptionSet.current) {
               iceCandidatesQueue.current.push(candidate);
@@ -251,13 +250,13 @@ export default function VideoCallModal({
       if (handlersRef.current.iceCandidate) {
         offIceCandidate(handlersRef.current.iceCandidate);
       }
-      
+
       handlersRef.current.offer = handleOffer;
       handlersRef.current.iceCandidate = handleCandidate;
       onOffer(handleOffer);
       onIceCandidate(handleCandidate);
-      
-      
+
+
       // Get local stream and create peer connection FIRST before notifying caller
       const stream = await getLocalStream();
       if (!stream) return;
@@ -269,13 +268,13 @@ export default function VideoCallModal({
       stream.getTracks().forEach((track) => {
         pc.addTrack(track, stream);
       });
-      
-      
+
+
       // NOW notify caller that we accepted (peer connection is ready)
       if (callerId && threadId) {
         emitAcceptCall(callerId, threadId);
       }
-      
+
       // Process pending offer if one arrived while we were setting up
       if (pendingOffer.current) {
         await processOffer(pendingOffer.current, pc);
@@ -318,7 +317,7 @@ export default function VideoCallModal({
     if (isEndingCall.current) {
       return;
     }
-    
+
     isEndingCall.current = true;
 
     // Clean up all event listeners
@@ -362,7 +361,7 @@ export default function VideoCallModal({
       clearInterval(callTimerRef.current);
       callTimerRef.current = null;
     }
-    
+
     // Reset state
     remoteDescriptionSet.current = false;
     iceCandidatesQueue.current = [];
@@ -373,7 +372,7 @@ export default function VideoCallModal({
     }
 
     setCallStatus("ended");
-    
+
     setTimeout(() => {
       onClose();
     }, 1500);
@@ -389,7 +388,7 @@ export default function VideoCallModal({
 
   // Initialize call on mount
   useEffect(() => {
-    
+
     if (isOpen) {
       // Reset state when modal opens
       setCallDuration(0);
@@ -397,51 +396,51 @@ export default function VideoCallModal({
       remoteDescriptionSet.current = false;
       iceCandidatesQueue.current = [];
       isEndingCall.current = false;
-      
+
       // Listen for call ended from remote user
       const handleCallEndedByRemote = () => {
         handleEndCall();
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
       onCallEnded(handleCallEndedByRemote);
-      
+
       // For outgoing calls, listen for when other user accepts
       if (!isIncoming) {
         startCall();
-        
+
         const handleCallAccepted = async (data: any) => {
           setCallStatus('connecting');
-          
+
           // Now initiate WebRTC connection
           try {
             const pc = peerConnectionRef.current;
             if (!pc) return;
-            
+
             // Create and send offer
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            
+
             emitOffer(recipientId, offer as any);
 
             // Set up answer handler
             const handleAnswer = async (answerData: any) => {
               try {
-                
+
                 // Only block if connection is actually closed or failed
                 if (!pc || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
                   return;
                 }
-                
+
                 // Check if we're in the correct state to receive an answer
                 if (pc.signalingState !== 'have-local-offer') {
                   return;
                 }
-                
+
                 // Backend sends answer directly
                 const answer = new RTCSessionDescription(answerData.answer);
                 await pc.setRemoteDescription(answer);
                 remoteDescriptionSet.current = true;
-                
+
                 // Process queued ICE candidates
                 for (const candidate of iceCandidatesQueue.current) {
                   try {
@@ -451,7 +450,7 @@ export default function VideoCallModal({
                   }
                 }
                 iceCandidatesQueue.current = [];
-                
+
                 setCallStatus('active');
               } catch (error) {
                 console.error('❌ Error setting remote description:', error);
@@ -464,14 +463,14 @@ export default function VideoCallModal({
                 if (!pc || pc.connectionState === 'closed') {
                   return;
                 }
-                
+
                 if (candidateData.candidate && candidateData.candidate.candidate) {
                   const candidate = new RTCIceCandidate({
                     candidate: candidateData.candidate.candidate,
                     sdpMLineIndex: candidateData.candidate.sdpMLineIndex,
                     sdpMid: candidateData.candidate.sdpMid,
                   });
-                  
+
                   // Queue candidates if remote description not set yet
                   if (!remoteDescriptionSet.current) {
                     iceCandidatesQueue.current.push(candidate);
@@ -491,7 +490,7 @@ export default function VideoCallModal({
             if (handlersRef.current.iceCandidate) {
               offIceCandidate(handlersRef.current.iceCandidate);
             }
-            
+
             handlersRef.current.answer = handleAnswer;
             handlersRef.current.iceCandidate = handleCandidate;
             onAnswer(handleAnswer);
@@ -501,11 +500,11 @@ export default function VideoCallModal({
             setCallStatus('ended');
           }
         };
-        
+
         handlersRef.current.callAccepted = handleCallAccepted;
         onCallAccepted(handleCallAccepted);
       }
-      
+
       // Cleanup function
       return () => {
         if (handlersRef.current.callAccepted) {
@@ -569,7 +568,7 @@ export default function VideoCallModal({
                   />
                 ) : (
                   <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-4xl font-bold text-white">
-                    {recipientName.charAt(0).toUpperCase()}
+                    {(recipientName || 'U').charAt(0).toUpperCase()}
                   </div>
                 )}
               </div>

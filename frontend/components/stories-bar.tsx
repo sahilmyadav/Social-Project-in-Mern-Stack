@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { liveStreamService, storyService } from "@/lib/api-services";
 import { Plus, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { storyService, feedService, liveStreamService } from "@/lib/api-services";
+import { useEffect, useState } from "react";
 import AddStoryModal from "./add-story-modal";
 import StoryViewer from "./story-viewer";
 
@@ -214,7 +214,7 @@ export default function StoriesBar({
                     />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl">
-                      {currentUserName.charAt(0).toUpperCase()}
+                      {(currentUserName || 'U').charAt(0).toUpperCase()}
                     </div>
                   )}
                 </div>
@@ -313,7 +313,7 @@ export default function StoriesBar({
                           />
                         ) : (
                           <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
-                            {user.firstName.charAt(0).toUpperCase()}
+                            {(user.firstName || 'U').charAt(0).toUpperCase()}
                           </div>
                         )}
                       </div>

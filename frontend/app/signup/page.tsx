@@ -1,70 +1,64 @@
-'use client';
+"use client"
 
-import type React from 'react';
+import type React from "react"
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ApiError } from '@/lib/api-client';
-import { authService } from '@/lib/api-services';
-import { Eye, EyeOff } from 'lucide-react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import Link from "next/link"
+import { useState } from "react"
+import { Eye, EyeOff } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { useRouter } from "next/navigation"
+import { authService } from "@/lib/api-services"
+import { ApiError } from "@/lib/api-client"
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const router = useRouter();
+    firstName: "",
+    lastName: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const router = useRouter()
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    setError('');
-  };
+    const { name, value } = e.target
+    setFormData((prev) => ({ ...prev, [name]: value }))
+    setError("")
+  }
 
   const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+    e.preventDefault()
+    setError("")
+    setLoading(true)
 
     // Validation
-    if (
-      !formData.firstName ||
-      !formData.lastName ||
-      !formData.email ||
-      !formData.password ||
-      !formData.confirmPassword
-    ) {
-      setError('Please fill in all fields');
-      setLoading(false);
-      return;
+    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.confirmPassword) {
+      setError("Please fill in all fields")
+      setLoading(false)
+      return
     }
 
     if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      setError('Please enter a valid email address');
-      setLoading(false);
-      return;
+      setError("Please enter a valid email address")
+      setLoading(false)
+      return
     }
 
     if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters');
-      setLoading(false);
-      return;
+      setError("Password must be at least 6 characters")
+      setLoading(false)
+      return
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      setLoading(false);
-      return;
+      setError("Passwords do not match")
+      setLoading(false)
+      return
     }
 
     try {
@@ -73,36 +67,33 @@ export default function SignupPage() {
         lastName: formData.lastName,
         email: formData.email,
         password: formData.password,
-      });
+      })
 
       if (response.success && response.data.otpSent) {
         // Store registration data for OTP verification
-        localStorage.setItem(
-          'otpVerification',
-          JSON.stringify({
-            identifier: response.data.identifier, // Use identifier from backend
-            method: response.data.method,
-          })
-        );
+        localStorage.setItem("otpVerification", JSON.stringify({
+          identifier: response.data.identifier, // Use identifier from backend
+          method: response.data.method
+        }))
         // Redirect to OTP verification page
-        router.push('/verify-otp');
+        router.push("/verify-otp")
       } else {
-        setError(response.message || 'Registration failed. Please try again.');
+        setError(response.message || "Registration failed. Please try again.")
       }
     } catch (err) {
-      const apiError = err as ApiError;
+      const apiError = err as ApiError
 
       if (apiError.statusCode === 409) {
-        setError('Email already exists. Please use a different email or login.');
+        setError("Email already exists. Please use a different email or login.")
       } else if (apiError.statusCode === 400) {
-        setError(apiError.message || 'Invalid input. Please check your information.');
+        setError(apiError.message || "Invalid input. Please check your information.")
       } else {
-        setError(apiError.message || 'An error occurred. Please try again.');
+        setError(apiError.message || "An error occurred. Please try again.")
       }
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <main className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -110,8 +101,8 @@ export default function SignupPage() {
         <div className="bg-card rounded-2xl border border-border p-8 shadow-lg">
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-4 overflow-hidden">
-              <img src="/logo.png" alt="ClickME" className="w-full h-full object-cover" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-primary to-secondary mb-4">
+              <span className="text-3xl">✨</span>
             </div>
             <h1 className="text-3xl font-bold text-foreground">Create Account</h1>
             <p className="text-muted-foreground mt-2">Join ClickME today</p>
@@ -170,7 +161,7 @@ export default function SignupPage() {
               <label className="text-sm font-medium text-foreground block mb-2">Password</label>
               <div className="relative">
                 <Input
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   name="password"
                   placeholder="Create a password (min 6 characters)"
                   value={formData.password}
@@ -184,18 +175,20 @@ export default function SignupPage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground block mb-2">
-                Confirm Password
-              </label>
+              <label className="text-sm font-medium text-foreground block mb-2">Confirm Password</label>
               <div className="relative">
                 <Input
-                  type={showConfirmPassword ? 'text' : 'password'}
+                  type={showConfirmPassword ? "text" : "password"}
                   name="confirmPassword"
                   placeholder="Confirm your password"
                   value={formData.confirmPassword}
@@ -223,14 +216,14 @@ export default function SignupPage() {
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2"
               disabled={loading}
             >
-              {loading ? 'Creating Account...' : 'Create Account'}
+              {loading ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
 
           {/* Footer */}
           <div className="mt-6 text-center">
             <p className="text-muted-foreground">
-              Already have an account?{' '}
+              Already have an account?{" "}
               <Link href="/login" className="text-primary font-semibold hover:underline">
                 Sign in
               </Link>
@@ -239,5 +232,5 @@ export default function SignupPage() {
         </div>
       </div>
     </main>
-  );
+  )
 }

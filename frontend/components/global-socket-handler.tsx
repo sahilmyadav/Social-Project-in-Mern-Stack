@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { disconnectSocket, emitUserOffline, emitUserOnline, initSocket } from "@/lib/socket"
 import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { initSocket, emitUserOnline, emitUserOffline, disconnectSocket } from "@/lib/socket"
 
 export default function GlobalSocketHandler() {
     const router = useRouter()
@@ -56,15 +56,18 @@ export default function GlobalSocketHandler() {
 
         // Emit online status when socket connects
         if (socket?.connected) {
+            console.log('✅ Socket already connected, emitting online status')
             emitUserOnline(user._id)
         } else {
             socket?.once("connect", () => {
+                console.log('✅ Socket connected, emitting online status')
                 emitUserOnline(user._id)
             })
         }
 
         // Handle reconnection
         socket?.on("connect", () => {
+            console.log('✅ Socket reconnected, emitting online status')
             emitUserOnline(user._id)
         })
 

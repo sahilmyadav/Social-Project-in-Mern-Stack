@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { UserPlus, UserMinus, Clock } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { followService } from "@/lib/api-services"
+import { Clock, UserMinus, UserPlus } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 interface User {
   _id: string
@@ -180,9 +180,9 @@ export default function FollowersModal({ open, onOpenChange, title, users, loadi
             ) : (
               filteredUsers.map((user) => {
                 const userId = user._id || user.id || ''
-                const userName = getUserName(user)
-                const userAvatar = user.profilePicture || user.avatar || userName.charAt(0)
-                const username = user.username || userName.toLowerCase().replace(/\s+/g, "")
+                const userName = getUserName(user) || 'Unknown User'
+                const userAvatar = user.profilePicture || user.avatar || (userName ? userName.charAt(0).toUpperCase() : 'U')
+                const username = user.username || (userName ? userName.toLowerCase().replace(/\s+/g, "") : 'user')
 
                 return (
                   <div
