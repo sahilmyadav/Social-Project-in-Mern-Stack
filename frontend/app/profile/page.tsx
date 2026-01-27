@@ -33,6 +33,7 @@ import dynamic from "next/dynamic"
 // Dynamic imports to reduce initial bundle size
 const FollowersModal = dynamic(() => import("@/components/followers-modal"), { ssr: false })
 const PostDetailsModal = dynamic(() => import("@/components/post-details-modal"), { ssr: false })
+const ReelCommentsModal = dynamic(() => import("@/components/reel-comments-modal"), { ssr: false })
 
 export default function ProfilePage() {
   const [user, setUser] = useState<any>(null)
@@ -74,6 +75,8 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<"posts" | "reels" | "saved">("posts")
   const [openMenuPostId, setOpenMenuPostId] = useState<string | null>(null)
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [showReelComments, setShowReelComments] = useState(false)
+  const [selectedReel, setSelectedReel] = useState<any>(null)
 
   const router = useRouter()
 
@@ -853,6 +856,10 @@ export default function ProfilePage() {
                           key={reel._id || reel.id}
                           reel={reel}
                           currentUserId={user?._id}
+                          onCommentClick={() => {
+                            setSelectedReel(reel)
+                            setShowReelComments(true)
+                          }}
                         />
                       ))}
                     </div>
@@ -1085,6 +1092,17 @@ export default function ProfilePage() {
           <PostDetailsModal isOpen={showPostDetails} onClose={handleClosePostDetails} post={selectedPost} />
         )
       }
+
+      {/* Reel Comments Modal */}
+      {selectedReel && (
+        <ReelCommentsModal
+          open={showReelComments}
+          onOpenChange={setShowReelComments}
+          reelId={selectedReel._id}
+          commentsCount={selectedReel.comments_count || 0}
+          currentUserId={user?._id}
+        />
+      )}
 
       {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />

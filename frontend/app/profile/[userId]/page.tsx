@@ -1,36 +1,36 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter, useParams } from "next/navigation";
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import {
-  ArrowLeft,
-  MessageCircle,
-  UserPlus,
-  UserCheck,
-  Clock,
-  MoreHorizontal,
-  Share2,
-  Link as LinkIcon,
-  Flag,
-  Ban,
-  Unlock,
-  Grid,
-  Clapperboard,
-  Edit2,
-  Camera,
-  Heart,
-  UserX,
-} from "lucide-react";
-import PostDetailsModal from "@/components/post-details-modal";
 import Navigation from "@/components/navigation";
-import PostCard from "@/components/post-card";
+import PostDetailsModal from "@/components/post-details-modal";
 import ReelCard from "@/components/reel-card";
+import ReelCommentsModal from "@/components/reel-comments-modal";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { authService, feedService, followService, reelService } from "@/lib/api-services";
-import { toasts, showToast } from "@/lib/toast";
-import { useConfirmDialog, ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { showToast, toasts } from "@/lib/toast";
+import {
+    ArrowLeft,
+    Ban,
+    Camera,
+    Clapperboard,
+    Clock,
+    Edit2,
+    Flag,
+    Grid,
+    Heart,
+    Link as LinkIcon,
+    MessageCircle,
+    MoreHorizontal,
+    Share2,
+    Unlock,
+    UserCheck,
+    UserPlus,
+    UserX,
+} from "lucide-react";
+import Image from "next/image";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 export default function UserProfilePage() {
   const router = useRouter();
@@ -56,6 +56,8 @@ export default function UserProfilePage() {
   const [showProfileImageModal, setShowProfileImageModal] = useState(false);
 
   const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [selectedReel, setSelectedReel] = useState<any>(null);
+  const [showReelComments, setShowReelComments] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
@@ -947,6 +949,10 @@ export default function UserProfilePage() {
                           key={reel.id || reel._id}
                           reel={reel}
                           currentUserId={currentUser?._id}
+                          onCommentClick={() => {
+                            setSelectedReel(reel)
+                            setShowReelComments(true)
+                          }}
                         />
                       ))}
                   </div>
@@ -968,6 +974,17 @@ export default function UserProfilePage() {
         />
       )
       }
+
+      {/* Reel Comments Modal */}
+      {selectedReel && (
+        <ReelCommentsModal
+          open={showReelComments}
+          onOpenChange={setShowReelComments}
+          reelId={selectedReel._id}
+          commentsCount={selectedReel.comments_count || 0}
+          currentUserId={currentUser?._id}
+        />
+      )}
 
       {/* Profile Picture Modal */}
       <Dialog open={showProfileImageModal} onOpenChange={setShowProfileImageModal}>

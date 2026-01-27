@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { followService, postService, searchService } from "@/lib/api-services"
 import { Clock, Search, UserCheck, UserPlus, X } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 interface Creator {
   id: string
@@ -218,6 +218,34 @@ export default function ExplorePage() {
     }
   }
 
+  // Handle opening/closing comments on a post
+  const handleOpenPostDetails = useCallback((post: any) => {
+    setExplorePosts(prevPosts =>
+      prevPosts.map(item => {
+        if (item._id === post._id || item.id === post._id) {
+          return { ...item, showComments: !item.showComments }
+        }
+        return item
+      })
+    )
+  }, [])
+
+  // Handle like updates on posts
+  const handlePostLikeUpdate = useCallback((postId: string, isLiked: boolean, likeCount: number) => {
+    setExplorePosts(prevPosts =>
+      prevPosts.map(item => {
+        if (item._id === postId || item.id === postId) {
+          return {
+            ...item,
+            isLiked,
+            likes_count: likeCount
+          }
+        }
+        return item
+      })
+    )
+  }, [])
+
   const handleLogout = () => {
     localStorage.removeItem("user")
     router.push("/")
@@ -373,6 +401,10 @@ export default function ExplorePage() {
                     key={post._id || post.id}
                     post={post}
                     currentUserId={user?._id || user?.id}
+                    onCommentClick={handleOpenPostDetails}
+                    onLikeUpdate={handlePostLikeUpdate}
+                    onPostClick={handleOpenPostDetails}
+                    showComments={post.showComments}
                   />
                 ))
               )}

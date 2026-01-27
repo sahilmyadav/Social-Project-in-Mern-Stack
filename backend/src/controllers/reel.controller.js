@@ -1,11 +1,11 @@
-import { Reel } from "../models/reel.model.js";
-import { Like } from "../models/like.model.js";
 import { Comment } from "../models/comment.model.js";
-import { User } from "../models/user.model.js";
 import { Followers } from "../models/followers.model.js";
-import { Save } from "../models/save.model.js";
-import { Report } from "../models/report.model.js";
+import { Like } from "../models/like.model.js";
 import { Notification } from "../models/notification.model.js";
+import { Reel } from "../models/reel.model.js";
+import { Report } from "../models/report.model.js";
+import { Save } from "../models/save.model.js";
+import { User } from "../models/user.model.js";
 import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
@@ -211,7 +211,7 @@ export const getReelDetails = asyncHandler(async (req, res) => {
 //     .json(
 //       new ApiResponse(
 //         200,
-//         { 
+//         {
 //           likes_count: reel.likes_count,
 //           isLiked: isLiked
 //         },
@@ -417,12 +417,13 @@ export const getReelComments = asyncHandler(async (req, res) => {
   const comments = await Comment.find({
     target_type: "reel",
     target_id: reelId,
-    reply_to_comment_id: null
+    reply_to_comment_id: null,
+    is_deleted: false
   })
-    .populate('user_id', 'firstName lastName profilePicture')
+    .populate('user_id', 'firstName lastName profilePicture profileImage avatar')
     .sort({ createdAt: -1 })
-    .limit(limit * 1)
-    .skip((page - 1) * limit);
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit));
 
   return res.status(200).json(
     new ApiResponse(200, { comments }, "Comments fetched successfully")
