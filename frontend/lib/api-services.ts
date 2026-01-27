@@ -1,6 +1,5 @@
-import { api } from './api-client';
-import { API_ENDPOINTS, API_CONFIG } from './api-config';
-import { setToken, setRefreshToken, removeToken, getToken } from './api-client';
+import { api, getToken, removeToken, setRefreshToken, setToken } from './api-client';
+import { API_CONFIG, API_ENDPOINTS } from './api-config';
 
 // Auth Service
 export const authService = {
@@ -11,6 +10,8 @@ export const authService = {
     email?: string;
     phone?: string;
     password: string;
+    gender?: string;
+    dob?: string;
   }) => {
     return api.post(API_ENDPOINTS.AUTH.REGISTER, data);
   },
@@ -25,7 +26,7 @@ export const authService = {
     // Backend expects 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
-      otp: data.otp
+      otp: data.otp,
     };
 
     const response = await api.post(API_ENDPOINTS.AUTH.VERIFY_REGISTER, payload);
@@ -39,27 +40,22 @@ export const authService = {
   },
 
   // Resend OTP
-  resendOtp: async (data: {
-    email?: string;
-    phone?: string;
-    userId: string;
-  }) => {
-    // Backend expects 'identifier' field (email or phone)
-    const payload = {
-      identifier: data.email || data.phone,
-      userId: data.userId
-    };
+  resendOtp: async (data: { email?: string; phone?: string }) => {
+    // Backend expects email or phone field directly
+    const payload: any = {};
+    if (data.email) {
+      payload.email = data.email;
+    }
+    if (data.phone) {
+      payload.phone = data.phone;
+    }
     return api.post(API_ENDPOINTS.AUTH.RESEND_OTP, payload);
   },
 
   // Login
-  login: async (data: {
-    email?: string;
-    phone?: string;
-    password: string;
-  }) => {
+  login: async (data: { email?: string; phone?: string; password: string }) => {
     const payload: any = {
-      password: data.password
+      password: data.password,
     };
 
     // Backend expects email or phone field directly
@@ -81,16 +77,11 @@ export const authService = {
   },
 
   // Verify Login OTP
-  verifyLogin: async (data: {
-    email?: string;
-    phone?: string;
-    userId: string;
-    otp: string;
-  }) => {
+  verifyLogin: async (data: { email?: string; phone?: string; userId: string; otp: string }) => {
     // Backend expects 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
-      otp: data.otp
+      otp: data.otp,
     };
 
     const response = await api.post(API_ENDPOINTS.AUTH.VERIFY_LOGIN, payload);
@@ -123,15 +114,18 @@ export const authService = {
   // Update Profile Picture
   updateProfilePicture: async (formData: FormData) => {
     const token = getToken();
-    const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.UPDATE_PROFILE_PICTURE}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        // Don't set Content-Type for FormData - browser will set it automatically
-      },
-      body: formData,
-      credentials: 'include',
-    });
+    const response = await fetch(
+      `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.UPDATE_PROFILE_PICTURE}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          // Don't set Content-Type for FormData - browser will set it automatically
+        },
+        body: formData,
+        credentials: 'include',
+      }
+    );
 
     return response.json();
   },
@@ -140,12 +134,12 @@ export const authService = {
   updateCoverPhoto: async (formData: FormData) => {
     const token = getToken();
     const response = await fetch(`${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.UPDATE_COVER_PHOTO}`, {
-      method: "PUT",
+      method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
       },
       body: formData,
-      credentials: "include",
+      credentials: 'include',
     });
 
     const data = await response.json();
@@ -153,9 +147,9 @@ export const authService = {
     // Normalize response to match ApiResponse interface if needed
     if (!response.ok) {
       throw {
-        message: data.message || "Failed to update cover photo",
+        message: data.message || 'Failed to update cover photo',
         success: false,
-        data: null
+        data: null,
       };
     }
 
@@ -175,13 +169,10 @@ export const authService = {
   },
 
   // Forgot Password
-  forgotPassword: async (data: {
-    email?: string;
-    phone?: string;
-  }) => {
+  forgotPassword: async (data: { email?: string; phone?: string }) => {
     // Backend may expect 'identifier' field (email or phone)
     const payload = {
-      identifier: data.email || data.phone
+      identifier: data.email || data.phone,
     };
     return api.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, payload);
   },
@@ -192,10 +183,7 @@ export const authService = {
   },
 
   // Change Password
-  changePassword: async (data: {
-    currentPassword: string;
-    newPassword: string;
-  }) => {
+  changePassword: async (data: { currentPassword: string; newPassword: string }) => {
     return api.post(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, data);
   },
 
@@ -233,12 +221,16 @@ export const authService = {
     bio?: string;
     profilePicture?: File;
     coverPhoto?: File;
+    interests?: string[];
   }) => {
     const formData = new FormData();
     formData.append('username', data.username);
     if (data.bio) formData.append('bio', data.bio);
     if (data.profilePicture) formData.append('profilePicture', data.profilePicture);
     if (data.coverPhoto) formData.append('coverPhoto', data.coverPhoto);
+    if (data.interests && data.interests.length > 0) {
+      formData.append('interests', JSON.stringify(data.interests));
+    }
 
     return api.upload(API_ENDPOINTS.AUTH.COMPLETE_PROFILE, formData);
   },
@@ -699,11 +691,7 @@ export const chatService = {
 // Live Streaming Service
 export const liveStreamService = {
   // Create Live Stream
-  createLiveStream: async (data: {
-    title: string;
-    description?: string;
-    thumbnail?: File;
-  }) => {
+  createLiveStream: async (data: { title: string; description?: string; thumbnail?: File }) => {
     if (data.thumbnail) {
       const formData = new FormData();
       formData.append('title', data.title);

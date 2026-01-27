@@ -6,25 +6,46 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/api-client';
 import { authService } from '@/lib/api-services';
-import { Bookmark, Camera, Eye, EyeOff, Heart, MessageCircle, Play, Send } from 'lucide-react';
+import {
+  Bookmark,
+  Camera,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Heart,
+  MessageCircle,
+  Play,
+  Send,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
+    fullName: '',
     email: '',
+    phone: '',
     password: '',
     confirmPassword: '',
+    gender: '',
+    birthday: '',
   });
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [currentImage, setCurrentImage] = useState(0);
+  const [genderDropdownOpen, setGenderDropdownOpen] = useState(false);
+  const genderDropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  const genderOptions = [
+    { value: 'male', label: 'Male' },
+    { value: 'female', label: 'Female' },
+    { value: 'other', label: 'Other' },
+    { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+  ];
 
   const images = [
     '/Landing/cat.jpeg',
@@ -40,9 +61,39 @@ export default function SignupPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Close gender dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (genderDropdownRef.current && !genderDropdownRef.current.contains(event.target as Node)) {
+        setGenderDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // Calculate age from birthday
+  const calculateAge = (birthday: string): number => {
+    const birthDate = new Date(birthday);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  // Get max date for 18+ restriction
+  const getMaxDate = (): string => {
+    const today = new Date();
+    today.setFullYear(today.getFullYear() - 18);
+    return today.toISOString().split('T')[0];
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -51,19 +102,40 @@ export default function SignupPage() {
 
     // Validation
     if (
-      !formData.firstName ||
-      !formData.lastName ||
+      !formData.fullName ||
       !formData.email ||
+      !formData.phone ||
       !formData.password ||
-      !formData.confirmPassword
+      !formData.confirmPassword ||
+      !formData.gender ||
+      !formData.birthday
     ) {
       toast.error('Please fill in all fields');
       setLoading(false);
       return;
     }
 
+    // Full name validation (at least 2 words)
+    const nameParts = formData.fullName
+      .trim()
+      .split(' ')
+      .filter((part) => part.length > 0);
+    if (nameParts.length < 2) {
+      toast.error('Please enter your full name (first and last name)');
+      setLoading(false);
+      return;
+    }
+
     if (!/\S+@\S+\.\S+/.test(formData.email)) {
       toast.error('Please enter a valid email address');
+      setLoading(false);
+      return;
+    }
+
+    // Phone validation (10 digits)
+    const phoneDigits = formData.phone.replace(/\D/g, '');
+    if (phoneDigits.length < 10) {
+      toast.error('Please enter a valid phone number (at least 10 digits)');
       setLoading(false);
       return;
     }
@@ -80,25 +152,45 @@ export default function SignupPage() {
       return;
     }
 
+    // Age validation (18+)
+    const age = calculateAge(formData.birthday);
+    if (age < 18) {
+      toast.error('You must be at least 18 years old to create an account');
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await authService.register({
-        firstName: formData.firstName,
-        lastName: formData.lastName,
+        firstName: nameParts[0],
+        lastName: nameParts.slice(1).join(' '),
         email: formData.email,
+        phone: formData.phone,
         password: formData.password,
+        gender: formData.gender,
+        dob: formData.birthday,
       });
 
       if (response.success && response.data.otpSent) {
-        // Store registration data for OTP verification
+        // Store registration data for OTP verification and resend
         localStorage.setItem(
           'otpVerification',
           JSON.stringify({
-            identifier: response.data.identifier, // Use identifier from backend
+            identifier: response.data.identifier,
             method: response.data.method,
+            // Store registration data for resend
+            registrationData: {
+              firstName: nameParts[0],
+              lastName: nameParts.slice(1).join(' '),
+              email: formData.email,
+              phone: formData.phone,
+              password: formData.password,
+              gender: formData.gender,
+              dob: formData.birthday,
+            },
           })
         );
         toast.success('OTP sent to your email!');
-        // Redirect to OTP verification page
         router.push('/verify-otp');
       } else {
         toast.error(response.message || 'Registration failed. Please try again.');
@@ -107,7 +199,7 @@ export default function SignupPage() {
       const apiError = err as ApiError;
 
       if (apiError.statusCode === 409) {
-        toast.error('Email already exists. Please use a different email or login.');
+        toast.error('Email or phone already exists. Please use different credentials or login.');
       } else if (apiError.statusCode === 400) {
         toast.error(apiError.message || 'Invalid input. Please check your information.');
       } else {
@@ -267,65 +359,52 @@ export default function SignupPage() {
       </div>
 
       {/* Right Side - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center px-8 py-12 bg-white dark:bg-gray-950">
+      <div className="w-full lg:w-1/2 flex items-center justify-center px-4 py-4 lg:px-8 lg:py-12 bg-white dark:bg-gray-950">
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
-          <div className="lg:hidden flex justify-center mb-8">
+          <div className="lg:hidden flex justify-center mb-4">
             <Link href="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
-                <Camera className="w-6 h-6 text-white" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
+                <Camera className="w-5 h-5 text-white" />
               </div>
-              <span className="text-2xl font-bold bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 bg-clip-text text-transparent">
+              <span className="text-xl font-bold bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 bg-clip-text text-transparent">
                 ClickME
               </span>
             </Link>
           </div>
 
           {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Create Account</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">
-              Join ClickME and start sharing your moments
+          <div className="mb-4 lg:mb-8">
+            <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white">
+              Create Account
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1 text-sm lg:text-base">
+              Join ClickME and start sharing
             </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSignup} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
-                  First Name
-                </label>
-                <Input
-                  type="text"
-                  name="firstName"
-                  placeholder="First name"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  disabled={loading}
-                  required
-                  className="h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
-                  Last Name
-                </label>
-                <Input
-                  type="text"
-                  name="lastName"
-                  placeholder="Last name"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  disabled={loading}
-                  required
-                  className="h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
-                />
-              </div>
+          <form onSubmit={handleSignup} className="space-y-3 lg:space-y-4">
+            {/* Full Name */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                Full Name
+              </label>
+              <Input
+                type="text"
+                name="fullName"
+                placeholder="Enter your full name"
+                value={formData.fullName}
+                onChange={handleChange}
+                disabled={loading}
+                required
+                className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
+              />
             </div>
 
+            {/* Email */}
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                 Email
               </label>
               <Input
@@ -336,24 +415,114 @@ export default function SignupPage() {
                 onChange={handleChange}
                 disabled={loading}
                 required
-                className="h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
+                className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
               />
             </div>
 
+            {/* Phone Number */}
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                Phone Number
+              </label>
+              <Input
+                type="tel"
+                name="phone"
+                placeholder="+91 9876543210"
+                value={formData.phone}
+                onChange={handleChange}
+                disabled={loading}
+                required
+                className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
+              />
+            </div>
+
+            {/* Gender & Birthday Row */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
+                  Gender
+                </label>
+                <div className="relative" ref={genderDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setGenderDropdownOpen(!genderDropdownOpen)}
+                    disabled={loading}
+                    className="w-full h-12 px-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg focus:border-purple-500 focus:ring-purple-500 text-gray-900 dark:text-white flex items-center justify-between"
+                  >
+                    <span
+                      className={
+                        formData.gender
+                          ? 'text-gray-900 dark:text-white'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }
+                    >
+                      {formData.gender
+                        ? genderOptions.find((g) => g.value === formData.gender)?.label
+                        : 'Gender'}
+                    </span>
+                    <ChevronDown
+                      className={`w-5 h-5 text-gray-500 transition-transform ${genderDropdownOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                  {genderDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-gray-800 dark:bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                      {genderOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setFormData((prev) => ({ ...prev, gender: option.value }));
+                            setGenderDropdownOpen(false);
+                          }}
+                          className={`w-full px-4 py-3 text-left hover:bg-gray-700 transition-colors ${
+                            formData.gender === option.value
+                              ? 'text-white bg-gray-700'
+                              : 'text-gray-300'
+                          }`}
+                        >
+                          {formData.gender === option.value && <span className="mr-2">✓</span>}
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                  Birthday
+                </label>
+                <Input
+                  type="date"
+                  name="birthday"
+                  value={formData.birthday}
+                  onChange={handleChange}
+                  max={getMaxDate()}
+                  disabled={loading}
+                  required
+                  className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 -mt-1 lg:-mt-2">
+              You must be at least 18 years old
+            </p>
+
+            {/* Password */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                 Password
               </label>
               <div className="relative">
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   name="password"
-                  placeholder="Create a password (min 6 characters)"
+                  placeholder="Min 6 characters"
                   value={formData.password}
                   onChange={handleChange}
                   disabled={loading}
                   required
-                  className="h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500 pr-12"
+                  className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500 pr-12"
                 />
                 <button
                   type="button"
@@ -366,19 +535,19 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                 Confirm Password
               </label>
               <div className="relative">
                 <Input
                   type={showConfirmPassword ? 'text' : 'password'}
                   name="confirmPassword"
-                  placeholder="Confirm your password"
+                  placeholder="Confirm password"
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   disabled={loading}
                   required
-                  className="h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500 pr-12"
+                  className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500 pr-12"
                 />
                 <button
                   type="button"
@@ -396,7 +565,7 @@ export default function SignupPage() {
 
             <Button
               type="submit"
-              className="w-full h-12 bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 hover:opacity-90 text-white font-semibold text-base rounded-xl transition-all"
+              className="w-full h-10 lg:h-12 bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 hover:opacity-90 text-white font-semibold text-sm lg:text-base rounded-xl transition-all"
               disabled={loading}
             >
               {loading ? (
@@ -426,14 +595,14 @@ export default function SignupPage() {
           </form>
 
           {/* Divider */}
-          <div className="my-6 flex items-center gap-4">
+          <div className="my-3 lg:my-6 flex items-center gap-4">
             <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"></div>
             <span className="text-sm text-gray-500 dark:text-gray-400">or</span>
             <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"></div>
           </div>
 
           {/* Sign In Link */}
-          <p className="text-center text-gray-600 dark:text-gray-400">
+          <p className="text-center text-gray-600 dark:text-gray-400 text-sm">
             Already have an account?{' '}
             <Link
               href="/login"
@@ -444,7 +613,7 @@ export default function SignupPage() {
           </p>
 
           {/* Footer */}
-          <p className="text-center text-gray-400 dark:text-gray-600 text-xs mt-8">
+          <p className="text-center text-gray-400 dark:text-gray-600 text-xs mt-4 lg:mt-8">
             © 2026 ClickME. All rights reserved.
           </p>
         </div>

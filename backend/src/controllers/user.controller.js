@@ -1,20 +1,18 @@
-import { User } from "../models/user.model.js";
-import { Followers } from "../models/followers.model.js";
-import { Post } from "../models/post.model.js";
-import { Reel } from "../models/reel.model.js";
-import { Save } from "../models/save.model.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import ApiError from "../utils/ApiError.js";
-import asyncHandler from "../utils/asyncHandler.js";
-import jwt from "jsonwebtoken";
-import crypto from "crypto";
-import emailService from "../services/email.service.js";
-import smsService from "../services/sms.service.js";
-import OTPService from "../services/otp.service.js";
-import EmailService from "../services/email.service.js";
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import { Followers } from '../models/followers.model.js';
+import { Post } from '../models/post.model.js';
+import { Reel } from '../models/reel.model.js';
+import { Save } from '../models/save.model.js';
+import { User } from '../models/user.model.js';
+import { default as emailService, default as EmailService } from '../services/email.service.js';
+import smsService from '../services/sms.service.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import { uploadOnCloudinary } from '../utils/cloudinary.js';
 import redis from '../utils/redis.config.js';
-import bcrypt from "bcrypt";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
 // import crypto from "crypto";
 
 // Utility function to generate a 6-digit OTP as string
@@ -27,7 +25,7 @@ export const generateAccessAndRefreshTokens = async (userId) => {
     const user = await User.findById(userId);
 
     if (!user) {
-      throw new ApiError(404, "User not found");
+      throw new ApiError(404, 'User not found');
     }
 
     const accessToken = await user.generateAccessToken();
@@ -38,26 +36,44 @@ export const generateAccessAndRefreshTokens = async (userId) => {
     await user.save({ validateBeforeSave: false });
     return { accessToken, refreshToken };
   } catch (error) {
-    console.error("Token generation error:", error);
+    console.error('Token generation error:', error);
     throw new ApiError(
       500,
-      error?.message ||
-      "Something went wrong while generating refresh and access tokens"
+      error?.message || 'Something went wrong while generating refresh and access tokens'
     );
   }
 };
 
 const registerUser = asyncHandler(async (req, res) => {
-  const { firstName, lastName, email, phone, password } = req.body;
+  const { firstName, lastName, email, phone, password, gender, dob } = req.body;
 
   // Validate required fields
   if (!firstName?.trim() || !lastName?.trim() || !password?.trim()) {
-    throw new ApiError(400, "First name, last name, and password are required");
+    throw new ApiError(400, 'First name, last name, and password are required');
   }
 
   // At least one of email or phone must be provided
   if (!email && !phone) {
-    throw new ApiError(400, "Either email or phone number is required");
+    throw new ApiError(400, 'Either email or phone number is required');
+  }
+
+  // Validate gender if provided
+  if (gender && !['male', 'female', 'other', 'prefer_not_to_say'].includes(gender)) {
+    throw new ApiError(400, 'Invalid gender value');
+  }
+
+  // Validate date of birth (must be 18+)
+  if (dob) {
+    const birthDate = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    if (age < 18) {
+      throw new ApiError(400, 'You must be at least 18 years old to create an account');
+    }
   }
 
   // Check if user already exists in database
@@ -68,7 +84,7 @@ const registerUser = asyncHandler(async (req, res) => {
   const existedUser = await User.findOne({ $or: query });
 
   if (existedUser) {
-    throw new ApiError(409, "User with this email or phone already exists");
+    throw new ApiError(409, 'User with this email or phone already exists');
   }
 
   // Check rate limiting - prevent spam (max 3 attempts per 2 minutes)
@@ -81,12 +97,12 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   if (attemptCount > 3) {
-    throw new ApiError(429, "Too many registration attempts. Please try again later.");
+    throw new ApiError(429, 'Too many registration attempts. Please try again later.');
   }
 
   // Generate OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
 
   // Hash password
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -100,6 +116,8 @@ const registerUser = asyncHandler(async (req, res) => {
     hashedPassword,
     hashedOtp,
     otpCreatedAt: Date.now(),
+    gender: gender || null,
+    dob: dob || null,
   };
 
   const redisKey = `registration:${identifier}`;
@@ -112,7 +130,7 @@ const registerUser = asyncHandler(async (req, res) => {
   // Send OTP
   try {
     if (email) {
-      await emailService.sendOTPEmail(email, otp, "registration");
+      await emailService.sendOTPEmail(email, otp, 'registration');
 
       return res.status(200).json(
         new ApiResponse(
@@ -120,14 +138,14 @@ const registerUser = asyncHandler(async (req, res) => {
           {
             otpSent: true,
             identifier: email,
-            method: "email",
+            method: 'email',
             expiresIn: 600, // 10 minutes in seconds
           },
-          "OTP sent to your email. Please verify within 10 minutes."
+          'OTP sent to your email. Please verify within 10 minutes.'
         )
       );
     } else if (phone) {
-      await smsService.sendOTP(phone, otp, "registration");
+      await smsService.sendOTP(phone, otp, 'registration');
 
       return res.status(200).json(
         new ApiResponse(
@@ -135,20 +153,17 @@ const registerUser = asyncHandler(async (req, res) => {
           {
             otpSent: true,
             identifier: phone,
-            method: "sms",
+            method: 'sms',
             expiresIn: 600,
           },
-          "OTP sent to your phone. Please verify within 10 minutes."
+          'OTP sent to your phone. Please verify within 10 minutes.'
         )
       );
     }
   } catch (error) {
     // Clean up Redis data if OTP sending fails
     await redis.del(redisKey);
-    throw new ApiError(
-      500,
-      error?.message || "Failed to send OTP. Please try again."
-    );
+    throw new ApiError(500, error?.message || 'Failed to send OTP. Please try again.');
   }
 });
 
@@ -157,11 +172,11 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   const { identifier, otp } = req.body; // identifier = email or phone
 
   if (!identifier?.trim()) {
-    throw new ApiError(400, "identifier is required");
+    throw new ApiError(400, 'identifier is required');
   }
 
   if (!otp?.trim()) {
-    throw new ApiError(400, "OTP is required");
+    throw new ApiError(400, 'OTP is required');
   }
 
   // Get registration data from Redis
@@ -171,7 +186,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   if (!registrationDataJson) {
     throw new ApiError(
       400,
-      "OTP has expired or registration session not found. Please register again."
+      'OTP has expired or registration session not found. Please register again.'
     );
   }
 
@@ -181,14 +196,14 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   const otpAge = Date.now() - registrationData.otpCreatedAt;
   if (otpAge > 3 * 60 * 1000) {
     await redis.del(redisKey);
-    throw new ApiError(400, "OTP has expired. Please request a new one.");
+    throw new ApiError(400, 'OTP has expired. Please request a new one.');
   }
 
   // Verify OTP
-  const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
 
   if (hashedOtp !== registrationData.hashedOtp) {
-    throw new ApiError(400, "Invalid OTP");
+    throw new ApiError(400, 'Invalid OTP');
   }
 
   // Check again if user was created in the meantime (race condition)
@@ -199,7 +214,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   const existingUser = await User.findOne({ $or: query });
   if (existingUser) {
     await redis.del(redisKey);
-    throw new ApiError(409, "User already exists");
+    throw new ApiError(409, 'User already exists');
   }
 
   // Create user account immediately with profileCompleted = false
@@ -210,9 +225,11 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
     email: registrationData.email || undefined,
     phone: registrationData.phone || undefined,
     password: registrationData.hashedPassword,
-    status: "active",
+    gender: registrationData.gender || undefined,
+    dob: registrationData.dob ? new Date(registrationData.dob) : undefined,
+    status: 'active',
     profileCompleted: false, // User needs to complete profile
-    username: `user_${Date.now()}` // Temporary username, will be updated in profile setup
+    username: `user_${Date.now()}`, // Temporary username, will be updated in profile setup
   });
 
   // Clean up Redis
@@ -220,24 +237,20 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
   await redis.del(`ratelimit:registration:${identifier}`);
 
   // Generate tokens
-  const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(
-    user._id
-  );
+  const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user._id);
 
-  const createdUser = await User.findById(user._id).select(
-    "-password -refreshToken"
-  );
+  const createdUser = await User.findById(user._id).select('-password -refreshToken');
 
   const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
   };
 
   return res
     .status(201)
-    .cookie("accessToken", accessToken, cookieOptions)
-    .cookie("refreshToken", refreshToken, cookieOptions)
+    .cookie('accessToken', accessToken, cookieOptions)
+    .cookie('refreshToken', refreshToken, cookieOptions)
     .json(
       new ApiResponse(
         201,
@@ -247,7 +260,7 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
           refreshToken,
           profileCompleted: false, // Frontend should redirect to profile setup
         },
-        "Account created successfully. Please complete your profile."
+        'Account created successfully. Please complete your profile.'
       )
     );
 });
@@ -337,16 +350,100 @@ const verifyRegisterOtp = asyncHandler(async (req, res) => {
 //   }
 // });
 
+// Resend Registration OTP - Active Implementation
+const resendRegistrationOtp = asyncHandler(async (req, res) => {
+  const { email, phone } = req.body;
+  const identifier = email || phone;
+
+  if (!identifier?.trim()) {
+    throw new ApiError(400, 'Email or phone is required');
+  }
+
+  // Check rate limiting for resend
+  const resendRateLimitKey = `ratelimit:resend:${identifier}`;
+  const resendCount = await redis.incr(resendRateLimitKey);
+
+  if (resendCount === 1) {
+    await redis.expire(resendRateLimitKey, 15 * 60); // 15 minutes
+  }
+
+  if (resendCount > 5) {
+    throw new ApiError(429, 'Too many resend attempts. Please try again later.');
+  }
+
+  // Get existing registration data
+  const redisKey = `registration:${identifier}`;
+  const registrationDataJson = await redis.get(redisKey);
+
+  if (!registrationDataJson) {
+    throw new ApiError(
+      404,
+      'Registration session not found or expired. Please start registration again.'
+    );
+  }
+
+  const registrationData = JSON.parse(registrationDataJson);
+
+  // Generate new OTP
+  const otp = generateOTP();
+  const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+  // Update registration data with new OTP
+  registrationData.hashedOtp = hashedOtp;
+  registrationData.otpCreatedAt = Date.now();
+
+  // Store updated data (refresh TTL to 10 minutes)
+  await redis.setex(redisKey, 10 * 60, JSON.stringify(registrationData));
+
+  // Send new OTP
+  try {
+    if (email || registrationData.email) {
+      const emailAddress = email || registrationData.email;
+      await emailService.sendOTPEmail(emailAddress, otp, 'registration');
+      console.log(`OTP resent to email: ${emailAddress}`);
+
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            otpSent: true,
+            method: 'email',
+          },
+          'New OTP sent to your email'
+        )
+      );
+    } else if (phone || registrationData.phone) {
+      const phoneNumber = phone || registrationData.phone;
+      await smsService.sendOTP(phoneNumber, otp, 'registration');
+      console.log(`OTP resent to phone: ${phoneNumber}`);
+
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            otpSent: true,
+            method: 'sms',
+          },
+          'New OTP sent to your phone'
+        )
+      );
+    }
+  } catch (error) {
+    console.error('Failed to resend OTP:', error);
+    throw new ApiError(500, error?.message || 'Failed to resend OTP. Please try again.');
+  }
+});
+
 // login user Api (step 1: credentials + send OTP)
 const loginUser = asyncHandler(async (req, res) => {
   const { email, phone, password } = req.body;
 
   if (!email && !phone) {
-    throw new ApiError(400, "Email or phone is required");
+    throw new ApiError(400, 'Email or phone is required');
   }
 
   if (!password) {
-    throw new ApiError(400, "Password is required");
+    throw new ApiError(400, 'Password is required');
   }
 
   // Build query more explicitly
@@ -360,10 +457,10 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({
     $or: query,
-  }).select("+password");
+  }).select('+password');
 
   if (!user) {
-    throw new ApiError(404, "User does not exist");
+    throw new ApiError(404, 'User does not exist');
   }
 
   // Verify the user matches what we're looking for
@@ -371,10 +468,10 @@ const loginUser = asyncHandler(async (req, res) => {
   const phoneMatch = phone && user.phone === phone;
 
   if (!emailMatch && !phoneMatch) {
-    console.error("QUERY MISMATCH! Found wrong user!");
-    console.error("Requested email:", email, "Found email:", user.email);
-    console.error("Requested phone:", phone, "Found phone:", user.phone);
-    throw new ApiError(404, "User does not exist");
+    console.error('QUERY MISMATCH! Found wrong user!');
+    console.error('Requested email:', email, 'Found email:', user.email);
+    console.error('Requested phone:', phone, 'Found phone:', user.phone);
+    throw new ApiError(404, 'User does not exist');
   }
 
   // Check if account is locked
@@ -394,11 +491,8 @@ const loginUser = asyncHandler(async (req, res) => {
   }
 
   // Check if user is active
-  if (user.status !== "active") {
-    throw new ApiError(
-      403,
-      "Account is not active. Please contact administrator."
-    );
+  if (user.status !== 'active') {
+    throw new ApiError(403, 'Account is not active. Please contact administrator.');
   }
 
   const isMatch = await user.isPasswordCorrect(password);
@@ -410,7 +504,7 @@ const loginUser = asyncHandler(async (req, res) => {
       user.lockUntil = new Date(Date.now() + 30 * 60 * 1000); // Lock for 30 minutes
     }
     await user.save({ validateBeforeSave: false });
-    throw new ApiError(401, "Invalid user credentials");
+    throw new ApiError(401, 'Invalid user credentials');
   }
 
   // DIRECT LOGIN - OTP COMMENTED OUT
@@ -420,24 +514,20 @@ const loginUser = asyncHandler(async (req, res) => {
   await user.save({ validateBeforeSave: false });
 
   // Generate tokens and login directly
-  const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(
-    user._id
-  );
+  const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user._id);
 
-  const loggedInUser = await User.findById(user._id).select(
-    "-password -refreshToken"
-  );
+  const loggedInUser = await User.findById(user._id).select('-password -refreshToken');
 
   const options = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
   };
 
   return res
     .status(200)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
+    .cookie('accessToken', accessToken, options)
+    .cookie('refreshToken', refreshToken, options)
     .json(
       new ApiResponse(
         200,
@@ -446,7 +536,7 @@ const loginUser = asyncHandler(async (req, res) => {
           accessToken,
           refreshToken,
         },
-        "User logged in successfully"
+        'User logged in successfully'
       )
     );
 
@@ -506,11 +596,11 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 // login user Api (step 2: verify OTP + issue tokens) - COMMENTED OUT FOR DIRECT LOGIN
-/* 
+/*
 const verifyLoginOtp = asyncHandler(async (req, res) => {
   const { email, phone, userId, otp } = req.body;
-  
-  
+
+
   if (!otp) {
     throw new ApiError(400, "OTP is required");
   }
@@ -593,19 +683,15 @@ const verifyLoginOtp = asyncHandler(async (req, res) => {
 
 // Temporary verifyLoginOtp stub for compatibility
 const verifyLoginOtp = asyncHandler(async (req, res) => {
-  throw new ApiError(
-    501,
-    "OTP login is currently disabled. Please use direct login."
-  );
+  throw new ApiError(501, 'OTP login is currently disabled. Please use direct login.');
 });
 
 // logout user Api
 const logOutUser = asyncHandler(async (req, res) => {
-  const incomingRefreshToken =
-    req.cookies?.refreshToken || req.body?.refreshToken;
+  const incomingRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
   if (!incomingRefreshToken) {
-    throw new ApiError(401, "Unauthorized request");
+    throw new ApiError(401, 'Unauthorized request');
   }
 
   // Decode without verify (ignore expiration)
@@ -624,34 +710,31 @@ const logOutUser = asyncHandler(async (req, res) => {
 
   const cookieOptions = {
     httpOnly: true,
-    sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: 'strict',
+    secure: process.env.NODE_ENV === 'production',
   };
 
   return res
     .status(200)
-    .clearCookie("accessToken", cookieOptions)
-    .clearCookie("refreshToken", cookieOptions)
-    .json(new ApiResponse(200, {}, "user logged Out"));
+    .clearCookie('accessToken', cookieOptions)
+    .clearCookie('refreshToken', cookieOptions)
+    .json(new ApiResponse(200, {}, 'user logged Out'));
 });
 
 // Get current user
 const getCurrentUser = asyncHandler(async (req, res) => {
-
-  const user = await User.findById(req.user._id).select(
-    "-password -refreshToken"
-  );
+  const user = await User.findById(req.user._id).select('-password -refreshToken');
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
   const followersCount = await Followers.countDocuments({
-    following_id: user._id,
-    status: "accepted",
-  }),
+      following_id: user._id,
+      status: 'accepted',
+    }),
     followingCount = await Followers.countDocuments({
       follower_id: user._id,
-      status: "accepted",
+      status: 'accepted',
     }),
     totalPosts = await Post.countDocuments({
       user_id: user._id,
@@ -675,58 +758,55 @@ const getCurrentUser = asyncHandler(async (req, res) => {
         totalReels,
         totalSavedPosts,
       },
-      "User fetched successfully"
+      'User fetched successfully'
     )
   );
 });
 
 // Refresh access token
 const refreshAccessToken = asyncHandler(async (req, res) => {
-  const incomingRefreshToken =
-    req.cookies?.refreshToken || req.body?.refreshToken;
+  const incomingRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
   if (!incomingRefreshToken) {
-    throw new ApiError(401, "Unauthorized request");
+    throw new ApiError(401, 'Unauthorized request');
   }
 
   try {
-    const decodedToken = jwt.verify(
-      incomingRefreshToken,
-      process.env.REFRESH_TOKEN_SECRET
-    );
+    const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
 
-    const user = await User.findById(decodedToken?._id).select("+refreshToken");
+    const user = await User.findById(decodedToken?._id).select('+refreshToken');
 
     if (!user) {
-      throw new ApiError(401, "Invalid refresh token");
+      throw new ApiError(401, 'Invalid refresh token');
     }
 
     if (incomingRefreshToken !== user.refreshToken) {
-      throw new ApiError(401, "Refresh token is expired or used");
+      throw new ApiError(401, 'Refresh token is expired or used');
     }
 
-    const { accessToken, refreshToken: newRefreshToken } =
-      await generateAccessAndRefreshTokens(user._id);
+    const { accessToken, refreshToken: newRefreshToken } = await generateAccessAndRefreshTokens(
+      user._id
+    );
 
     const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
     };
 
     return res
       .status(200)
-      .cookie("accessToken", accessToken, cookieOptions)
-      .cookie("refreshToken", newRefreshToken, cookieOptions)
+      .cookie('accessToken', accessToken, cookieOptions)
+      .cookie('refreshToken', newRefreshToken, cookieOptions)
       .json(
         new ApiResponse(
           200,
           { accessToken, refreshToken: newRefreshToken },
-          "Access token refreshed"
+          'Access token refreshed'
         )
       );
   } catch (error) {
-    throw new ApiError(401, error?.message || "Invalid refresh token");
+    throw new ApiError(401, error?.message || 'Invalid refresh token');
   }
 });
 
@@ -735,7 +815,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const { email, phone } = req.body;
 
   if (!email && !phone) {
-    throw new ApiError(400, "Email or phone is required");
+    throw new ApiError(400, 'Email or phone is required');
   }
 
   // Build query properly - only include fields that are provided
@@ -752,47 +832,44 @@ const forgotPassword = asyncHandler(async (req, res) => {
   });
 
   if (!user) {
-    throw new ApiError(404, "User not found with this email or phone");
+    throw new ApiError(404, 'User not found with this email or phone');
   }
 
   // Verify the user matches what we're looking for
-  const emailMatch =
-    email && user.email?.toLowerCase() === email.toLowerCase().trim();
+  const emailMatch = email && user.email?.toLowerCase() === email.toLowerCase().trim();
   const phoneMatch = phone && user.phone === phone.trim();
 
   if (!emailMatch && !phoneMatch) {
-    console.error("QUERY MISMATCH! Found wrong user!");
-    console.error("Requested email:", email, "Found email:", user.email);
-    console.error("Requested phone:", phone, "Found phone:", user.phone);
-    throw new ApiError(404, "User not found with this email or phone");
+    console.error('QUERY MISMATCH! Found wrong user!');
+    console.error('Requested email:', email, 'Found email:', user.email);
+    console.error('Requested phone:', phone, 'Found phone:', user.phone);
+    throw new ApiError(404, 'User not found with this email or phone');
   }
 
   // Generate JWT reset token (valid for 15 minutes)
   const resetToken = jwt.sign({ userId: user._id }, process.env.RESET_SECRET, {
-    expiresIn: "15m",
+    expiresIn: '15m',
   });
 
   // Send reset link via email with clickable button
-  if (
-    typeof EmailService.isConfigured === "function" &&
-    !EmailService.isConfigured()
-  ) {
-    throw new ApiError(500, "Email service not configured");
+  if (typeof EmailService.isConfigured === 'function' && !EmailService.isConfigured()) {
+    throw new ApiError(500, 'Email service not configured');
   }
 
-  const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"
-    }/reset-password?token=${resetToken}`;
+  const resetUrl = `${
+    process.env.FRONTEND_URL || 'http://localhost:3000'
+  }/reset-password?token=${resetToken}`;
 
   await EmailService.sendPasswordResetEmail(user.email, resetUrl);
   return res.status(200).json(
     new ApiResponse(
       200,
       {
-        message: "Password reset link sent to your email",
+        message: 'Password reset link sent to your email',
         email: user.email, // Return the actual email for confirmation
         expiresIn: 900,
       },
-      "Password reset link sent"
+      'Password reset link sent'
     )
   );
 });
@@ -802,15 +879,15 @@ const resetPassword = asyncHandler(async (req, res) => {
   const { newPassword } = req.body;
 
   if (!token) {
-    throw new ApiError(400, "Reset token is required");
+    throw new ApiError(400, 'Reset token is required');
   }
 
   if (!newPassword) {
-    throw new ApiError(400, "New password is required");
+    throw new ApiError(400, 'New password is required');
   }
 
   if (newPassword.length < 6) {
-    throw new ApiError(400, "Password must be at least 6 characters long");
+    throw new ApiError(400, 'Password must be at least 6 characters long');
   }
 
   // Verify the JWT token
@@ -818,21 +895,19 @@ const resetPassword = asyncHandler(async (req, res) => {
   try {
     decoded = jwt.verify(token, process.env.RESET_SECRET);
   } catch (error) {
-    throw new ApiError(400, "Invalid or expired reset token");
+    throw new ApiError(400, 'Invalid or expired reset token');
   }
 
-  const user = await User.findById(decoded.userId).select("+password");
+  const user = await User.findById(decoded.userId).select('+password');
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Save new password
   user.password = newPassword;
   await user.save();
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, {}, "Password reset successfully"));
+  return res.status(200).json(new ApiResponse(200, {}, 'Password reset successfully'));
 });
 
 const changePassword = asyncHandler(async (req, res) => {
@@ -840,26 +915,24 @@ const changePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
   if (!currentPassword || !newPassword) {
-    throw new ApiError(400, "Current and new passwords are required");
+    throw new ApiError(400, 'Current and new passwords are required');
   }
 
-  const user = await User.findById(userId).select("+password");
+  const user = await User.findById(userId).select('+password');
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   const isMatch = await user.isPasswordCorrect(currentPassword);
   if (!isMatch) {
-    throw new ApiError(401, "Current password is incorrect");
+    throw new ApiError(401, 'Current password is incorrect');
   }
 
   user.password = newPassword;
   await user.save();
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, {}, "Password changed successfully"));
+  return res.status(200).json(new ApiResponse(200, {}, 'Password changed successfully'));
 });
 
 const deleteUser = asyncHandler(async (req, res) => {
@@ -868,12 +941,10 @@ const deleteUser = asyncHandler(async (req, res) => {
   const user = await User.findByIdAndDelete(userId);
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, {}, "User deleted successfully"));
+  return res.status(200).json(new ApiResponse(200, {}, 'User deleted successfully'));
 });
 
 const updateProfile = asyncHandler(async (req, res) => {
@@ -900,7 +971,7 @@ const updateProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(userId);
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Update fields if provided
@@ -926,13 +997,11 @@ const updateProfile = asyncHandler(async (req, res) => {
 
   await user.save();
 
-  const updatedUser = await User.findById(userId).select(
-    "-password -refreshToken -otp"
-  );
+  const updatedUser = await User.findById(userId).select('-password -refreshToken -otp');
 
   return res
     .status(200)
-    .json(new ApiResponse(200, { user: updatedUser }, "Profile updated successfully"));
+    .json(new ApiResponse(200, { user: updatedUser }, 'Profile updated successfully'));
 });
 
 // Unlock account (for development/admin use)
@@ -940,7 +1009,7 @@ const unlockAccount = asyncHandler(async (req, res) => {
   const { email, phone, userId } = req.body;
 
   if (!email && !phone && !userId) {
-    throw new ApiError(400, "Email, phone, or userId is required");
+    throw new ApiError(400, 'Email, phone, or userId is required');
   }
 
   const query = [];
@@ -954,7 +1023,7 @@ const unlockAccount = asyncHandler(async (req, res) => {
   const user = await User.findOne({ $or: query });
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Reset lock fields only - don't trigger password rehash
@@ -962,7 +1031,7 @@ const unlockAccount = asyncHandler(async (req, res) => {
     { _id: user._id },
     {
       $set: { loginAttempts: 0 },
-      $unset: { lockUntil: "" },
+      $unset: { lockUntil: '' },
     }
   );
 
@@ -972,7 +1041,7 @@ const unlockAccount = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         { email: user.email, phone: user.phone },
-        "Account unlocked successfully"
+        'Account unlocked successfully'
       )
     );
 });
@@ -982,11 +1051,11 @@ const resetPasswordForTesting = asyncHandler(async (req, res) => {
   const { email, phone, userId, newPassword } = req.body;
 
   if (!email && !phone && !userId) {
-    throw new ApiError(400, "Email, phone, or userId is required");
+    throw new ApiError(400, 'Email, phone, or userId is required');
   }
 
   if (!newPassword) {
-    throw new ApiError(400, "New password is required");
+    throw new ApiError(400, 'New password is required');
   }
 
   const query = [];
@@ -997,10 +1066,10 @@ const resetPasswordForTesting = asyncHandler(async (req, res) => {
     if (phone) query.push({ phone });
   }
 
-  const user = await User.findOne({ $or: query }).select("+password");
+  const user = await User.findOne({ $or: query }).select('+password');
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Set new password (will be hashed by pre-save hook)
@@ -1013,7 +1082,7 @@ const resetPasswordForTesting = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         { email: user.email, phone: user.phone },
-        "Password reset successfully for testing"
+        'Password reset successfully for testing'
       )
     );
 });
@@ -1023,20 +1092,20 @@ const getUserProfile = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
   if (!userId) {
-    throw new ApiError(400, "User ID is required");
+    throw new ApiError(400, 'User ID is required');
   }
 
   // Find user by userId
   const user = await User.findById(userId).select(
-    "firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status"
+    'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status'
   );
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
-  if (user.status !== "active") {
-    throw new ApiError(403, "This account is not available");
+  if (user.status !== 'active') {
+    throw new ApiError(403, 'This account is not available');
   }
 
   // Check if current user is viewing the profile
@@ -1047,31 +1116,31 @@ const getUserProfile = asyncHandler(async (req, res) => {
     // Check if current user has blocked this profile user
     const currentUser = await User.findById(currentUserId).select('blockedUsers');
     const hasBlockedThem = currentUser?.blockedUsers?.some(
-      blockedId => blockedId.toString() === userId.toString()
+      (blockedId) => blockedId.toString() === userId.toString()
     );
 
     // Check if this profile user has blocked the current user
     const profileUser = await User.findById(userId).select('blockedUsers');
     const theyBlockedYou = profileUser?.blockedUsers?.some(
-      blockedId => blockedId.toString() === currentUserId.toString()
+      (blockedId) => blockedId.toString() === currentUserId.toString()
     );
 
     // If either has blocked the other, deny access
     if (hasBlockedThem || theyBlockedYou) {
-      throw new ApiError(404, "User not found"); // Return 404 like Instagram (don't reveal blocking)
+      throw new ApiError(404, 'User not found'); // Return 404 like Instagram (don't reveal blocking)
     }
   }
 
   // Count followers
   const followersCount = await Followers.countDocuments({
     following_id: user._id,
-    status: "accepted",
+    status: 'accepted',
   });
 
   // Count following
   const followingCount = await Followers.countDocuments({
     follower_id: user._id,
-    status: "accepted",
+    status: 'accepted',
   });
 
   // Count posts
@@ -1097,9 +1166,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
     });
 
     if (followRecord) {
-      if (followRecord.status === "accepted") {
+      if (followRecord.status === 'accepted') {
         isFollowing = true;
-      } else if (followRecord.status === "requested") {
+      } else if (followRecord.status === 'requested') {
         isPending = true;
       }
     }
@@ -1112,7 +1181,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     lastName: user.lastName,
     fullName: `${user.firstName} ${user.lastName}`,
     username: user.username,
-    bio: user.bio || "User bio here",
+    bio: user.bio || 'User bio here',
     profilePicture: user.profileImage || user.avatar,
     avatar: user.avatar,
     coverPhoto: user.coverPhoto,
@@ -1130,23 +1199,20 @@ const getUserProfile = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(200, profileData, "User profile retrieved successfully")
-    );
+    .json(new ApiResponse(200, profileData, 'User profile retrieved successfully'));
 });
-
 
 const updateProfileImage = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
   if (!userId) {
-    throw new ApiError(400, "Please provide user ID first");
+    throw new ApiError(400, 'Please provide user ID first');
   }
   // The file will be available as req.file after uploadSingle middleware
   // Try different ways to access the file
   const file = req.file || req.files?.file || req.files?.[0];
 
   if (!file) {
-    throw new ApiError(400, "At least one media file (image/video) is required");
+    throw new ApiError(400, 'At least one media file (image/video) is required');
   }
 
   // Upload to Cloudinary
@@ -1159,18 +1225,9 @@ const updateProfileImage = asyncHandler(async (req, res) => {
     userId,
     { profileImage: cloudinaryResponse.secure_url },
     { new: true }
-  ).select("-password -refreshToken -otp");
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        user,
-        "Profile image updated successfully"
-      )
-    );
+  ).select('-password -refreshToken -otp');
+  return res.status(200).json(new ApiResponse(200, user, 'Profile image updated successfully'));
 });
-
 
 // Block a user
 const blockUser = asyncHandler(async (req, res) => {
@@ -1179,18 +1236,18 @@ const blockUser = asyncHandler(async (req, res) => {
 
   // Validation: Check if userId is provided
   if (!userId) {
-    throw new ApiError(400, "User ID is required");
+    throw new ApiError(400, 'User ID is required');
   }
 
   // Validation: Check if user is trying to block themselves
   if (currentUserId.toString() === userId.toString()) {
-    throw new ApiError(400, "You cannot block yourself");
+    throw new ApiError(400, 'You cannot block yourself');
   }
 
   // Validation: Check if the user to be blocked exists
   const userToBlock = await User.findById(userId);
   if (!userToBlock) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Get current user
@@ -1198,31 +1255,29 @@ const blockUser = asyncHandler(async (req, res) => {
 
   // Check if user is already blocked
   if (currentUser.blockedUsers.includes(userId)) {
-    throw new ApiError(400, "User is already blocked");
+    throw new ApiError(400, 'User is already blocked');
   }
 
   // Add user to blocked list
   currentUser.blockedUsers.push(userId);
   await currentUser.save();
 
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        {
-          blockedUserId: userId,
-          blockedUser: {
-            _id: userToBlock._id,
-            firstName: userToBlock.firstName,
-            lastName: userToBlock.lastName,
-            username: userToBlock.username,
-            profileImage: userToBlock.profileImage || userToBlock.avatar,
-          },
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        blockedUserId: userId,
+        blockedUser: {
+          _id: userToBlock._id,
+          firstName: userToBlock.firstName,
+          lastName: userToBlock.lastName,
+          username: userToBlock.username,
+          profileImage: userToBlock.profileImage || userToBlock.avatar,
         },
-        "User blocked successfully"
-      )
-    );
+      },
+      'User blocked successfully'
+    )
+  );
 });
 
 // Unblock a user
@@ -1232,13 +1287,13 @@ const unblockUser = asyncHandler(async (req, res) => {
 
   // Validation: Check if userId is provided
   if (!userId) {
-    throw new ApiError(400, "User ID is required");
+    throw new ApiError(400, 'User ID is required');
   }
 
   // Validation: Check if the user exists
   const userToUnblock = await User.findById(userId);
   if (!userToUnblock) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Get current user
@@ -1246,7 +1301,7 @@ const unblockUser = asyncHandler(async (req, res) => {
 
   // Check if user is actually blocked
   if (!currentUser.blockedUsers.includes(userId)) {
-    throw new ApiError(400, "User is not blocked");
+    throw new ApiError(400, 'User is not blocked');
   }
 
   // Remove user from blocked list
@@ -1255,17 +1310,15 @@ const unblockUser = asyncHandler(async (req, res) => {
   );
   await currentUser.save();
 
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        {
-          unblockedUserId: userId,
-        },
-        "User unblocked successfully"
-      )
-    );
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        unblockedUserId: userId,
+      },
+      'User unblocked successfully'
+    )
+  );
 });
 
 // Get list of blocked users with pagination
@@ -1277,10 +1330,10 @@ const getBlockedUsers = asyncHandler(async (req, res) => {
 
   // Get current user with populated blocked users
   const currentUser = await User.findById(currentUserId)
-    .select("blockedUsers")
+    .select('blockedUsers')
     .populate({
-      path: "blockedUsers",
-      select: "firstName lastName username profileImage avatar bio isVerified",
+      path: 'blockedUsers',
+      select: 'firstName lastName username profileImage avatar bio isVerified',
       options: {
         skip: skip,
         limit: limit,
@@ -1288,7 +1341,7 @@ const getBlockedUsers = asyncHandler(async (req, res) => {
     });
 
   if (!currentUser) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Get total count of blocked users
@@ -1320,7 +1373,7 @@ const getBlockedUsers = asyncHandler(async (req, res) => {
           hasPrevPage: page > 1,
         },
       },
-      "Blocked users retrieved successfully"
+      'Blocked users retrieved successfully'
     )
   );
 });
@@ -1382,19 +1435,12 @@ const updatePrivacySettings = asyncHandler(async (req, res) => {
   }
 
   // Return updated user without sensitive fields
-  const updatedUser = await User.findById(userId).select(
-    '-password -refreshToken -otp'
-  );
+  const updatedUser = await User.findById(userId).select('-password -refreshToken -otp');
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { user: updatedUser },
-      'Privacy settings updated successfully'
-    )
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { user: updatedUser }, 'Privacy settings updated successfully'));
 });
-
 
 // Check username availability
 const checkUsernameAvailability = asyncHandler(async (req, res) => {
@@ -1413,7 +1459,8 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
         400,
         {
           available: false,
-          message: 'Username must be 3-30 characters and contain only letters, numbers, and underscores'
+          message:
+            'Username must be 3-30 characters and contain only letters, numbers, and underscores',
         },
         'Invalid username format'
       )
@@ -1422,11 +1469,38 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
 
   // Reserved usernames that cannot be used
   const reservedUsernames = [
-    'admin', 'administrator', 'root', 'system', 'support', 'help',
-    'api', 'www', 'mail', 'ftp', 'blog', 'dev', 'stage', 'test',
-    'official', 'verified', 'staff', 'team', 'info', 'contact',
-    'about', 'terms', 'privacy', 'settings', 'profile', 'user',
-    'login', 'signup', 'register', 'logout', 'auth', 'account'
+    'admin',
+    'administrator',
+    'root',
+    'system',
+    'support',
+    'help',
+    'api',
+    'www',
+    'mail',
+    'ftp',
+    'blog',
+    'dev',
+    'stage',
+    'test',
+    'official',
+    'verified',
+    'staff',
+    'team',
+    'info',
+    'contact',
+    'about',
+    'terms',
+    'privacy',
+    'settings',
+    'profile',
+    'user',
+    'login',
+    'signup',
+    'register',
+    'logout',
+    'auth',
+    'account',
   ];
 
   if (reservedUsernames.includes(username.toLowerCase())) {
@@ -1435,7 +1509,7 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
         200,
         {
           available: false,
-          message: 'This username is reserved and cannot be used'
+          message: 'This username is reserved and cannot be used',
         },
         'Username is reserved'
       )
@@ -1444,7 +1518,7 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
 
   // Check if username exists in database (case-insensitive)
   const existingUser = await User.findOne({
-    username: username.toLowerCase()
+    username: username.toLowerCase(),
   });
 
   const isAvailable = !existingUser;
@@ -1454,25 +1528,24 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
       200,
       {
         available: isAvailable,
-        message: isAvailable
-          ? 'Username is available'
-          : 'Username is already taken',
-        suggestions: !isAvailable ? [
-          `${username}_${Math.floor(Math.random() * 999)}`,
-          `${username}${new Date().getFullYear()}`,
-          `${username}_official`
-        ] : undefined
+        message: isAvailable ? 'Username is available' : 'Username is already taken',
+        suggestions: !isAvailable
+          ? [
+              `${username}_${Math.floor(Math.random() * 999)}`,
+              `${username}${new Date().getFullYear()}`,
+              `${username}_official`,
+            ]
+          : undefined,
       },
       isAvailable ? 'Username available' : 'Username taken'
     )
   );
 });
 
-
 // Complete profile setup (can be done anytime after registration)
 const completeProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id; // From JWT authentication
-  const { username, bio } = req.body;
+  const { username, bio, interests } = req.body;
 
   // Get current user
   const user = await User.findById(userId);
@@ -1482,7 +1555,10 @@ const completeProfile = asyncHandler(async (req, res) => {
 
   // If profile already completed, this is an update
   if (user.profileCompleted) {
-    throw new ApiError(400, 'Profile already completed. Use update-profile endpoint to make changes.');
+    throw new ApiError(
+      400,
+      'Profile already completed. Use update-profile endpoint to make changes.'
+    );
   }
 
   // Validate username is provided
@@ -1502,7 +1578,7 @@ const completeProfile = asyncHandler(async (req, res) => {
   // Check if username is already taken (case-insensitive)
   const existingUsername = await User.findOne({
     username: username.toLowerCase(),
-    _id: { $ne: userId } // Exclude current user
+    _id: { $ne: userId }, // Exclude current user
   });
 
   if (existingUsername) {
@@ -1515,11 +1591,25 @@ const completeProfile = asyncHandler(async (req, res) => {
     user.bio = bio;
   }
 
+  // Handle interests
+  if (interests !== undefined) {
+    let parsedInterests = interests;
+    // Parse if it's a JSON string (from FormData)
+    if (typeof interests === 'string') {
+      try {
+        parsedInterests = JSON.parse(interests);
+      } catch {
+        parsedInterests = [];
+      }
+    }
+    if (Array.isArray(parsedInterests)) {
+      user.interests = parsedInterests.filter((i) => typeof i === 'string' && i.trim().length > 0);
+    }
+  }
+
   // Handle profile picture upload
   if (req.files?.profilePicture && req.files.profilePicture[0]) {
-    const profilePictureUpload = await uploadOnCloudinary(
-      req.files.profilePicture[0].path
-    );
+    const profilePictureUpload = await uploadOnCloudinary(req.files.profilePicture[0].path);
     if (profilePictureUpload) {
       user.profileImage = profilePictureUpload.secure_url;
       user.avatar = profilePictureUpload.secure_url;
@@ -1528,9 +1618,7 @@ const completeProfile = asyncHandler(async (req, res) => {
 
   // Handle cover photo upload
   if (req.files?.coverPhoto && req.files.coverPhoto[0]) {
-    const coverPhotoUpload = await uploadOnCloudinary(
-      req.files.coverPhoto[0].path
-    );
+    const coverPhotoUpload = await uploadOnCloudinary(req.files.coverPhoto[0].path);
     if (coverPhotoUpload) {
       user.coverPhoto = coverPhotoUpload.secure_url;
     }
@@ -1542,42 +1630,35 @@ const completeProfile = asyncHandler(async (req, res) => {
   await user.save();
 
   // Return updated user without sensitive fields
-  const updatedUser = await User.findById(userId).select(
-    '-password -refreshToken -otp'
-  );
+  const updatedUser = await User.findById(userId).select('-password -refreshToken -otp');
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { user: updatedUser },
-      'Profile completed successfully'
-    )
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { user: updatedUser }, 'Profile completed successfully'));
 });
 
-
 export {
-  registerUser,
-  verifyRegisterOtp,
-  loginUser,
-  verifyLoginOtp,
-  logOutUser,
-  getCurrentUser,
-  refreshAccessToken,
-  forgotPassword,
-  resetPassword,
-  changePassword,
-  deleteUser,
-  updateProfile,
-  updatePrivacySettings,
-  unlockAccount,
-  resetPasswordForTesting,
-  getUserProfile,
-  updateProfileImage,
   blockUser,
-  unblockUser,
-  getBlockedUsers,
+  changePassword,
   checkUsernameAvailability,
-  completeProfile
+  completeProfile,
+  deleteUser,
+  forgotPassword,
+  getBlockedUsers,
+  getCurrentUser,
+  getUserProfile,
+  loginUser,
+  logOutUser,
+  refreshAccessToken,
+  registerUser,
+  resendRegistrationOtp,
+  resetPassword,
+  resetPasswordForTesting,
+  unblockUser,
+  unlockAccount,
+  updatePrivacySettings,
+  updateProfile,
+  updateProfileImage,
+  verifyLoginOtp,
+  verifyRegisterOtp,
 };
-
