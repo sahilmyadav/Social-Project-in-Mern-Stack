@@ -1,12 +1,12 @@
-import dotenv from "dotenv";
+import dotenv from 'dotenv';
+import http from 'http';
+import { Server as ExpressApp } from './app.js';
+import { startStoryCleanupJob } from './controllers/story.controller.js';
+import connectDB from './db/connection.js';
+import { initializeSocket } from './socket/socket.js';
 dotenv.config({
-  path: "../.env",
+  path: '../../.env',
 });
-import connectDB from "./db/connection.js";
-import http from "http";
-import { Server as ExpressApp } from "./app.js";
-import { initializeSocket } from "./socket/socket.js";
-import { startStoryCleanupJob } from "./controllers/story.controller.js";
 
 const Port = process.env.PORT || 3000;
 
@@ -33,17 +33,15 @@ connectDB()
   });
 
 // Graceful shutdown handler
-process.on("SIGTERM", gracefulShutdown);
-process.on("SIGINT", gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
 
 async function gracefulShutdown() {
-
   // Close HTTP server
-  httpServer.close(() => {
-  });
+  httpServer.close(() => {});
 
   // Cleanup Socket.IO Redis connections
-  const { cleanupRedis } = await import("./socket/socket.js");
+  const { cleanupRedis } = await import('./socket/socket.js');
   await cleanupRedis();
 
   process.exit(0);
