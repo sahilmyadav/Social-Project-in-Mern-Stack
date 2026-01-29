@@ -1,5 +1,6 @@
 'use client';
 
+import AnimatedLogo from '@/components/animated-logo';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -47,12 +48,8 @@ export default function Home() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
-              <Camera className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 bg-clip-text text-transparent">
-              ClickME
-            </span>
+            <AnimatedLogo size={32} />
+            <span className="text-xl font-bold logo-gradient-text">ClickME</span>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/login">
@@ -424,7 +421,7 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="outline"
-                className="w-full sm:w-auto border-2 border-white text-white hover:bg-white/10 text-lg px-8"
+                className="w-full sm:w-auto border-2 border-white !text-white !bg-transparent hover:!bg-white/10 text-lg px-8"
               >
                 Explore Content
               </Button>

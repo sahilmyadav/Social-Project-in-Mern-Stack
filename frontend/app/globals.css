@@ -141,6 +141,21 @@
   background: linear-gradient(135deg, oklch(0.65 0.25 15) 0%, oklch(0.55 0.25 280) 100%);
 }
 
+/* Logo gradient text - works in both light and dark modes */
+.logo-gradient-text {
+  background: linear-gradient(to right, #a855f7, #ec4899, #f97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dark .logo-gradient-text {
+  background: linear-gradient(to right, #c084fc, #f472b6, #fb923c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 /* Smooth animations */
 @layer utilities {
   .slide-in {

@@ -26,26 +26,36 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased`}>
         <Providers>{children}</Providers>
         <Toaster
           position="top-right"
           richColors
+          expand={true}
+          closeButton
+          duration={4000}
           toastOptions={{
             style: {
-              background: 'linear-gradient(135deg, #9333ea 0%, #ec4899 50%, #f97316 100%)',
-              color: 'white',
-              border: 'none',
               borderRadius: '12px',
               padding: '16px',
-              boxShadow: '0 10px 40px rgba(147, 51, 234, 0.3)',
+              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+              fontSize: '14px',
+              fontWeight: '500',
             },
             classNames: {
-              error: 'bg-red-500 text-white',
-              success: 'bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 text-white',
-              warning: 'bg-amber-500 text-white',
-              info: 'bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 text-white',
+              toast:
+                'group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg',
+              error: '!bg-red-500 !text-white !border-red-600',
+              success:
+                '!bg-gradient-to-r !from-purple-600 !via-pink-500 !to-orange-400 !text-white !border-none',
+              warning: '!bg-amber-500 !text-white !border-amber-600',
+              info: '!bg-blue-500 !text-white !border-blue-600',
+              loading: '!bg-gray-800 !text-white !border-gray-700',
+              description: 'group-[.toast]:text-muted-foreground text-sm opacity-90',
+              actionButton: 'group-[.toast]:bg-primary group-[.toast]:text-primary-foreground',
+              cancelButton: 'group-[.toast]:bg-muted group-[.toast]:text-muted-foreground',
+              closeButton: 'group-[.toast]:bg-background/80 group-[.toast]:border-border',
             },
           }}
         />

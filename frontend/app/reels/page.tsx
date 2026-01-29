@@ -1,257 +1,290 @@
-"use client"
+'use client';
 
-import { useState, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
-import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Pause } from "lucide-react"
-import Navigation from "@/components/navigation"
-import ReelCommentsModal from "@/components/reel-comments-modal"
-import UserAvatar from "@/components/user-avatar"
-import { feedService, reelService } from "@/lib/api-services"
+import Navigation from '@/components/navigation';
+import ReelCommentsModal from '@/components/reel-comments-modal';
+import UserAvatar from '@/components/user-avatar';
+import { feedService, reelService } from '@/lib/api-services';
+import {
+  ChevronDown,
+  ChevronUp,
+  Heart,
+  MessageCircle,
+  Play,
+  Share2,
+  Video,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
 interface Reel {
-  _id: string
+  _id: string;
   media: {
-    url: string
-    thumbnail: string
-    duration: number
-    width: number
-    height: number
-  }
+    url: string;
+    thumbnail: string;
+    duration: number;
+    width: number;
+    height: number;
+  };
   user_id: {
-    _id: string
-    firstName: string
-    lastName: string
-  }
-  caption: string
-  tags: string[]
-  likes_count: number
-  comments_count: number
-  shares_count: number
-  views_count: number
-  isLiked?: boolean
-  is_deleted: boolean
-  createdAt: string
-  updatedAt: string
+    _id: string;
+    firstName: string;
+    lastName: string;
+  };
+  caption: string;
+  tags: string[];
+  likes_count: number;
+  comments_count: number;
+  shares_count: number;
+  views_count: number;
+  isLiked?: boolean;
+  is_deleted: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export default function ReelsPage() {
-  const [user, setUser] = useState<any>(null)
-  const [currentReelIndex, setCurrentReelIndex] = useState(0)
-  const [likedReels, setLikedReels] = useState<string[]>([])
-  const [isMuted, setIsMuted] = useState(false)
-  const [reels, setReels] = useState<Reel[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [isPlaying, setIsPlaying] = useState(true)
-  const [showComments, setShowComments] = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const reelContainerRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
+  const [user, setUser] = useState<any>(null);
+  const [currentReelIndex, setCurrentReelIndex] = useState(0);
+  const [likedReels, setLikedReels] = useState<string[]>([]);
+  const [isMuted, setIsMuted] = useState(false);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [showComments, setShowComments] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const reelContainerRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
-    const userData = localStorage.getItem("user")
+    const userData = localStorage.getItem('user');
     if (!userData) {
-      router.push("/")
+      router.push('/');
     } else {
-      setUser(JSON.parse(userData))
+      setUser(JSON.parse(userData));
     }
-  }, [router])
+  }, [router]);
 
   useEffect(() => {
     const fetchReels = async () => {
       try {
-        setLoading(true)
-        const response = await feedService.getReelsFeed({ page: 1, limit: 20 })
+        setLoading(true);
+        const response = await feedService.getReelsFeed({ page: 1, limit: 20 });
         if (response.success && response.data) {
-          setReels(response.data.reels || [])
+          setReels(response.data.reels || []);
 
           // Set initial liked state based on reel data
           const likedReelsFromAPI = response.data.reels
             .filter((reel: any) => reel.isLiked)
-            .map((reel: any) => reel._id)
-          setLikedReels(likedReelsFromAPI)
+            .map((reel: any) => reel._id);
+          setLikedReels(likedReelsFromAPI);
         } else {
-          setError("Failed to load reels")
+          setError('Failed to load reels');
         }
       } catch (err) {
-        setError("Error loading reels")
-        console.error("Error fetching reels:", err)
+        setError('Error loading reels');
+        console.error('Error fetching reels:', err);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
     if (user) {
-      fetchReels()
+      fetchReels();
     }
-  }, [user])
+  }, [user]);
 
   useEffect(() => {
     if (videoRef.current) {
       if (isPlaying) {
-        videoRef.current.play()
+        videoRef.current.play();
       } else {
-        videoRef.current.pause()
+        videoRef.current.pause();
       }
     }
-  }, [isPlaying, currentReelIndex])
+  }, [isPlaying, currentReelIndex]);
 
   // Scroll snap functionality
   useEffect(() => {
     const handleScroll = () => {
-      if (!reelContainerRef.current) return
+      if (!reelContainerRef.current) return;
 
-      const scrollTop = reelContainerRef.current.scrollTop
-      const containerHeight = reelContainerRef.current.clientHeight
-      const newIndex = Math.round(scrollTop / containerHeight)
+      const scrollTop = reelContainerRef.current.scrollTop;
+      const containerHeight = reelContainerRef.current.clientHeight;
+      const newIndex = Math.round(scrollTop / containerHeight);
 
       if (newIndex !== currentReelIndex && newIndex >= 0 && newIndex < reels.length) {
-        setCurrentReelIndex(newIndex)
-        setIsPlaying(true)
+        setCurrentReelIndex(newIndex);
+        setIsPlaying(true);
       }
-    }
+    };
 
-    const container = reelContainerRef.current
+    const container = reelContainerRef.current;
     if (container) {
-      container.addEventListener('scroll', handleScroll)
-      return () => container.removeEventListener('scroll', handleScroll)
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
     }
-  }, [currentReelIndex, reels.length])
+  }, [currentReelIndex, reels.length]);
 
   const handleLogout = () => {
-    localStorage.removeItem("user")
-    router.push("/")
-  }
+    localStorage.removeItem('user');
+    router.push('/');
+  };
 
-  const currentReel = reels[currentReelIndex]
-  const isLiked = likedReels.includes(currentReel?._id)
+  const currentReel = reels[currentReelIndex];
+  const isLiked = likedReels.includes(currentReel?._id);
 
   const handleLike = async () => {
-    if (!currentReel) return
+    if (!currentReel) return;
 
     try {
-      const response = await reelService.toggleLikeReel(currentReel._id)
+      const response = await reelService.toggleLikeReel(currentReel._id);
 
       if (response.success) {
         if (response.data.isLiked) {
-          setLikedReels([...likedReels, currentReel._id])
+          setLikedReels([...likedReels, currentReel._id]);
         } else {
-          setLikedReels(likedReels.filter((id) => id !== currentReel._id))
+          setLikedReels(likedReels.filter((id) => id !== currentReel._id));
         }
         // Update the reel's like count
-        setReels(reels.map(reel =>
-          reel._id === currentReel._id
-            ? { ...reel, likes_count: response.data.likes_count }
-            : reel
-        ))
+        setReels(
+          reels.map((reel) =>
+            reel._id === currentReel._id
+              ? { ...reel, likes_count: response.data.likes_count }
+              : reel
+          )
+        );
       } else {
-        console.error("API returned error:", response.message)
+        console.error('API returned error:', response.message);
       }
     } catch (error) {
-      console.error("Error toggling like:", error)
-      console.error("Error details:", JSON.stringify(error, null, 2))
+      console.error('Error toggling like:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
     }
-  }
+  };
 
   const handlePrevious = () => {
-    const newIndex = currentReelIndex === 0 ? reels.length - 1 : currentReelIndex - 1
-    setCurrentReelIndex(newIndex)
-    setIsPlaying(true)
+    const newIndex = currentReelIndex === 0 ? reels.length - 1 : currentReelIndex - 1;
+    setCurrentReelIndex(newIndex);
+    setIsPlaying(true);
 
     // Scroll to the reel
     if (reelContainerRef.current) {
       reelContainerRef.current.scrollTo({
         top: newIndex * reelContainerRef.current.clientHeight,
-        behavior: 'smooth'
-      })
+        behavior: 'smooth',
+      });
     }
-  }
+  };
 
   const handleNext = () => {
-    const newIndex = currentReelIndex === reels.length - 1 ? 0 : currentReelIndex + 1
-    setCurrentReelIndex(newIndex)
-    setIsPlaying(true)
+    const newIndex = currentReelIndex === reels.length - 1 ? 0 : currentReelIndex + 1;
+    setCurrentReelIndex(newIndex);
+    setIsPlaying(true);
 
     // Scroll to the reel
     if (reelContainerRef.current) {
       reelContainerRef.current.scrollTo({
         top: newIndex * reelContainerRef.current.clientHeight,
-        behavior: 'smooth'
-      })
+        behavior: 'smooth',
+      });
     }
-  }
+  };
 
   const togglePlayPause = () => {
-    setIsPlaying(!isPlaying)
-  }
+    setIsPlaying(!isPlaying);
+  };
 
   const toggleMute = () => {
     if (videoRef.current) {
-      videoRef.current.muted = !isMuted
-      setIsMuted(!isMuted)
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
     }
-  }
-
+  };
 
   if (loading) {
     return (
-      <main className="flex items-center justify-center h-screen bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-foreground">Loading reels...</p>
+      <main className="min-h-screen bg-background">
+        <div className="grid grid-cols-1 lg:grid-cols-4">
+          <aside className="hidden lg:block lg:col-span-1 sticky top-0 h-screen border-r border-border p-4 overflow-y-auto">
+            {user && <Navigation user={user} onLogout={handleLogout} />}
+          </aside>
+          <section className="lg:col-span-2 flex items-center justify-center h-screen">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading reels...</p>
+            </div>
+          </section>
+          <aside className="hidden lg:block lg:col-span-1 h-screen sticky top-0 border-l border-border"></aside>
         </div>
+        <Navigation user={user} onLogout={handleLogout} isMobile={true} />
       </main>
-    )
+    );
   }
 
   if (error || reels.length === 0) {
     return (
-      <main className="flex items-center justify-center h-screen bg-background">
-        <div className="text-center">
-          <p className="text-destructive mb-4">{error || "No reels available"}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition cursor-pointer"
-          >
-            Retry
-          </button>
+      <main className="min-h-screen bg-background">
+        <div className="grid grid-cols-1 lg:grid-cols-4">
+          <aside className="hidden lg:block lg:col-span-1 sticky top-0 h-screen border-r border-border p-4 overflow-y-auto">
+            {user && <Navigation user={user} onLogout={handleLogout} />}
+          </aside>
+          <section className="lg:col-span-2 flex items-center justify-center h-screen pb-24 lg:pb-0">
+            <div className="bg-card rounded-2xl border border-border p-8 text-center max-w-sm mx-auto">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                <Video className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <h2 className="text-lg font-semibold mb-2">No Reels Available</h2>
+              <p className="text-muted-foreground mb-6 text-sm">
+                {error || 'Check back later for new content'}
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          </section>
+          <aside className="hidden lg:block lg:col-span-1 h-screen sticky top-0 border-l border-border"></aside>
         </div>
+        <Navigation user={user} onLogout={handleLogout} isMobile={true} />
       </main>
-    )
+    );
   }
 
   if (!user || !currentReel) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Reels Feed with Snap Scroll */}
-        <section className="lg:col-span-2 pb-20 lg:pb-0">
-          <div className="sticky top-0 z-20 bg-background mb-4">
-            <h1 className="text-3xl font-bold text-foreground p-4">Reels</h1>
+        <section className="lg:col-span-2 max-w-2xl mx-auto pb-20 lg:pb-0">
+          <div className="bg-card rounded-2xl border border-border p-4 mb-4 sticky top-0 z-10">
+            <div className="flex items-center gap-3">
+              <Video className="w-6 h-6" />
+              <h1 className="text-lg font-semibold">Reels</h1>
+            </div>
           </div>
 
-          {/* Scrollable Reels Container */}
           <div
             ref={reelContainerRef}
-            className="h-[calc(100vh-120px)] overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
+            className="h-[calc(100vh-80px)] overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
           >
             {reels.map((reel, index) => (
               <div
                 key={reel._id}
-                className="snap-start snap-always h-[calc(100vh-120px)] flex items-center justify-center mb-6"
+                className="snap-start snap-always h-[calc(100vh-80px)] flex items-center justify-center py-4"
               >
-                <div className="max-w-2xl w-full mx-auto px-4">
-                  {/* Reel Video Container */}
-                  <div className="relative bg-black rounded-3xl overflow-hidden aspect-[9/16] max-h-[600px] mx-auto shadow-2xl">
-                    {/* Video Element */}
+                <div className="max-w-sm w-full mx-auto px-4">
+                  <div className="relative bg-black rounded-2xl overflow-hidden aspect-[9/16] max-h-[75vh] mx-auto shadow-xl">
                     {index === currentReelIndex && (
                       <video
                         ref={videoRef}
@@ -288,69 +321,70 @@ export default function ReelsPage() {
                     {index === currentReelIndex && (
                       <button
                         onClick={toggleMute}
-                        className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition text-white z-10"
+                        className="absolute top-4 right-4 p-2.5 rounded-full bg-black/40 hover:bg-black/60 transition text-white z-10 backdrop-blur-sm"
                       >
-                        {isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
+                        {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
                       </button>
                     )}
 
                     {/* Bottom gradient overlay */}
-                    <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/70 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent" />
 
-                    {/* Author Info */}
-                    <div className="absolute bottom-4 left-4 flex items-center gap-3 z-10">
-                      <UserAvatar user={reel.user_id} size="lg" className="border-2 border-white" />
-                      <div className="text-white">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold">
+                    <div className="absolute bottom-4 left-4 right-16 z-10">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
+                          <UserAvatar user={reel.user_id} size="lg" />
+                        </div>
+                        <div className="text-white">
+                          <p className="font-semibold text-sm">
                             {reel.user_id.firstName} {reel.user_id.lastName}
                           </p>
-                          {(reel as any).isSuggested && (
-                            <span className="text-[10px] bg-white/20 backdrop-blur-sm px-2 py-0.5 rounded-full font-medium">Suggested</span>
-                          )}
                         </div>
-                        <p className="text-sm opacity-80">Follow</p>
+                        <button className="ml-2 px-3 py-1 border border-white/80 rounded text-white text-xs font-medium">
+                          Follow
+                        </button>
                       </div>
+                      {reel.caption && (
+                        <p className="text-white text-sm line-clamp-2">{reel.caption}</p>
+                      )}
                     </div>
 
-                    {/* Caption */}
-                    {reel.caption && (
-                      <div className="absolute bottom-20 left-4 right-16 z-10">
-                        <p className="text-white text-sm line-clamp-2">{reel.caption}</p>
-                      </div>
-                    )}
-
-                    {/* Right Side Actions */}
-                    <div className="absolute right-4 bottom-24 flex flex-col gap-6 z-10">
+                    <div className="absolute right-3 bottom-20 flex flex-col gap-4 z-10">
                       <button
                         onClick={index === currentReelIndex ? handleLike : undefined}
-                        className={` cursor-pointer flex flex-col items-center gap-2 transition ${isLiked && index === currentReelIndex ? "text-accent" : "text-white"}`}
+                        className="flex flex-col items-center gap-1 cursor-pointer"
                       >
-                        <div className="p-3 rounded-full bg-white/20 hover:bg-white/30 transition backdrop-blur">
-                          <Heart size={24} fill={isLiked && index === currentReelIndex ? "currentColor" : "none"} />
+                        <div className="p-2.5 rounded-full bg-black/40">
+                          <Heart
+                            size={22}
+                            className={
+                              isLiked && index === currentReelIndex ? 'text-red-500' : 'text-white'
+                            }
+                            fill={isLiked && index === currentReelIndex ? 'currentColor' : 'none'}
+                          />
                         </div>
-                        <span className="text-xs font-semibold">{reel.likes_count}</span>
+                        <span className="text-white text-xs">{reel.likes_count}</span>
                       </button>
 
                       <button
                         onClick={() => {
                           if (index === currentReelIndex) {
-                            setShowComments(true)
+                            setShowComments(true);
                           }
                         }}
-                        className=" cursor-pointerflex flex-col items-center gap-2 text-white"
+                        className="flex flex-col items-center gap-1 cursor-pointer"
                       >
-                        <div className="p-3 rounded-full bg-white/20 hover:bg-white/30 transition backdrop-blur">
-                          <MessageCircle size={24} />
+                        <div className="p-2.5 rounded-full bg-black/40">
+                          <MessageCircle size={22} className="text-white" />
                         </div>
-                        <span className="text-xs font-semibold">{reel.comments_count}</span>
+                        <span className="text-white text-xs">{reel.comments_count}</span>
                       </button>
 
-                      <button className="flex flex-col items-center gap-2 text-white cursor-pointer">
-                        <div className="p-3 rounded-full bg-white/20 hover:bg-white/30 transition backdrop-blur">
-                          <Share2 size={24} />
+                      <button className="flex flex-col items-center gap-1 cursor-pointer">
+                        <div className="p-2.5 rounded-full bg-black/40">
+                          <Share2 size={22} className="text-white" />
                         </div>
-                        <span className="text-xs font-semibold">{reel.shares_count}</span>
+                        <span className="text-white text-xs">{reel.shares_count}</span>
                       </button>
                     </div>
                   </div>
@@ -359,43 +393,86 @@ export default function ReelsPage() {
             ))}
           </div>
 
-          {/* Navigation Buttons */}
-          <div className="flex items-center justify-between gap-4 px-4 mt-4">
+          {/* Navigation Arrows */}
+          <div className="fixed right-4 lg:right-auto lg:left-1/2 lg:-translate-x-1/2 lg:ml-64 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-30">
             <button
               onClick={handlePrevious}
-              className="px-6 py-3 rounded-lg bg-muted hover:bg-muted/80 transition font-semibold cursor-pointer"
+              className="p-3 rounded-full bg-card shadow-lg hover:scale-110 transition cursor-pointer border border-border"
             >
-              Previous
+              <ChevronUp className="w-5 h-5" />
             </button>
-            <div className="flex gap-2">
-              {reels.map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-2 rounded-full transition ${i === currentReelIndex ? "bg-primary w-8" : "bg-muted w-2"
-                    }`}
-                />
-              ))}
-            </div>
             <button
               onClick={handleNext}
-              className="px-6 py-3 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground transition font-semibold"
+              className="p-3 rounded-full bg-primary text-primary-foreground shadow-lg hover:scale-110 hover:bg-primary/90 transition cursor-pointer"
             >
-              Next
+              <ChevronDown className="w-5 h-5" />
             </button>
+          </div>
+
+          {/* Progress Dots */}
+          <div className="fixed bottom-28 lg:bottom-8 left-1/2 -translate-x-1/2 flex gap-1.5 z-30 bg-black/30 rounded-full px-3 py-2">
+            {reels.slice(0, 10).map((_, i) => (
+              <div
+                key={i}
+                className={`h-1.5 rounded-full transition-all ${
+                  i === currentReelIndex ? 'bg-white w-6' : 'bg-white/50 w-1.5'
+                }`}
+              />
+            ))}
+            {reels.length > 10 && (
+              <span className="text-white/70 text-xs ml-1">+{reels.length - 10}</span>
+            )}
           </div>
         </section>
 
         {/* Right Sidebar */}
-        <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4">
-          <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
+        <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4 h-screen sticky top-0 overflow-y-auto">
+          <div className="bg-card rounded-2xl border border-border p-4 mb-4">
             <h3 className="font-bold text-lg mb-4">Suggested Creators</h3>
-            <div className="space-y-3">
-              {["@creative_hub", "@design_pro", "@studio_art", "@videografer"].map((creator, i) => (
-                <div key={i} className="p-3 hover:bg-muted rounded-lg cursor-pointer transition">
-                  <p className="text-primary font-semibold">{creator}</p>
-                  <p className="text-sm text-muted-foreground">50K followers</p>
+            <div className="space-y-4">
+              {[
+                { name: '@creative_hub', followers: '125K', avatar: '🎨' },
+                { name: '@design_pro', followers: '89K', avatar: '✨' },
+                { name: '@studio_art', followers: '67K', avatar: '🎬' },
+                { name: '@videographer', followers: '45K', avatar: '📹' },
+              ].map((creator, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 hover:opacity-80 transition cursor-pointer">
+                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-lg">
+                      {creator.avatar}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-sm truncate max-w-[100px]">
+                        {creator.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                        {creator.followers} followers
+                      </span>
+                    </div>
+                  </div>
+                  <button className="text-primary text-xs font-bold hover:underline">
+                    Follow
+                  </button>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Trending Sounds */}
+          <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
+            <h3 className="font-bold text-lg mb-4">Trending Sounds</h3>
+            <div className="space-y-3">
+              {['Summer Vibes - 12K reels', 'Dance Mix - 8K reels', 'Chill Beats - 5K reels'].map(
+                (sound, i) => (
+                  <div
+                    key={i}
+                    className="p-3 hover:bg-muted rounded-lg cursor-pointer transition"
+                  >
+                    <p className="text-primary font-semibold">🎵 {sound.split(' - ')[0]}</p>
+                    <p className="text-sm text-muted-foreground">{sound.split(' - ')[1]}</p>
+                  </div>
+                )
+              )}
             </div>
           </div>
         </aside>
@@ -424,5 +501,5 @@ export default function ReelsPage() {
         }
       `}</style>
     </main>
-  )
+  );
 }
