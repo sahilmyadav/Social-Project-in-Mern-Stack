@@ -2,7 +2,18 @@
 
 import { Button } from '@/components/ui/button';
 import { followService, notificationService } from '@/lib/api-services';
-import { Bell, Home, LogOut, MessageCircle, Plus, Radio, Search, User, Video } from 'lucide-react';
+import {
+  Bell,
+  Heart,
+  Home,
+  LogOut,
+  MessageCircle,
+  Plus,
+  Radio,
+  Search,
+  User,
+  Video,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import AnimatedLogo from './animated-logo';
@@ -95,6 +106,7 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
       badge: unreadCount > 0 ? unreadCount : undefined,
     },
     { icon: Plus, label: 'Create', href: '/create' },
+    { icon: Heart, label: 'Interests', href: '/interests' },
     { icon: User, label: 'Profile', href: '/profile' },
   ];
 
