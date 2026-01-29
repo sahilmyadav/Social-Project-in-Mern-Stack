@@ -1,77 +1,112 @@
-"use client"
+'use client';
 
-import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { postService } from "@/lib/api-services"
-import { toasts } from "@/lib/toast"
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { postService } from '@/lib/api-services';
+import { showToast } from '@/lib/toast';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 interface ReportPostModalProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  postId: string
-  postAuthor: string
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  postId: string;
+  postAuthor: string;
+  onReported?: () => void; // Callback when report is submitted
 }
 
 const reportReasons = [
-  { id: "spam", label: "Spam", description: "Unwanted commercial content or repetitive posts" },
-  { id: "inappropriate", label: "Inappropriate Content", description: "Offensive or explicit content" },
-  { id: "harassment", label: "Harassment", description: "Bullying or targeting individuals" },
-  { id: "violence", label: "Violence", description: "Graphic violence or dangerous organizations" },
-  { id: "copyright", label: "Copyright Violation", description: "Using someone else's work without permission" },
-  { id: "false_info", label: "False Information", description: "Misleading or fake news" },
-  { id: "other", label: "Other", description: "Something else that violates community guidelines" }
-]
+  { id: 'spam', label: 'Spam', description: 'Unwanted commercial content or repetitive posts' },
+  {
+    id: 'inappropriate',
+    label: 'Inappropriate Content',
+    description: 'Offensive or explicit content',
+  },
+  { id: 'harassment', label: 'Harassment', description: 'Bullying or targeting individuals' },
+  { id: 'violence', label: 'Violence', description: 'Graphic violence or dangerous organizations' },
+  {
+    id: 'copyright',
+    label: 'Copyright Violation',
+    description: "Using someone else's work without permission",
+  },
+  { id: 'false_info', label: 'False Information', description: 'Misleading or fake news' },
+  { id: 'other', label: 'Other', description: 'Something else that violates community guidelines' },
+];
 
-export default function ReportPostModal({ open, onOpenChange, postId, postAuthor }: ReportPostModalProps) {
-  const [selectedReason, setSelectedReason] = useState("")
-  const [additionalInfo, setAdditionalInfo] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
+export default function ReportPostModal({
+  open,
+  onOpenChange,
+  postId,
+  postAuthor,
+  onReported,
+}: ReportPostModalProps) {
+  const [selectedReason, setSelectedReason] = useState('');
+  const [additionalInfo, setAdditionalInfo] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
-    if (!selectedReason) return
+    if (!selectedReason) return;
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     try {
       const response = await postService.reportPost(postId, {
         reason: selectedReason,
-        additionalInfo: additionalInfo || undefined
-      })
+        additionalInfo: additionalInfo || undefined,
+      });
 
       if (response.success) {
-
         // Reset form and close modal
-        setSelectedReason("")
-        setAdditionalInfo("")
-        onOpenChange(false)
+        setSelectedReason('');
+        setAdditionalInfo('');
+        onOpenChange(false);
 
-        // Show success toast
-        toasts.postReported()
+        // Call the onReported callback to hide the post
+        onReported?.();
+
+        // Show success toast with undo option
+        toast.success('Post reported. This post will be hidden from your feed.', {
+          duration: 5000,
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              showToast.info('Report undone. The post will appear in your feed again.');
+            },
+          },
+        });
       } else {
-        throw new Error(response.message || "Failed to submit report")
+        throw new Error(response.message || 'Failed to submit report');
       }
-
     } catch (error: any) {
-      console.error("Error submitting post report:", error)
-      toasts.error(error.message || "Failed to submit report")
+      console.error('Error submitting post report:', error);
+      showToast.error(error.message || 'Failed to submit report');
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   const handleClose = () => {
-    setSelectedReason("")
-    setAdditionalInfo("")
-    onOpenChange(false)
-  }
+    setSelectedReason('');
+    setAdditionalInfo('');
+    onOpenChange(false);
+  };
 
   return (
-    <Dialog open={open} onOpenChange={(open) => {
-      if (!open) {
-        handleClose()
-      }
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) {
+          handleClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>Report Post</DialogTitle>
@@ -99,9 +134,7 @@ export default function ReportPostModal({ open, onOpenChange, postId, postAuthor
                     <label htmlFor={reason.id} className="text-sm font-medium cursor-pointer">
                       {reason.label}
                     </label>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {reason.description}
-                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">{reason.description}</p>
                   </div>
                 </div>
               ))}
@@ -117,7 +150,9 @@ export default function ReportPostModal({ open, onOpenChange, postId, postAuthor
                 id="additional-info"
                 placeholder="Provide any additional context that might help us review this post..."
                 value={additionalInfo}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAdditionalInfo(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  setAdditionalInfo(e.target.value)
+                }
                 rows={3}
                 className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
               />
@@ -126,23 +161,27 @@ export default function ReportPostModal({ open, onOpenChange, postId, postAuthor
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={(e) => {
-            e.stopPropagation()
-            handleClose()
-          }} disabled={isSubmitting}>
+          <Button
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClose();
+            }}
+            disabled={isSubmitting}
+          >
             Cancel
           </Button>
           <Button
             onClick={(e) => {
-              e.stopPropagation()
-              handleSubmit()
+              e.stopPropagation();
+              handleSubmit();
             }}
             disabled={!selectedReason || isSubmitting}
           >
-            {isSubmitting ? "Submitting..." : "Submit Report"}
+            {isSubmitting ? 'Submitting...' : 'Submit Report'}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

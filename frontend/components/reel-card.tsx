@@ -1,228 +1,246 @@
-"use client"
+'use client';
 
-import { useState, useRef, useEffect } from "react"
-import { Heart, MessageCircle, Share2, Play, Volume2, VolumeX, MoreHorizontal, Bookmark, Download } from "lucide-react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { reelService } from "@/lib/api-services"
-import { showToast } from "@/lib/toast"
-import ShareModal from "@/components/share-modal"
-import ReportReelModal from "@/components/report-reel-modal"
-import UserAvatar from "@/components/user-avatar"
-import { useRouter } from "next/navigation"
+import ReportReelModal from '@/components/report-reel-modal';
+import ShareModal from '@/components/share-modal';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import UserAvatar from '@/components/user-avatar';
+import { reelService } from '@/lib/api-services';
+import { showToast } from '@/lib/toast';
+import {
+  Bookmark,
+  Download,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Share2,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
 interface ReelCardProps {
-  reel: any
-  currentUserId?: string
-  onCommentClick?: () => void
+  reel: any;
+  currentUserId?: string;
+  onCommentClick?: () => void;
 }
 
 export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCardProps) {
-  const router = useRouter()
-  const [liked, setLiked] = useState(reel.isLiked || false)
-  const [likeCount, setLikeCount] = useState(reel.likes_count || 0)
-  const [saved, setSaved] = useState(reel.isSaved || false)
-  const [isLiking, setIsLiking] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(true)
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false)
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
-  const [isInView, setIsInView] = useState(false)
-  const [userPaused, setUserPaused] = useState(false) // Track if user manually paused
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const router = useRouter();
+  const [liked, setLiked] = useState(reel.isLiked || false);
+  const [likeCount, setLikeCount] = useState(reel.likes_count || 0);
+  const [saved, setSaved] = useState(reel.isSaved || false);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isInView, setIsInView] = useState(false);
+  const [userPaused, setUserPaused] = useState(false); // Track if user manually paused
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Intersection Observer for auto-play/pause
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          setIsInView(entry.isIntersecting)
-        })
+          setIsInView(entry.isIntersecting);
+        });
       },
       {
         threshold: 0.5, // Trigger when 50% of the video is visible
       }
-    )
+    );
 
     if (containerRef.current) {
-      observer.observe(containerRef.current)
+      observer.observe(containerRef.current);
     }
 
     return () => {
       if (containerRef.current) {
-        observer.unobserve(containerRef.current)
+        observer.unobserve(containerRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
   // Auto-play/pause based on visibility
   useEffect(() => {
-    if (!videoRef.current) return
+    if (!videoRef.current) return;
 
     if (isInView && !userPaused) {
       // Auto-play when in view and user hasn't manually paused
-      videoRef.current.play().catch((error) => {
-      })
+      videoRef.current.play().catch((error) => {});
     } else {
       // Pause when out of view
-      videoRef.current.pause()
+      videoRef.current.pause();
     }
-  }, [isInView, userPaused])
+  }, [isInView, userPaused]);
 
   const handleOpenProfile = () => {
-    router.push(`/profile/${reel.user_id?._id}`)
-  }
+    router.push(`/profile/${reel.user_id?._id}`);
+  };
 
   const handleLike = async () => {
-    if (isLiking) return
+    if (isLiking) return;
 
-    setIsLiking(true)
-    const previousLiked = liked
-    const previousCount = likeCount
+    setIsLiking(true);
+    const previousLiked = liked;
+    const previousCount = likeCount;
 
     // Optimistic update
-    setLiked(!liked)
-    setLikeCount(liked ? likeCount - 1 : likeCount + 1)
+    setLiked(!liked);
+    setLikeCount(liked ? likeCount - 1 : likeCount + 1);
 
     try {
-      const response = await reelService.toggleLikeReel(reel._id)
+      const response = await reelService.toggleLikeReel(reel._id);
       if (!response.success) {
-        throw new Error(response.message || 'Failed to toggle like')
+        throw new Error(response.message || 'Failed to toggle like');
       }
     } catch (error: any) {
-      console.error('Error toggling like:', error.message || error)
+      console.error('Error toggling like:', error.message || error);
       // Revert on error
-      setLiked(previousLiked)
-      setLikeCount(previousCount)
+      setLiked(previousLiked);
+      setLikeCount(previousCount);
     } finally {
-      setIsLiking(false)
+      setIsLiking(false);
     }
-  }
+  };
 
   const handleSaveReel = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isSaving) return
+    e.stopPropagation();
+    if (isSaving) return;
 
-    setIsSaving(true)
-    const previousSaved = saved
+    setIsSaving(true);
+    const previousSaved = saved;
 
     // Optimistic update
-    setSaved(!saved)
+    setSaved(!saved);
 
     try {
       if (saved) {
-        const response = await reelService.unsaveReel(reel._id)
+        const response = await reelService.unsaveReel(reel._id);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to unsave reel')
+          throw new Error(response.message || 'Failed to unsave reel');
         }
       } else {
-        const response = await reelService.saveReel(reel._id)
+        const response = await reelService.saveReel(reel._id);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to save reel')
+          throw new Error(response.message || 'Failed to save reel');
         }
       }
     } catch (error: any) {
-      console.error('Error saving/unsaving reel:', error.message || error)
+      console.error('Error saving/unsaving reel:', error.message || error);
       // Revert on error
-      setSaved(previousSaved)
-      alert(error.message || 'Failed to save reel')
+      setSaved(previousSaved);
+      alert(error.message || 'Failed to save reel');
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   const handlePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) {
-        videoRef.current.pause()
-        setUserPaused(true) // User manually paused
+        videoRef.current.pause();
+        setUserPaused(true); // User manually paused
       } else {
-        videoRef.current.play()
-        setUserPaused(false) // User manually played
+        videoRef.current.play();
+        setUserPaused(false); // User manually played
       }
-      setIsPlaying(!isPlaying)
+      setIsPlaying(!isPlaying);
     }
-  }
+  };
 
   const handleMuteToggle = () => {
     if (videoRef.current) {
-      videoRef.current.muted = !isMuted
-      setIsMuted(!isMuted)
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
     }
-  }
+  };
 
   const handleDownloadReel = async () => {
     // Check if it's own reel - always allow download of own content
-    const isOwnReel = currentUserId && reel.user_id?._id === currentUserId
+    const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
 
     if (isOwnReel) {
       // Allow downloading own reels
     } else {
       // For other users' reels, check if download is explicitly allowed
       // If allowDownloads is explicitly set to false, block download
-      const allowDownloads = reel.user_id?.allowDownloads
-      const canDownload = reel.canDownload
+      const allowDownloads = reel.user_id?.allowDownloads;
+      const canDownload = reel.canDownload;
 
       // Block if either flag is explicitly false
       if (allowDownloads === false || canDownload === false) {
-        showToast.error("Download not allowed", "The creator has disabled downloads for this reel")
-        return
+        showToast.error('Download not allowed', 'The creator has disabled downloads for this reel');
+        return;
       }
     }
 
     if (!videoUrl) {
-      showToast.error("No video", "This reel has no video to download")
-      return
+      showToast.error('No video', 'This reel has no video to download');
+      return;
     }
 
     try {
       // Download the video file
-      const response = await fetch(videoUrl)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `reel_${reel._id}.mp4`
+      const response = await fetch(videoUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `reel_${reel._id}.mp4`;
 
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
 
-      showToast.success("Downloaded", "Reel downloaded successfully")
+      showToast.success('Downloaded', 'Reel downloaded successfully');
     } catch (error) {
-      console.error("Error downloading reel:", error)
-      showToast.error("Download failed", "Failed to download reel")
+      console.error('Error downloading reel:', error);
+      showToast.error('Download failed', 'Failed to download reel');
     }
-  }
+  };
 
   const authorName = reel.user_id?.firstName
     ? `${reel.user_id.firstName} ${reel.user_id.lastName || ''}`.trim()
-    : reel.user_id?.username || 'Unknown User'
+    : reel.user_id?.username || 'Unknown User';
 
-  const videoUrl = reel.media?.url
-  const thumbnailUrl = reel.media?.thumbnail || reel.media?.url
+  const videoUrl = reel.media?.url;
+  const thumbnailUrl = reel.media?.thumbnail || reel.media?.url;
 
   return (
-    <div ref={containerRef} className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto">
+    <div
+      ref={containerRef}
+      className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto"
+    >
       {/* User Header - Above Video */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <div
-            onClick={handleOpenProfile}
-            className="cursor-pointer hover:opacity-80 transition"
-          >
-            <UserAvatar user={{
-              _id: reel.user_id?._id || 'unknown',
-              firstName: reel.user_id?.firstName,
-              lastName: reel.user_id?.lastName,
-              fullName: reel.user_id?.fullName,
-              username: reel.user_id?.username,
-              profileImage: reel.user_id?.profileImage,
-              profilePicture: reel.user_id?.profilePicture,
-              avatar: reel.user_id?.avatar
-            }} size="sm" clickable={false} />
+          <div onClick={handleOpenProfile} className="cursor-pointer hover:opacity-80 transition">
+            <UserAvatar
+              user={{
+                _id: reel.user_id?._id || 'unknown',
+                firstName: reel.user_id?.firstName,
+                lastName: reel.user_id?.lastName,
+                fullName: reel.user_id?.fullName,
+                username: reel.user_id?.username,
+                profileImage: reel.user_id?.profileImage,
+                profilePicture: reel.user_id?.profilePicture,
+                avatar: reel.user_id?.avatar,
+              }}
+              size="sm"
+              clickable={false}
+            />
           </div>
           <div className="flex-1 min-w-0">
             <h3
@@ -234,7 +252,9 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             <div className="flex items-center gap-2">
               <p className="text-sm text-muted-foreground">Reel</p>
               {reel.isSuggested && (
-                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Suggested</span>
+                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                  Suggested
+                </span>
               )}
             </div>
           </div>
@@ -254,26 +274,40 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
               {videoUrl && (
                 <DropdownMenuItem
                   onClick={(e) => {
-                    e.stopPropagation()
-                    handleDownloadReel()
+                    e.stopPropagation();
+                    handleDownloadReel();
                   }}
                 >
                   <Download size={16} className="mr-2" />
-                  {(reel.canDownload === false || reel.user_id?.allowDownloads === false) ? 'Download Disabled' : 'Download'}
+                  {reel.canDownload === false || reel.user_id?.allowDownloads === false
+                    ? 'Download Disabled'
+                    : 'Download'}
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                setIsReportModalOpen(true)
-              }}>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsReportModalOpen(true);
+                }}
+              >
                 <span className="mr-2">⚠️</span>
                 Report Reel
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                setIsReportModalOpen(true)
-              }}>
-
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsShareModalOpen(true);
+                }}
+              >
+                <Share2 size={16} className="mr-2" />
+                Share
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsReportModalOpen(true);
+                }}
+              >
                 Delete Reel
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -326,8 +360,8 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             <button
               className="absolute bottom-4 right-4 p-2 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition cursor-pointer"
               onClick={(e) => {
-                e.stopPropagation()
-                handleMuteToggle()
+                e.stopPropagation();
+                handleMuteToggle();
               }}
             >
               {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
@@ -342,7 +376,10 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
         {/* Duration Badge */}
         {reel.media?.duration && (
           <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-            {Math.floor(reel.media.duration / 60)}:{Math.floor(reel.media.duration % 60).toString().padStart(2, '0')}
+            {Math.floor(reel.media.duration / 60)}:
+            {Math.floor(reel.media.duration % 60)
+              .toString()
+              .padStart(2, '0')}
           </div>
         )}
       </div>
@@ -360,8 +397,8 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             <button
               className={`flex items-center gap-1 transition ${liked ? 'text-red-500' : 'text-muted-foreground hover:text-foreground cursor-pointer'}`}
               onClick={(e) => {
-                e.stopPropagation()
-                handleLike()
+                e.stopPropagation();
+                handleLike();
               }}
               disabled={isLiking}
             >
@@ -372,8 +409,8 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             <button
               className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition cursor-pointer"
               onClick={(e) => {
-                e.stopPropagation()
-                onCommentClick?.()
+                e.stopPropagation();
+                onCommentClick?.();
               }}
             >
               <MessageCircle size={20} />
@@ -383,8 +420,8 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             <button
               className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition cursor-pointer"
               onClick={(e) => {
-                e.stopPropagation()
-                setIsShareModalOpen(true)
+                e.stopPropagation();
+                setIsShareModalOpen(true);
               }}
             >
               <Share2 size={20} />
@@ -410,5 +447,5 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
         reelAuthor={authorName}
       />
     </div>
-  )
+  );
 }
