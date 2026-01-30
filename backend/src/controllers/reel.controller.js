@@ -9,20 +9,39 @@ import { User } from '../models/user.model.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { saveFileLocally } from '../utils/localStorage.js';
+import { deleteLocalFile, saveFileLocally, validateFile } from '../utils/localStorage.js';
+
+const MAX_CAPTION_LENGTH = 2000;
+const MAX_REEL_SIZE = 100 * 1024 * 1024;
 
 export const uploadReel = asyncHandler(async (req, res) => {
   const { caption, music_id, tags, thumbnail, duration, width, height } = req.body;
   const userId = req.user?._id;
 
+  if (!userId) {
+    throw new ApiError(401, 'Authentication required');
+  }
+
   if (!req.file) {
     throw new ApiError(400, 'Video file is required');
+  }
+
+  if (!req.file.mimetype.startsWith('video/')) {
+    throw new ApiError(400, 'Only video files are allowed for reels');
+  }
+
+  if (req.file.size > MAX_REEL_SIZE) {
+    throw new ApiError(400, 'Video file must be less than 100MB');
+  }
+
+  if (caption && caption.length > MAX_CAPTION_LENGTH) {
+    throw new ApiError(400, `Caption must be less than ${MAX_CAPTION_LENGTH} characters`);
   }
 
   const savedFile = await saveFileLocally(req.file.path, userId, 'reel');
 
   if (!savedFile) {
-    throw new ApiError(500, 'Failed to save video file');
+    throw new ApiError(500, 'Failed to save video. Please try again.');
   }
 
   const media = {
@@ -33,17 +52,34 @@ export const uploadReel = asyncHandler(async (req, res) => {
     height: height || null,
     fileName: savedFile.fileName,
     public_id: savedFile.public_id,
+    size: savedFile.size,
   };
 
-  const reel = await Reel.create({
-    user_id: userId,
-    media,
-    caption,
-    music_id,
-    tags: tags ? JSON.parse(tags) : [],
-  });
+  let parsedTags = [];
+  if (tags) {
+    try {
+      parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+    } catch {
+      parsedTags = [];
+    }
+  }
+  parsedTags = parsedTags.slice(0, 30);
 
-  return res.status(201).json(new ApiResponse(201, reel, 'Reel uploaded successfully'));
+  let reel;
+  try {
+    reel = await Reel.create({
+      user_id: userId,
+      media,
+      caption: caption?.trim() || '',
+      music_id: music_id || null,
+      tags: parsedTags,
+    });
+  } catch (dbError) {
+    await deleteLocalFile(savedFile.url);
+    throw new ApiError(500, 'Failed to create reel. Please try again.');
+  }
+
+  return res.status(201).json(new ApiResponse(201, reel, 'Reel created successfully'));
 });
 
 // Delete a reel

@@ -6,11 +6,26 @@ import { checkMaintenanceMode } from "./middleware/maintenance.middleware.js";
 import morgan from "morgan";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import mongoSanitize from "express-mongo-sanitize";
+import compression from "compression";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 
+app.use(compression({
+  level: 6,
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
+
 app.use(cors({
-  origin: true, // Allow all origins in development/production
+  origin: process.env.CORS_ORIGIN || true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
@@ -24,31 +39,67 @@ app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 app.use(cookieParser());
 app.use(express.static("public"));
 
-// Security Middleware
-app.use(helmet()); // Set security HTTP headers
-// app.use(mongoSanitize()); // Prevent NoSQL injection (Disabled due to Express 5 conflict)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false,
+}));
 
-// Global Rate Limiting
-// const limiter = rateLimit({
-//   windowMs: 15 * 60 * 1000, // 15 minutes
-//   max: 1000, // Limit each IP to 1000 requests per `window` (per 15 minutes)
-//   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-//   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-//   message: "Too many requests from this IP, please try again after 15 minutes",
-// });
-// app.use("/api", limiter);
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests, please try again later" },
+  skip: (req) => req.path.startsWith('/uploads'),
+});
 
-// Serve uploaded files
-app.use("/uploads", express.static("uploads"));
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Upload limit exceeded. Try again in an hour." },
+});
 
-// HTTP request logger middleware
-app.use(morgan("dev"));
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many login attempts. Try again later." },
+});
 
-// Maintenance mode check (must be before routes)
+app.use("/api", apiLimiter);
+
+const uploadsPath = path.join(__dirname, "../uploads");
+app.use("/uploads", express.static(uploadsPath, {
+  maxAge: "7d",
+  etag: true,
+  lastModified: true,
+  immutable: true,
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
+      res.setHeader('Content-Type', `image/${ext.slice(1) === 'jpg' ? 'jpeg' : ext.slice(1)}`);
+    } else if (['.mp4', '.webm', '.mov'].includes(ext)) {
+      res.setHeader('Content-Type', `video/${ext.slice(1)}`);
+      res.setHeader('Accept-Ranges', 'bytes');
+    }
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+}));
+
+if (process.env.NODE_ENV === 'production') {
+  app.use(morgan("combined"));
+} else {
+  app.use(morgan("dev"));
+}
+
 app.use(checkMaintenanceMode);
 
-// home route
-app.get("", (req, res) => res.json({ msg: "API Is Running" }))
+app.get("", (req, res) => res.json({ msg: "API Is Running", version: "1.0.0" }));
+app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 // routes
 import { userRoutes } from "./routes/user.routes.js";
@@ -66,7 +117,12 @@ import searchRoutes from "./routes/search.routes.js";
 import { commentRoutes } from "./routes/comment.routes.js";
 import liveStreamRoutes from "./routes/liveStream.routes.js";
 
-// routes register
+app.use("/api/v1/users/login", authLimiter);
+app.use("/api/v1/users/register", authLimiter);
+app.use("/api/v1/post/upload", uploadLimiter);
+app.use("/api/v1/reel/upload", uploadLimiter);
+app.use("/api/v1/story/upload", uploadLimiter);
+
 app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/follow", followRoutes);
 app.use("/api/v1/post", postRoutes);
@@ -82,7 +138,6 @@ app.use("/api/v1/comment", commentRoutes);
 app.use("/api/v1/live", liveStreamRoutes);
 app.use(healthRoutes);
 
-//  404 route
 app.use((req, res, next) => {
   res.status(404).json({
     success: false,
@@ -90,7 +145,6 @@ app.use((req, res, next) => {
   });
 });
 
-// Global error middleware (last)
 app.use(errorMiddleware);
 
-export { app as Server };
+export { app as Server, uploadLimiter, authLimiter };

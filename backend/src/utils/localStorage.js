@@ -12,23 +12,30 @@ const REELS_DIR = path.join(UPLOADS_DIR, 'reels');
 const STORIES_DIR = path.join(UPLOADS_DIR, 'stories');
 const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
 
+const MAX_FILE_SIZE = {
+  image: 10 * 1024 * 1024,
+  video: 100 * 1024 * 1024,
+  avatar: 5 * 1024 * 1024,
+};
+
+const ALLOWED_EXTENSIONS = {
+  image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'],
+  video: ['.mp4', '.mov', '.avi', '.mkv', '.webm'],
+};
+
 const ensureDirectoryExists = (dir) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 };
 
-ensureDirectoryExists(POSTS_DIR);
-ensureDirectoryExists(REELS_DIR);
-ensureDirectoryExists(STORIES_DIR);
-ensureDirectoryExists(AVATARS_DIR);
+[POSTS_DIR, REELS_DIR, STORIES_DIR, AVATARS_DIR].forEach(ensureDirectoryExists);
 
 const generateUniqueFileName = (userId, originalName, type) => {
   const timestamp = Date.now();
   const randomStr = crypto.randomBytes(8).toString('hex');
   const ext = path.extname(originalName).toLowerCase();
   const safeUserId = String(userId).replace(/[^a-zA-Z0-9]/g, '');
-
   return `${type}_${safeUserId}_${timestamp}_${randomStr}${ext}`;
 };
 
@@ -38,40 +45,71 @@ const getFileType = (mimetype) => {
   return 'file';
 };
 
+const validateFile = (file, contentType) => {
+  const ext = path.extname(file.originalname || file.path).toLowerCase();
+  const fileType = getFileType(file.mimetype);
+
+  if (contentType === 'reel' && fileType !== 'video') {
+    return { valid: false, error: 'Reels must be video files' };
+  }
+
+  if (contentType === 'avatar' && fileType !== 'image') {
+    return { valid: false, error: 'Avatar must be an image file' };
+  }
+
+  const allowedExts = [...ALLOWED_EXTENSIONS.image, ...ALLOWED_EXTENSIONS.video];
+  if (!allowedExts.includes(ext)) {
+    return { valid: false, error: `File type ${ext} is not allowed` };
+  }
+
+  const maxSize = fileType === 'video' ? MAX_FILE_SIZE.video : MAX_FILE_SIZE.image;
+  if (file.size && file.size > maxSize) {
+    return { valid: false, error: `File size exceeds ${maxSize / (1024 * 1024)}MB limit` };
+  }
+
+  return { valid: true };
+};
+
+const getTargetDirectory = (contentType) => {
+  const dirs = {
+    post: POSTS_DIR,
+    reel: REELS_DIR,
+    story: STORIES_DIR,
+    avatar: AVATARS_DIR,
+  };
+  return dirs[contentType] || UPLOADS_DIR;
+};
+
 const saveFileLocally = async (tempFilePath, userId, contentType = 'post') => {
   try {
-    if (!tempFilePath || !fs.existsSync(tempFilePath)) {
+    if (!tempFilePath) {
+      console.error('[Storage] No file path provided');
       return null;
     }
 
-    const originalName = path.basename(tempFilePath);
-    const fileName = generateUniqueFileName(userId, originalName, contentType);
-
-    let targetDir;
-    switch (contentType) {
-      case 'post':
-        targetDir = POSTS_DIR;
-        break;
-      case 'reel':
-        targetDir = REELS_DIR;
-        break;
-      case 'story':
-        targetDir = STORIES_DIR;
-        break;
-      case 'avatar':
-        targetDir = AVATARS_DIR;
-        break;
-      default:
-        targetDir = UPLOADS_DIR;
+    if (!fs.existsSync(tempFilePath)) {
+      console.error('[Storage] Temp file does not exist:', tempFilePath);
+      return null;
     }
 
+    const stats = fs.statSync(tempFilePath);
+    const originalName = path.basename(tempFilePath);
+    const fileName = generateUniqueFileName(userId, originalName, contentType);
+    const targetDir = getTargetDirectory(contentType);
     const targetPath = path.join(targetDir, fileName);
 
-    fs.copyFileSync(tempFilePath, targetPath);
-    fs.unlinkSync(tempFilePath);
+    ensureDirectoryExists(targetDir);
 
-    const stats = fs.statSync(targetPath);
-    const relativePath = `/uploads/${contentType}s/${fileName}`;
+    await fs.promises.copyFile(tempFilePath, targetPath);
+
+    try {
+      await fs.promises.unlink(tempFilePath);
+    } catch (unlinkErr) {
+      console.warn('[Storage] Could not delete temp file:', unlinkErr.message);
+    }
+
+    const folderName = contentType === 'avatar' ? 'avatars' : `${contentType}s`;
+    const relativePath = `/uploads/${folderName}/${fileName}`;
 
     return {
       fileName,
@@ -83,64 +121,138 @@ const saveFileLocally = async (tempFilePath, userId, contentType = 'post') => {
       public_id: `${contentType}_${fileName}`,
     };
   } catch (error) {
-    console.error('Error saving file locally:', error);
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
+    console.error('[Storage] Error saving file:', error);
+
+    if (tempFilePath) {
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          await fs.promises.unlink(tempFilePath);
+        }
+      } catch (cleanupErr) {
+        console.error('[Storage] Cleanup error:', cleanupErr.message);
+      }
     }
+
     return null;
   }
 };
 
 const saveMultipleFilesLocally = async (files, userId, contentType = 'post') => {
-  const results = [];
+  if (!files || files.length === 0) {
+    return [];
+  }
 
-  for (const file of files) {
-    const result = await saveFileLocally(file.path, userId, contentType);
-    if (result) {
-      result.mimetype = file.mimetype;
-      result.originalName = file.originalname;
-      result.type = getFileType(file.mimetype);
-      results.push(result);
+  const results = [];
+  const errors = [];
+
+  const savePromises = files.map(async (file, index) => {
+    try {
+      const validation = validateFile(file, contentType);
+      if (!validation.valid) {
+        errors.push({ index, error: validation.error });
+        return null;
+      }
+
+      const result = await saveFileLocally(file.path, userId, contentType);
+      if (result) {
+        result.mimetype = file.mimetype;
+        result.originalName = file.originalname;
+        result.type = getFileType(file.mimetype);
+        return result;
+      }
+      return null;
+    } catch (err) {
+      errors.push({ index, error: err.message });
+      return null;
     }
+  });
+
+  const savedFiles = await Promise.all(savePromises);
+
+  savedFiles.forEach((file) => {
+    if (file) results.push(file);
+  });
+
+  if (errors.length > 0) {
+    console.warn('[Storage] Some files failed to save:', errors);
   }
 
   return results;
 };
 
-const deleteLocalFile = (filePath) => {
+const deleteLocalFile = async (filePath) => {
   try {
-    const fullPath = filePath.startsWith('/uploads')
-      ? path.join(UPLOADS_DIR, '..', filePath)
-      : filePath;
+    if (!filePath) return false;
+
+    let fullPath = filePath;
+    if (filePath.startsWith('/uploads')) {
+      fullPath = path.join(UPLOADS_DIR, '..', filePath);
+    }
 
     if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
+      await fs.promises.unlink(fullPath);
+      console.log('[Storage] File deleted:', filePath);
       return true;
     }
+
     return false;
   } catch (error) {
-    console.error('Error deleting file:', error);
+    console.error('[Storage] Error deleting file:', error);
     return false;
   }
 };
 
-const getVideoDuration = async (filePath) => {
-  return null;
+const deleteMultipleFiles = async (filePaths) => {
+  const results = await Promise.all(
+    filePaths.map((fp) => deleteLocalFile(fp))
+  );
+  return results.filter(Boolean).length;
 };
 
-const getImageDimensions = async (filePath) => {
-  return { width: null, height: null };
+const getStorageStats = async () => {
+  const stats = {
+    posts: { count: 0, size: 0 },
+    reels: { count: 0, size: 0 },
+    stories: { count: 0, size: 0 },
+    avatars: { count: 0, size: 0 },
+  };
+
+  const dirs = { posts: POSTS_DIR, reels: REELS_DIR, stories: STORIES_DIR, avatars: AVATARS_DIR };
+
+  for (const [key, dir] of Object.entries(dirs)) {
+    try {
+      if (fs.existsSync(dir)) {
+        const files = await fs.promises.readdir(dir);
+        for (const file of files) {
+          if (file.startsWith('.')) continue;
+          const filePath = path.join(dir, file);
+          const fileStat = await fs.promises.stat(filePath);
+          if (fileStat.isFile()) {
+            stats[key].count++;
+            stats[key].size += fileStat.size;
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[Storage] Error reading ${key} directory:`, err);
+    }
+  }
+
+  return stats;
 };
 
 export {
   AVATARS_DIR,
   deleteLocalFile,
+  deleteMultipleFiles,
   generateUniqueFileName,
   getFileType,
+  getStorageStats,
   POSTS_DIR,
   REELS_DIR,
   saveFileLocally,
   saveMultipleFilesLocally,
   STORIES_DIR,
   UPLOADS_DIR,
+  validateFile,
 };

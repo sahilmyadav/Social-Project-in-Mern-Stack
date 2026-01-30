@@ -1,15 +1,18 @@
-import { Post } from "../models/post.model.js";
-import { Like } from "../models/like.model.js";
 import { Comment } from "../models/comment.model.js";
-import { Save } from "../models/save.model.js";
-import { Report } from "../models/report.model.js";
-import { Notification } from "../models/notification.model.js";
-import { User } from "../models/user.model.js";
 import { Followers } from "../models/followers.model.js";
+import { Like } from "../models/like.model.js";
+import { Notification } from "../models/notification.model.js";
+import { Post } from "../models/post.model.js";
+import { Report } from "../models/report.model.js";
+import { Save } from "../models/save.model.js";
+import { User } from "../models/user.model.js";
 import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
-import { saveMultipleFilesLocally, getFileType } from "../utils/localStorage.js";
+import { deleteMultipleFiles, saveMultipleFilesLocally } from "../utils/localStorage.js";
+
+const MAX_FILES_PER_POST = 10;
+const MAX_CAPTION_LENGTH = 2000;
 
 export const uploadPost = asyncHandler(async (req, res) => {
   const { caption, tags, location, visibility } = req.body;
@@ -17,13 +20,21 @@ export const uploadPost = asyncHandler(async (req, res) => {
   const files = req.files;
 
   if (!files || files.length === 0) {
-    throw new ApiError(400, "At least one media file (image/video) is required");
+    throw new ApiError(400, "At least one media file is required");
+  }
+
+  if (files.length > MAX_FILES_PER_POST) {
+    throw new ApiError(400, `Maximum ${MAX_FILES_PER_POST} files allowed per post`);
+  }
+
+  if (caption && caption.length > MAX_CAPTION_LENGTH) {
+    throw new ApiError(400, `Caption must be less than ${MAX_CAPTION_LENGTH} characters`);
   }
 
   const savedFiles = await saveMultipleFilesLocally(files, userId, "post");
 
   if (savedFiles.length === 0) {
-    throw new ApiError(500, "Failed to save media files");
+    throw new ApiError(500, "Failed to save media files. Please try again.");
   }
 
   const media = savedFiles.map((file) => ({
@@ -35,41 +46,53 @@ export const uploadPost = asyncHandler(async (req, res) => {
     duration: null,
     public_id: file.public_id,
     fileName: file.fileName,
+    size: file.size,
   }));
 
-  let parsedTags = tags;
-  if (typeof tags === "string") {
-    try {
-      parsedTags = JSON.parse(tags);
-    } catch (error) {
-      parsedTags = tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+  let parsedTags = [];
+  if (tags) {
+    if (typeof tags === "string") {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch {
+        parsedTags = tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+      }
+    } else if (Array.isArray(tags)) {
+      parsedTags = tags;
     }
   }
+  parsedTags = parsedTags.slice(0, 30);
 
-  let parsedLocation = location;
-  if (typeof location === "string" && location.trim() !== "") {
+  let parsedLocation = null;
+  if (location && typeof location === "string" && location.trim()) {
     try {
       parsedLocation = JSON.parse(location);
-    } catch (error) {
-      parsedLocation = { name: location };
+    } catch {
+      parsedLocation = { name: location.trim() };
     }
   }
 
-  const post = await Post.create({
-    user_id: userId,
-    caption: caption || "",
-    media,
-    tags: parsedTags || [],
-    location: parsedLocation || null,
-    visibility: visibility || "public",
-  });
+  let post;
+  try {
+    post = await Post.create({
+      user_id: userId,
+      caption: caption?.trim() || "",
+      media,
+      tags: parsedTags,
+      location: parsedLocation,
+      visibility: visibility || "public",
+    });
+  } catch (dbError) {
+    await deleteMultipleFiles(savedFiles.map((f) => f.url));
+    throw new ApiError(500, "Failed to create post. Please try again.");
+  }
 
-  await post.populate("user_id", "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified");
+  await post.populate(
+    "user_id",
+    "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified"
+  );
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, post, "Post uploaded successfully"));
-    );
+  return res.status(201).json(new ApiResponse(201, post, "Post created successfully"));
 });
 
 // Delete a post
