@@ -256,4 +256,38 @@
     animation: float 4s ease-in-out infinite;
     animation-delay: 2s;
   }
+
+  /* Instagram-like dark mode input styling */
+  .dark input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  .dark textarea,
+  .dark select {
+    background-color: #262626 !important;
+    border-color: #363636 !important;
+    transition: all 0.2s ease;
+  }
+
+  .dark
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):hover,
+  .dark textarea:hover,
+  .dark select:hover {
+    background-color: #2f2f2f !important;
+    border-color: #454545 !important;
+  }
+
+  .dark
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):focus,
+  .dark textarea:focus,
+  .dark select:focus {
+    background-color: #2f2f2f !important;
+    border-color: var(--ring) !important;
+  }
+
+  /* Search input specific styling */
+  .dark input[type='search'] {
+    background-color: #262626 !important;
+  }
+
+  .dark input[type='search']:hover {
+    background-color: #2f2f2f !important;
+  }
 }

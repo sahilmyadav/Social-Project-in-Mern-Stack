@@ -9,59 +9,43 @@ import { Followers } from "../models/followers.model.js";
 import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { saveMultipleFilesLocally, getFileType } from "../utils/localStorage.js";
 
-// Upload a new post
 export const uploadPost = asyncHandler(async (req, res) => {
   const { caption, tags, location, visibility } = req.body;
-  const userId = req.user._id; // User who is uploading the post
-  // Get uploaded files from multer (temporary local files)
+  const userId = req.user._id;
   const files = req.files;
 
   if (!files || files.length === 0) {
-    throw new ApiError(
-      400,
-      "At least one media file (image/video) is required"
-    );
+    throw new ApiError(400, "At least one media file (image/video) is required");
   }
 
-  // Upload each file to Cloudinary and get URLs
-  const mediaUploadPromises = files.map(async (file) => {
-    const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
+  const savedFiles = await saveMultipleFilesLocally(files, userId, "post");
 
-    // Upload to Cloudinary
-    const cloudinaryResponse = await uploadOnCloudinary(file.path);
+  if (savedFiles.length === 0) {
+    throw new ApiError(500, "Failed to save media files");
+  }
 
-    if (!cloudinaryResponse) {
-      throw new ApiError(500, `Failed to upload ${fileType}`);
-    }
+  const media = savedFiles.map((file) => ({
+    type: file.type,
+    url: file.url,
+    thumbnail: file.url,
+    width: null,
+    height: null,
+    duration: null,
+    public_id: file.public_id,
+    fileName: file.fileName,
+  }));
 
-    return {
-      type: fileType,
-      url: cloudinaryResponse.secure_url, // Cloudinary URL
-      thumbnail:
-        cloudinaryResponse.thumbnail_url || cloudinaryResponse.secure_url,
-      width: cloudinaryResponse.width,
-      height: cloudinaryResponse.height,
-      duration: cloudinaryResponse.duration || null, // For videos
-      public_id: cloudinaryResponse.public_id, // Store for deletion later
-    };
-  });
-
-  // Wait for all uploads to complete
-  const media = await Promise.all(mediaUploadPromises);
-
-  // Parse tags if it's a JSON string
   let parsedTags = tags;
   if (typeof tags === "string") {
     try {
       parsedTags = JSON.parse(tags);
     } catch (error) {
-      parsedTags = tags.split(",").map((tag) => tag.trim());
+      parsedTags = tags.split(",").map((tag) => tag.trim()).filter(Boolean);
     }
   }
 
-  // Parse location if it's a JSON string
   let parsedLocation = location;
   if (typeof location === "string" && location.trim() !== "") {
     try {
@@ -71,23 +55,20 @@ export const uploadPost = asyncHandler(async (req, res) => {
     }
   }
 
-  // Create post in database with user_id (who uploaded this)
   const post = await Post.create({
-    user_id: userId, // This tracks who uploaded the post
+    user_id: userId,
     caption: caption || "",
-    media, // Array of Cloudinary URLs with metadata
+    media,
     tags: parsedTags || [],
     location: parsedLocation || null,
     visibility: visibility || "public",
   });
 
-  // Populate user details to show who created this post
   await post.populate("user_id", "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified");
 
   return res
     .status(201)
-    .json(
-      new ApiResponse(201, post, "Post uploaded successfully to Cloudinary")
+    .json(new ApiResponse(201, post, "Post uploaded successfully"));
     );
 });
 

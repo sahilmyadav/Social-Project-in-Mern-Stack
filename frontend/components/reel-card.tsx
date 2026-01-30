@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
 import { reelService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import { showToast } from '@/lib/toast';
 import {
   Bookmark,
@@ -215,8 +216,8 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
     ? `${reel.user_id.firstName} ${reel.user_id.lastName || ''}`.trim()
     : reel.user_id?.username || 'Unknown User';
 
-  const videoUrl = reel.media?.url;
-  const thumbnailUrl = reel.media?.thumbnail || reel.media?.url;
+  const videoUrl = getMediaUrl(reel.media?.url);
+  const thumbnailUrl = getMediaUrl(reel.media?.thumbnail || reel.media?.url);
 
   return (
     <div

@@ -1,174 +1,183 @@
-"use client"
+'use client';
 
-import { useState, useEffect, useRef } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Heart, MessageCircle, Share2, Bookmark, MoreVertical, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { postService, commentService } from "@/lib/api-services"
-import { toasts } from "@/lib/toast"
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { commentService, postService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
+import { toasts } from '@/lib/toast';
+import { Bookmark, Heart, MessageCircle, MoreVertical, Share2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 interface PostDetailsModalProps {
-  isOpen: boolean
-  onClose: () => void
-  post: any
+  isOpen: boolean;
+  onClose: () => void;
+  post: any;
 }
 
-export default function PostDetailsModal({ isOpen, onClose, post: initialPost }: PostDetailsModalProps) {
-  const [post, setPost] = useState<any>(initialPost)
-  const [liked, setLiked] = useState(false)
-  const [savedPost, setSavedPost] = useState(false)
-  const [likeCount, setLikeCount] = useState(0)
-  const [newComment, setNewComment] = useState("")
-  const [comments, setComments] = useState<any[]>([])
-  const [isLoadingPost, setIsLoadingPost] = useState(false)
-  const [isSubmittingComment, setIsSubmittingComment] = useState(false)
-  const [isLiking, setIsLiking] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [currentUser, setCurrentUser] = useState<any>(null)
-  const scrollPositionRef = useRef(0)
+export default function PostDetailsModal({
+  isOpen,
+  onClose,
+  post: initialPost,
+}: PostDetailsModalProps) {
+  const [post, setPost] = useState<any>(initialPost);
+  const [liked, setLiked] = useState(false);
+  const [savedPost, setSavedPost] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [newComment, setNewComment] = useState('');
+  const [comments, setComments] = useState<any[]>([]);
+  const [isLoadingPost, setIsLoadingPost] = useState(false);
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const scrollPositionRef = useRef(0);
 
   // Save scroll position when modal opens
   useEffect(() => {
     if (isOpen) {
-      scrollPositionRef.current = window.scrollY
+      scrollPositionRef.current = window.scrollY;
       // Load current user
-      const userData = localStorage.getItem('user')
+      const userData = localStorage.getItem('user');
       if (userData) {
-        setCurrentUser(JSON.parse(userData))
+        setCurrentUser(JSON.parse(userData));
       }
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   // Restore scroll position when modal closes
   const handleClose = () => {
-    onClose()
+    onClose();
     // Restore scroll position after a short delay to ensure modal is closed
     setTimeout(() => {
-      window.scrollTo(0, scrollPositionRef.current)
-    }, 0)
-  }
+      window.scrollTo(0, scrollPositionRef.current);
+    }, 0);
+  };
 
   // Fetch full post details when modal opens
   useEffect(() => {
     const fetchPostDetails = async () => {
-      if (!initialPost?._id && !initialPost?.id) return
+      if (!initialPost?._id && !initialPost?.id) return;
 
-      setIsLoadingPost(true)
+      setIsLoadingPost(true);
       try {
-        const postId = initialPost._id || initialPost.id
-        const response = await postService.getPostDetails(postId)
+        const postId = initialPost._id || initialPost.id;
+        const response = await postService.getPostDetails(postId);
 
         if (response.success && response.data) {
-          setPost(response.data)
-          setLikeCount(response.data.likes_count || 0)
-          setLiked(response.data.isLiked || false)
-          setSavedPost(response.data.isSaved || false)
-          setComments(response.data.comments || [])
+          setPost(response.data);
+          setLikeCount(response.data.likes_count || 0);
+          setLiked(response.data.isLiked || false);
+          setSavedPost(response.data.isSaved || false);
+          setComments(response.data.comments || []);
         } else {
           // Fallback to initial post data
-          setPost(initialPost)
-          setLikeCount(initialPost.likes_count || 0)
-          setLiked(initialPost.isLiked || false)
-          setSavedPost(initialPost.isSaved || false)
-          setComments([])
+          setPost(initialPost);
+          setLikeCount(initialPost.likes_count || 0);
+          setLiked(initialPost.isLiked || false);
+          setSavedPost(initialPost.isSaved || false);
+          setComments([]);
         }
       } catch (error) {
-        console.error('Error fetching post details:', error)
+        console.error('Error fetching post details:', error);
         // Fallback to initial post data
-        setPost(initialPost)
-        setLikeCount(initialPost.likes_count || 0)
-        setLiked(initialPost.isLiked || false)
-        setSavedPost(initialPost.isSaved || false)
-        setComments([])
+        setPost(initialPost);
+        setLikeCount(initialPost.likes_count || 0);
+        setLiked(initialPost.isLiked || false);
+        setSavedPost(initialPost.isSaved || false);
+        setComments([]);
       } finally {
-        setIsLoadingPost(false)
+        setIsLoadingPost(false);
       }
-    }
+    };
 
     if (isOpen) {
-      fetchPostDetails()
+      fetchPostDetails();
     }
-  }, [isOpen, initialPost])
+  }, [isOpen, initialPost]);
 
-  if (!post) return null
+  if (!post) return null;
 
-  // Get media URL (first media item)
-  const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url
-  const mediaType = post.media?.[0]?.type || 'image'
+  const rawMediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url;
+  const mediaUrl = getMediaUrl(rawMediaUrl);
+  const mediaType = post.media?.[0]?.type || 'image';
 
-  // Get author info
   const authorName = post.user_id?.firstName
     ? `${post.user_id.firstName} ${post.user_id.lastName || ''}`.trim()
-    : post.user_id?.username || post.author || 'Unknown User'
+    : post.user_id?.username || post.author || 'Unknown User';
 
-  const authorAvatar = post.user_id?.profileImage || post.user_id?.profilePicture || '😊'
+  const authorAvatar = post.user_id?.profileImage || post.user_id?.profilePicture || '😊';
 
   // Format timestamp
   const formatTimestamp = (timestamp: string) => {
-    if (!timestamp) return 'Just now'
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diff = Math.floor((now.getTime() - date.getTime()) / 1000)
+    if (!timestamp) return 'Just now';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-    if (diff < 60) return 'Just now'
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`
-    return date.toLocaleDateString()
-  }
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    return date.toLocaleDateString();
+  };
 
-  const timestamp = formatTimestamp(post.createdAt || post.timestamp)
+  const timestamp = formatTimestamp(post.createdAt || post.timestamp);
 
   const handleLike = async () => {
-    if (isLiking || !post?._id) return
+    if (isLiking || !post?._id) return;
 
-    setIsLiking(true)
-    const previousLiked = liked
-    const previousCount = likeCount
+    setIsLiking(true);
+    const previousLiked = liked;
+    const previousCount = likeCount;
 
     // Optimistic update
-    setLiked(!liked)
-    setLikeCount(liked ? likeCount - 1 : likeCount + 1)
+    setLiked(!liked);
+    setLikeCount(liked ? likeCount - 1 : likeCount + 1);
 
     try {
-      const postId = post._id || post.id
+      const postId = post._id || post.id;
       if (liked) {
-        const response = await postService.unlikePost(postId)
+        const response = await postService.unlikePost(postId);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to unlike post')
+          throw new Error(response.message || 'Failed to unlike post');
         }
       } else {
-        const response = await postService.likePost(postId)
+        const response = await postService.likePost(postId);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to like post')
+          throw new Error(response.message || 'Failed to like post');
         }
       }
     } catch (error: any) {
-      console.error('Error toggling like:', error.message || error)
+      console.error('Error toggling like:', error.message || error);
       // Revert on error
-      setLiked(previousLiked)
-      setLikeCount(previousCount)
+      setLiked(previousLiked);
+      setLikeCount(previousCount);
     } finally {
-      setIsLiking(false)
+      setIsLiking(false);
     }
-  }
+  };
 
   const handleSubmitComment = async () => {
-    if (!newComment.trim() || isSubmittingComment || !post?._id) return
+    if (!newComment.trim() || isSubmittingComment || !post?._id) return;
 
-    setIsSubmittingComment(true)
+    setIsSubmittingComment(true);
     try {
-      const postId = post._id || post.id
+      const postId = post._id || post.id;
       const response = await postService.commentOnPost(postId, {
-        text: newComment.trim()
-      })
+        text: newComment.trim(),
+      });
 
       if (response.success && response.data) {
         // Add new comment to the list
-        const user = JSON.parse(localStorage.getItem('user') || '{}')
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
 
         // Ensure the comment has complete user data
         // The API might return user_id but without all fields like profileImage
@@ -182,143 +191,159 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
             lastName: response.data.user_id?.lastName || user.lastName,
             username: response.data.user_id?.username || user.username,
             profileImage: response.data.user_id?.profileImage || user.profileImage,
-            profilePicture: response.data.user_id?.profilePicture || user.profilePicture || user.profileImage,
-            avatar: response.data.user_id?.avatar || user.avatar
-          }
-        }
+            profilePicture:
+              response.data.user_id?.profilePicture || user.profilePicture || user.profileImage,
+            avatar: response.data.user_id?.avatar || user.avatar,
+          },
+        };
 
-        setComments([newCommentObj, ...comments])
-        setNewComment('')
+        setComments([newCommentObj, ...comments]);
+        setNewComment('');
 
         // Update comments count
         setPost((prev: any) => ({
           ...prev,
-          comments_count: (prev.comments_count || 0) + 1
-        }))
+          comments_count: (prev.comments_count || 0) + 1,
+        }));
       }
     } catch (error) {
-      console.error('Error submitting comment:', error)
+      console.error('Error submitting comment:', error);
     } finally {
-      setIsSubmittingComment(false)
+      setIsSubmittingComment(false);
     }
-  }
+  };
 
   const handleSavePost = async () => {
-    if (isSaving || !post?._id) return
+    if (isSaving || !post?._id) return;
 
-    setIsSaving(true)
-    const previousSaved = savedPost
+    setIsSaving(true);
+    const previousSaved = savedPost;
 
     // Optimistic update
-    setSavedPost(!savedPost)
+    setSavedPost(!savedPost);
 
     try {
-      const postId = post._id || post.id
+      const postId = post._id || post.id;
       if (savedPost) {
-        const response = await postService.unsavePost(postId)
+        const response = await postService.unsavePost(postId);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to unsave post')
+          throw new Error(response.message || 'Failed to unsave post');
         }
-        toasts.postUnsaved()
+        toasts.postUnsaved();
       } else {
-        const response = await postService.savePost(postId)
+        const response = await postService.savePost(postId);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to save post')
+          throw new Error(response.message || 'Failed to save post');
         }
-        toasts.postSaved()
+        toasts.postSaved();
       }
     } catch (error: any) {
-      console.error('Error toggling save:', error.message || error)
+      console.error('Error toggling save:', error.message || error);
 
       // Check if error is "already saved" or "already unsaved"
-      const errorMessage = error?.message || error?.error || ""
+      const errorMessage = error?.message || error?.error || '';
 
-      if (errorMessage.toLowerCase().includes("already saved")) {
+      if (errorMessage.toLowerCase().includes('already saved')) {
         // Post is already saved - sync state to saved
-        setSavedPost(true)
-        toasts.postSaved()
-      } else if (errorMessage.toLowerCase().includes("not saved") || errorMessage.toLowerCase().includes("already unsaved")) {
+        setSavedPost(true);
+        toasts.postSaved();
+      } else if (
+        errorMessage.toLowerCase().includes('not saved') ||
+        errorMessage.toLowerCase().includes('already unsaved')
+      ) {
         // Post is not saved - sync state to not saved
-        setSavedPost(false)
+        setSavedPost(false);
       } else {
         // Other error - revert to previous state
-        setSavedPost(previousSaved)
-        toasts.saveError()
+        setSavedPost(previousSaved);
+        toasts.saveError();
       }
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   const handleDeletePost = async () => {
-    if (isDeleting || !post?._id) return
+    if (isDeleting || !post?._id) return;
 
-    if (!confirm('Are you sure you want to delete this post?')) return
+    if (!confirm('Are you sure you want to delete this post?')) return;
 
-    setIsDeleting(true)
+    setIsDeleting(true);
 
     try {
-      const postId = post._id || post.id
-      const response = await postService.deletePost(postId)
+      const postId = post._id || post.id;
+      const response = await postService.deletePost(postId);
       if (response.success) {
-        handleClose() // Close modal after deletion
+        handleClose(); // Close modal after deletion
       } else {
-        throw new Error(response.message || 'Failed to delete post')
+        throw new Error(response.message || 'Failed to delete post');
       }
     } catch (error: any) {
-      console.error('Error deleting post:', error.message || error)
-      alert('Failed to delete post. Please try again.')
+      console.error('Error deleting post:', error.message || error);
+      alert('Failed to delete post. Please try again.');
     } finally {
-      setIsDeleting(false)
+      setIsDeleting(false);
     }
-  }
+  };
 
   // Check if current user is the post author
-  const isOwnPost = currentUser?._id === post?.user_id?._id
+  const isOwnPost = currentUser?._id === post?.user_id?._id;
 
   // Format comment timestamp
   const formatCommentTime = (timestamp: string) => {
-    if (!timestamp) return 'Just now'
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diff = Math.floor((now.getTime() - date.getTime()) / 1000)
+    if (!timestamp) return 'Just now';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-    if (diff < 60) return 'Just now'
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`
-    return date.toLocaleDateString()
-  }
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    return date.toLocaleDateString();
+  };
 
   const handleLikeComment = async (commentId: string) => {
     try {
       // Find the comment to check current like status
-      const comment = comments.find(c => c._id === commentId || c.id === commentId)
-      const isCurrentlyLiked = comment?.isLiked || false
+      const comment = comments.find((c) => c._id === commentId || c.id === commentId);
+      const isCurrentlyLiked = comment?.isLiked || false;
 
       // Optimistically update the UI
-      setComments(prev => prev.map(c =>
-        (c._id === commentId || c.id === commentId)
-          ? { ...c, isLiked: !c.isLiked, likes_count: c.isLiked ? (c.likes_count || 1) - 1 : (c.likes_count || 0) + 1 }
-          : c
-      ))
+      setComments((prev) =>
+        prev.map((c) =>
+          c._id === commentId || c.id === commentId
+            ? {
+                ...c,
+                isLiked: !c.isLiked,
+                likes_count: c.isLiked ? (c.likes_count || 1) - 1 : (c.likes_count || 0) + 1,
+              }
+            : c
+        )
+      );
 
       // Call the appropriate API
       if (isCurrentlyLiked) {
-        await commentService.unlikeComment(commentId)
+        await commentService.unlikeComment(commentId);
       } else {
-        await commentService.likeComment(commentId)
+        await commentService.likeComment(commentId);
       }
     } catch (error) {
-      console.error("Error liking comment:", error)
+      console.error('Error liking comment:', error);
       // Revert on error
-      setComments(prev => prev.map(c =>
-        (c._id === commentId || c.id === commentId)
-          ? { ...c, isLiked: !c.isLiked, likes_count: c.isLiked ? (c.likes_count || 1) - 1 : (c.likes_count || 0) + 1 }
-          : c
-      ))
+      setComments((prev) =>
+        prev.map((c) =>
+          c._id === commentId || c.id === commentId
+            ? {
+                ...c,
+                isLiked: !c.isLiked,
+                likes_count: c.isLiked ? (c.likes_count || 1) - 1 : (c.likes_count || 0) + 1,
+              }
+            : c
+        )
+      );
     }
-  }
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
@@ -326,7 +351,11 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
         <DialogHeader className="sticky top-0 bg-background z-10 p-4 border-b border-border">
           <div className="flex items-center justify-between">
             <DialogTitle>Post Details</DialogTitle>
-            <button onClick={handleClose} className="p-1 hover:bg-muted rounded-full transition" aria-label="Close">
+            <button
+              onClick={handleClose}
+              className="p-1 hover:bg-muted rounded-full transition"
+              aria-label="Close"
+            >
               <X size={24} className="text-foreground" />
             </button>
           </div>
@@ -345,11 +374,7 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
             <div className="relative w-full h-96 rounded-xl overflow-hidden bg-muted">
               {mediaUrl ? (
                 mediaType === 'video' ? (
-                  <video
-                    src={mediaUrl}
-                    controls
-                    className="w-full h-full object-cover"
-                  />
+                  <video src={mediaUrl} controls className="w-full h-full object-cover" />
                 ) : (
                   <img
                     src={mediaUrl}
@@ -369,7 +394,11 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-xl overflow-hidden">
                   {authorAvatar.startsWith('http') ? (
-                    <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
+                    <img
+                      src={authorAvatar}
+                      alt={authorName}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <span>{authorAvatar}</span>
                   )}
@@ -389,17 +418,17 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
                   <DropdownMenuItem onClick={handleSavePost} disabled={isSaving}>
                     {isSaving ? 'Saving...' : savedPost ? 'Unsave Post' : 'Save Post'}
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    Report Post
-                  </DropdownMenuItem>
+                  <DropdownMenuItem>Report Post</DropdownMenuItem>
                   {isOwnPost && (
-                    <DropdownMenuItem onClick={handleDeletePost} disabled={isDeleting} className="text-red-600">
+                    <DropdownMenuItem
+                      onClick={handleDeletePost}
+                      disabled={isDeleting}
+                      className="text-red-600"
+                    >
                       {isDeleting ? 'Deleting...' : 'Delete Post'}
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem>
-                    Copy Link
-                  </DropdownMenuItem>
+                  <DropdownMenuItem>Copy Link</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -407,7 +436,9 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
             {/* Post Content */}
             {post.caption && (
               <div>
-                <p className="text-foreground text-lg leading-relaxed whitespace-pre-wrap">{post.caption}</p>
+                <p className="text-foreground text-lg leading-relaxed whitespace-pre-wrap">
+                  {post.caption}
+                </p>
               </div>
             )}
 
@@ -440,10 +471,13 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
               <Button
                 onClick={handleLike}
                 disabled={isLiking}
-                className={`flex-1 flex items-center justify-center gap-2 ${liked ? "bg-red-500 hover:bg-red-600 text-white" : "bg-background hover:bg-muted text-foreground"
-                  } ${isLiking ? "opacity-50 cursor-not-allowed" : ""}`}
+                className={`flex-1 flex items-center justify-center gap-2 ${
+                  liked
+                    ? 'bg-red-500 hover:bg-red-600 text-white'
+                    : 'bg-background hover:bg-muted text-foreground'
+                } ${isLiking ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <Heart size={18} fill={liked ? "white" : "none"} />
+                <Heart size={18} fill={liked ? 'white' : 'none'} />
                 {isLiking ? 'Loading...' : 'Like'}
               </Button>
               <Button className="flex-1 flex items-center justify-center gap-2 bg-background hover:bg-muted text-foreground">
@@ -457,12 +491,13 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
               <Button
                 onClick={handleSavePost}
                 disabled={isSaving}
-                className={`flex-1 flex items-center justify-center gap-2 ${savedPost
-                  ? "bg-primary hover:bg-primary/90 text-primary-foreground"
-                  : "bg-background hover:bg-muted text-foreground"
-                  } ${isSaving ? "opacity-50 cursor-not-allowed" : ""}`}
+                className={`flex-1 flex items-center justify-center gap-2 ${
+                  savedPost
+                    ? 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                    : 'bg-background hover:bg-muted text-foreground'
+                } ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <Bookmark size={18} fill={savedPost ? "currentColor" : "none"} />
+                <Bookmark size={18} fill={savedPost ? 'currentColor' : 'none'} />
                 {isSaving ? '' : savedPost ? 'Saved' : 'Save'}
               </Button>
             </div>
@@ -476,14 +511,19 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
                   comments.map((comment) => {
                     const commentAuthor = comment.user_id?.firstName
                       ? `${comment.user_id.firstName} ${comment.user_id.lastName || ''}`.trim()
-                      : comment.user_id?.username || 'Unknown User'
-                    const commentAvatar = comment.user_id?.profileImage || comment.user_id?.profilePicture || '😊'
+                      : comment.user_id?.username || 'Unknown User';
+                    const commentAvatar =
+                      comment.user_id?.profileImage || comment.user_id?.profilePicture || '😊';
 
                     return (
                       <div key={comment._id || comment.id} className="flex gap-3">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
                           {commentAvatar.startsWith('http') ? (
-                            <img src={commentAvatar} alt={commentAuthor} className="w-full h-full object-cover" />
+                            <img
+                              src={commentAvatar}
+                              alt={commentAuthor}
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
                             <span>{commentAvatar}</span>
                           )}
@@ -491,15 +531,22 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
                         <div className="flex-1">
                           <div className="bg-muted rounded-lg p-3">
                             <p className="font-semibold text-sm text-foreground">{commentAuthor}</p>
-                            <p className="text-sm text-foreground mt-1">{comment.comment_text || comment.text}</p>
+                            <p className="text-sm text-foreground mt-1">
+                              {comment.comment_text || comment.text}
+                            </p>
                           </div>
                           <div className="flex items-center gap-4 mt-2 px-1">
-                            <span className="text-xs text-muted-foreground">{formatCommentTime(comment.createdAt)}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatCommentTime(comment.createdAt)}
+                            </span>
                             <button
                               onClick={() => handleLikeComment(comment._id || comment.id)}
                               className="text-xs text-muted-foreground hover:text-primary transition font-medium flex items-center gap-1"
                             >
-                              <Heart size={12} className={comment.isLiked ? 'fill-primary text-primary' : ''} />
+                              <Heart
+                                size={12}
+                                className={comment.isLiked ? 'fill-primary text-primary' : ''}
+                              />
                               {comment.likes_count > 0 && <span>{comment.likes_count}</span>}
                               <span>Like</span>
                             </button>
@@ -518,16 +565,19 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
                                 }}
                                 className="text-xs text-primary hover:underline font-medium"
                               >
-                                View {comment.replies_count} {comment.replies_count === 1 ? 'reply' : 'replies'}
+                                View {comment.replies_count}{' '}
+                                {comment.replies_count === 1 ? 'reply' : 'replies'}
                               </button>
                             )}
                           </div>
                         </div>
                       </div>
-                    )
+                    );
                   })
                 ) : (
-                  <p className="text-center text-muted-foreground py-4">No comments yet. Be the first to comment!</p>
+                  <p className="text-center text-muted-foreground py-4">
+                    No comments yet. Be the first to comment!
+                  </p>
                 )}
               </div>
 
@@ -535,13 +585,16 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
               <div className="flex gap-2 pt-4 border-t border-border">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
                   {(() => {
-                    const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}') : {}
-                    const userAvatar = user.profileImage || user.profilePicture || '😊'
+                    const user =
+                      typeof window !== 'undefined'
+                        ? JSON.parse(localStorage.getItem('user') || '{}')
+                        : {};
+                    const userAvatar = user.profileImage || user.profilePicture || '😊';
                     return userAvatar.startsWith('http') ? (
                       <img src={userAvatar} alt="You" className="w-full h-full object-cover" />
                     ) : (
                       <span>{userAvatar}</span>
-                    )
+                    );
                   })()}
                 </div>
                 <div className="flex-1 flex gap-2">
@@ -551,8 +604,8 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
                     onChange={(e) => setNewComment(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSubmitComment()
+                        e.preventDefault();
+                        handleSubmitComment();
                       }
                     }}
                     className="bg-muted border-0 rounded-full"
@@ -572,5 +625,5 @@ export default function PostDetailsModal({ isOpen, onClose, post: initialPost }:
         )}
       </DialogContent>
     </Dialog>
-  )
+  );
 }

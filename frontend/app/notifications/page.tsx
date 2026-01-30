@@ -300,278 +300,283 @@ export default function NotificationsPage() {
   const filteredNotifications = notifications;
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar Navigation */}
-      <aside className="hidden lg:block w-64 border-r border-border bg-card fixed left-0 top-0 h-screen overflow-y-auto p-6">
-        <Navigation user={user} onLogout={handleLogout} />
-      </aside>
+    <main className="min-h-screen bg-background">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {/* Sidebar Navigation */}
+        <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
+          <Navigation user={user} onLogout={handleLogout} />
+        </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 lg:ml-64 px-4 py-6 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">Notifications</h1>
-              {unreadCount > 0 && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
-                </p>
-              )}
-            </div>
+        {/* Main Content */}
+        <section className="lg:col-span-2 max-w-2xl mx-auto pb-20 lg:pb-0 px-4 py-6">
+          {/* Header */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h1 className="text-3xl font-bold text-foreground">Notifications</h1>
+                {unreadCount > 0 && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
+                  </p>
+                )}
+              </div>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push('/account-settings')}
-              title="Notification Settings"
-            >
-              <Settings className="w-5 h-5" />
-            </Button>
-          </div>
-
-          {/* Action Bar */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex gap-2">
-              <Button
-                variant={filter === 'all' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilter('all')}
-              >
-                All
-              </Button>
-              <Button
-                variant={filter === 'unread' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilter('unread')}
-              >
-                Unread ({unreadCount})
-              </Button>
-            </div>
-
-            {unreadCount > 0 && (
               <Button
                 variant="ghost"
-                size="sm"
-                onClick={handleMarkAllAsRead}
-                className="text-primary"
+                size="icon"
+                onClick={() => router.push('/account-settings')}
+                title="Notification Settings"
               >
-                <CheckCheck className="w-4 h-4 mr-2" />
-                Mark all read
+                <Settings className="w-5 h-5" />
               </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Follow Requests Section */}
-        {followRequests.length > 0 && (
-          <div className="mb-6 bg-card rounded-lg border border-border p-4">
-            <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
-              <UserPlus className="w-5 h-5" />
-              Follow Requests ({followRequests.length})
-            </h2>
-            <div className="space-y-3">
-              {followRequests.map((request: any) => (
-                <div
-                  key={request._id}
-                  className="flex items-center justify-between gap-4 p-3 bg-muted/50 rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-semibold overflow-hidden">
-                      {request.requester?.profileImage ||
-                      request.requester?.profilePicture ||
-                      request.requester?.avatar ? (
-                        <img
-                          src={
-                            request.requester.profileImage ||
-                            request.requester.profilePicture ||
-                            request.requester.avatar
-                          }
-                          alt={request.requester.firstName}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        `${request.requester?.firstName?.[0] || ''}${request.requester?.lastName?.[0] || ''}`
-                      )}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-foreground">
-                        {request.requester?.firstName} {request.requester?.lastName}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        @{request.requester?.username || 'user'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => handleAcceptRequest(request._id)}
-                      disabled={processingRequest === request._id}
-                      className="gap-2"
-                    >
-                      <UserCheck size={14} />
-                      Accept
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleRejectRequest(request._id)}
-                      disabled={processingRequest === request._id}
-                      className="gap-2"
-                    >
-                      <X size={14} />
-                      Reject
-                    </Button>
-                  </div>
-                </div>
-              ))}
             </div>
-          </div>
-        )}
 
-        {/* Error State */}
-        {error && !loading && (
-          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6">
-            <p className="text-destructive text-sm">{error}</p>
-            <Button variant="outline" size="sm" onClick={loadNotifications} className="mt-2">
-              Try Again
-            </Button>
-          </div>
-        )}
+            {/* Action Bar */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex gap-2">
+                <Button
+                  variant={filter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilter('all')}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={filter === 'unread' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilter('unread')}
+                >
+                  Unread ({unreadCount})
+                </Button>
+              </div>
 
-        {/* Notifications List */}
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          </div>
-        ) : filteredNotifications.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-muted mb-4">
-              {filter === 'unread' ? (
-                <CheckCheck className="w-10 h-10 text-muted-foreground" />
-              ) : (
-                <BellOff className="w-10 h-10 text-muted-foreground" />
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleMarkAllAsRead}
+                  className="text-primary"
+                >
+                  <CheckCheck className="w-4 h-4 mr-2" />
+                  Mark all read
+                </Button>
               )}
             </div>
-            <h3 className="text-xl font-semibold text-foreground mb-2">
-              {filter === 'unread' ? 'All caught up!' : 'No notifications yet'}
-            </h3>
-            <p className="text-muted-foreground">
-              {filter === 'unread'
-                ? "You've read all your notifications"
-                : "When people interact with your posts, you'll see it here"}
-            </p>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {filteredNotifications.map((notification) => (
-              <div
-                key={notification._id}
-                onClick={() => handleNotificationClick(notification)}
-                className={`
+
+          {/* Follow Requests Section */}
+          {followRequests.length > 0 && (
+            <div className="mb-6 bg-card rounded-lg border border-border p-4">
+              <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                <UserPlus className="w-5 h-5" />
+                Follow Requests ({followRequests.length})
+              </h2>
+              <div className="space-y-3">
+                {followRequests.map((request: any) => (
+                  <div
+                    key={request._id}
+                    className="flex items-center justify-between gap-4 p-3 bg-muted/50 rounded-lg"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-semibold overflow-hidden">
+                        {request.requester?.profileImage ||
+                        request.requester?.profilePicture ||
+                        request.requester?.avatar ? (
+                          <img
+                            src={
+                              request.requester.profileImage ||
+                              request.requester.profilePicture ||
+                              request.requester.avatar
+                            }
+                            alt={request.requester.firstName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          `${request.requester?.firstName?.[0] || ''}${request.requester?.lastName?.[0] || ''}`
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {request.requester?.firstName} {request.requester?.lastName}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          @{request.requester?.username || 'user'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleAcceptRequest(request._id)}
+                        disabled={processingRequest === request._id}
+                        className="gap-2"
+                      >
+                        <UserCheck size={14} />
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRejectRequest(request._id)}
+                        disabled={processingRequest === request._id}
+                        className="gap-2"
+                      >
+                        <X size={14} />
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && !loading && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6">
+              <p className="text-destructive text-sm">{error}</p>
+              <Button variant="outline" size="sm" onClick={loadNotifications} className="mt-2">
+                Try Again
+              </Button>
+            </div>
+          )}
+
+          {/* Notifications List */}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : filteredNotifications.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-muted mb-4">
+                {filter === 'unread' ? (
+                  <CheckCheck className="w-10 h-10 text-muted-foreground" />
+                ) : (
+                  <BellOff className="w-10 h-10 text-muted-foreground" />
+                )}
+              </div>
+              <h3 className="text-xl font-semibold text-foreground mb-2">
+                {filter === 'unread' ? 'All caught up!' : 'No notifications yet'}
+              </h3>
+              <p className="text-muted-foreground">
+                {filter === 'unread'
+                  ? "You've read all your notifications"
+                  : "When people interact with your posts, you'll see it here"}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredNotifications.map((notification) => (
+                <div
+                  key={notification._id}
+                  onClick={() => handleNotificationClick(notification)}
+                  className={`
                   flex items-start gap-4 p-4 rounded-lg border cursor-pointer
                   transition-all hover:border-primary/50 hover:shadow-sm
                   ${!notification.is_read ? 'bg-primary/5 border-primary/20' : 'bg-card border-border'}
                 `}
-              >
-                {/* Sender Avatar */}
-                <div className="relative flex-shrink-0">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-semibold overflow-hidden">
-                    {notification.sender_id.profileImage ||
-                    notification.sender_id.profilePicture ||
-                    notification.sender_id.avatar ? (
-                      <img
-                        src={
-                          notification.sender_id.profileImage ||
-                          notification.sender_id.profilePicture ||
-                          notification.sender_id.avatar
-                        }
-                        alt={notification.sender_id.firstName}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      `${notification.sender_id.firstName[0]}${notification.sender_id.lastName[0]}`
-                    )}
-                  </div>
-
-                  {/* Notification Type Icon Badge */}
-                  <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-background flex items-center justify-center border-2 border-background">
-                    {getNotificationIcon(notification.type)}
-                  </div>
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground">
-                    <span className="font-semibold">
-                      {notification.sender_id.firstName} {notification.sender_id.lastName}
-                    </span>{' '}
-                    <span className="text-muted-foreground">
-                      {notification.message.replace(
-                        `${notification.sender_id.firstName} ${notification.sender_id.lastName} `,
-                        ''
-                      )}
-                    </span>
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {getTimeAgo(notification.createdAt)}
-                  </p>
-                </div>
-
-                {/* Thumbnail */}
-                {notification.thumbnail && (
-                  <div className="flex-shrink-0">
-                    {notification.type === 'reel_like' || notification.type === 'reel_comment' ? (
-                      // Reel thumbnail - check if it's a video or image
-                      notification.thumbnail.includes('.mp4') ||
-                      notification.thumbnail.includes('.webm') ||
-                      notification.thumbnail.includes('.mov') ? (
-                        <video
-                          src={notification.thumbnail}
-                          className="w-12 h-12 rounded-md object-cover"
-                          muted
-                          playsInline
+                >
+                  {/* Sender Avatar */}
+                  <div className="relative flex-shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-semibold overflow-hidden">
+                      {notification.sender_id.profileImage ||
+                      notification.sender_id.profilePicture ||
+                      notification.sender_id.avatar ? (
+                        <img
+                          src={
+                            notification.sender_id.profileImage ||
+                            notification.sender_id.profilePicture ||
+                            notification.sender_id.avatar
+                          }
+                          alt={notification.sender_id.firstName}
+                          className="w-full h-full object-cover"
                         />
                       ) : (
+                        `${notification.sender_id.firstName[0]}${notification.sender_id.lastName[0]}`
+                      )}
+                    </div>
+
+                    {/* Notification Type Icon Badge */}
+                    <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-background flex items-center justify-center border-2 border-background">
+                      {getNotificationIcon(notification.type)}
+                    </div>
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground">
+                      <span className="font-semibold">
+                        {notification.sender_id.firstName} {notification.sender_id.lastName}
+                      </span>{' '}
+                      <span className="text-muted-foreground">
+                        {notification.message.replace(
+                          `${notification.sender_id.firstName} ${notification.sender_id.lastName} `,
+                          ''
+                        )}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {getTimeAgo(notification.createdAt)}
+                    </p>
+                  </div>
+
+                  {/* Thumbnail */}
+                  {notification.thumbnail && (
+                    <div className="flex-shrink-0">
+                      {notification.type === 'reel_like' || notification.type === 'reel_comment' ? (
+                        // Reel thumbnail - check if it's a video or image
+                        notification.thumbnail.includes('.mp4') ||
+                        notification.thumbnail.includes('.webm') ||
+                        notification.thumbnail.includes('.mov') ? (
+                          <video
+                            src={notification.thumbnail}
+                            className="w-12 h-12 rounded-md object-cover"
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          <img
+                            src={notification.thumbnail}
+                            alt="Reel"
+                            className="w-12 h-12 rounded-md object-cover"
+                          />
+                        )
+                      ) : (
+                        // Post thumbnail
                         <img
                           src={notification.thumbnail}
-                          alt="Reel"
+                          alt="Post"
                           className="w-12 h-12 rounded-md object-cover"
                         />
-                      )
-                    ) : (
-                      // Post thumbnail
-                      <img
-                        src={notification.thumbnail}
-                        alt="Post"
-                        className="w-12 h-12 rounded-md object-cover"
-                      />
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
 
-                {/* Unread Indicator */}
-                {!notification.is_read && (
-                  <div className="flex-shrink-0 w-2 h-2 rounded-full bg-primary" />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+                  {/* Unread Indicator */}
+                  {!notification.is_read && (
+                    <div className="flex-shrink-0 w-2 h-2 rounded-full bg-primary" />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
-        {/* Load More */}
-        {hasMore && !loading && (
-          <div className="text-center mt-6">
-            <Button variant="outline" onClick={loadNotifications}>
-              Load More
-            </Button>
-          </div>
-        )}
-      </main>
+          {/* Load More */}
+          {hasMore && !loading && (
+            <div className="text-center mt-6">
+              <Button variant="outline" onClick={loadNotifications}>
+                Load More
+              </Button>
+            </div>
+          )}
+        </section>
+
+        {/* Empty right column for symmetry */}
+        <aside className="hidden lg:block lg:col-span-1 h-screen sticky top-0 border-l border-border"></aside>
+      </div>
 
       {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
-    </div>
+    </main>
   );
 }

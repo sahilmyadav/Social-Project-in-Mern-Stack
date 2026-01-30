@@ -1,39 +1,38 @@
-import { Comment } from "../models/comment.model.js";
-import { Followers } from "../models/followers.model.js";
-import { Like } from "../models/like.model.js";
-import { Notification } from "../models/notification.model.js";
-import { Reel } from "../models/reel.model.js";
-import { Report } from "../models/report.model.js";
-import { Save } from "../models/save.model.js";
-import { User } from "../models/user.model.js";
-import ApiError from "../utils/ApiError.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import asyncHandler from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { Comment } from '../models/comment.model.js';
+import { Followers } from '../models/followers.model.js';
+import { Like } from '../models/like.model.js';
+import { Notification } from '../models/notification.model.js';
+import { Reel } from '../models/reel.model.js';
+import { Report } from '../models/report.model.js';
+import { Save } from '../models/save.model.js';
+import { User } from '../models/user.model.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import { saveFileLocally } from '../utils/localStorage.js';
 
-// Upload a reel
 export const uploadReel = asyncHandler(async (req, res) => {
   const { caption, music_id, tags, thumbnail, duration, width, height } = req.body;
   const userId = req.user?._id;
 
   if (!req.file) {
-    throw new ApiError(400, "Video file is required");
+    throw new ApiError(400, 'Video file is required');
   }
 
-  // Upload video to Cloudinary
-  const videoUpload = await uploadOnCloudinary(req.file.path);
+  const savedFile = await saveFileLocally(req.file.path, userId, 'reel');
 
-  if (!videoUpload) {
-    throw new ApiError(500, "Failed to upload video to Cloudinary");
+  if (!savedFile) {
+    throw new ApiError(500, 'Failed to save video file');
   }
 
-  // Prepare media object
   const media = {
-    url: videoUpload.secure_url,
-    thumbnail: thumbnail || videoUpload.secure_url.replace(/\.[^.]+$/, '.jpg'), // Auto-generate thumbnail
-    duration: duration || videoUpload.duration,
-    width: width || videoUpload.width,
-    height: height || videoUpload.height,
+    url: savedFile.url,
+    thumbnail: thumbnail || savedFile.url,
+    duration: duration || null,
+    width: width || null,
+    height: height || null,
+    fileName: savedFile.fileName,
+    public_id: savedFile.public_id,
   };
 
   const reel = await Reel.create({
@@ -44,9 +43,7 @@ export const uploadReel = asyncHandler(async (req, res) => {
     tags: tags ? JSON.parse(tags) : [],
   });
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, reel, "Reel uploaded successfully"));
+  return res.status(201).json(new ApiResponse(201, reel, 'Reel uploaded successfully'));
 });
 
 // Delete a reel
@@ -57,20 +54,18 @@ export const deleteReel = asyncHandler(async (req, res) => {
   const reel = await Reel.findById(reelId);
 
   if (!reel || reel.is_deleted) {
-    throw new ApiError(404, "Reel not found");
+    throw new ApiError(404, 'Reel not found');
   }
 
   // Check if user is owner
   if (reel.user_id.toString() !== userId.toString()) {
-    throw new ApiError(403, "You are not authorized to delete this reel");
+    throw new ApiError(403, 'You are not authorized to delete this reel');
   }
 
   reel.is_deleted = true;
   await reel.save();
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Reel deleted successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Reel deleted successfully'));
 });
 
 // Get reel details
@@ -78,21 +73,24 @@ export const getReelDetails = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
 
   const reel = await Reel.findOne({ _id: reelId, is_deleted: false })
-    .populate("user_id", "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified")
-    .populate("tags", "firstName lastName username");
+    .populate(
+      'user_id',
+      'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
+    )
+    .populate('tags', 'firstName lastName username');
 
   if (!reel) {
-    throw new ApiError(404, "Reel not found");
+    throw new ApiError(404, 'Reel not found');
   }
 
   // Get comments for this reel
   const comments = await Comment.find({
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
     is_deleted: false,
     reply_to_comment_id: null,
   })
-    .populate("user_id", "firstName lastName username profilePicture")
+    .populate('user_id', 'firstName lastName username profilePicture')
     .sort({ createdAt: -1 })
     .limit(10);
 
@@ -105,15 +103,13 @@ export const getReelDetails = asyncHandler(async (req, res) => {
   if (userId) {
     const liked = await Like.findOne({
       user_id: userId,
-      target_type: "reel",
+      target_type: 'reel',
       target_id: reelId,
     });
     reelData.is_liked = !!liked;
   }
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, reelData, "Reel details fetched successfully"));
+  return res.status(200).json(new ApiResponse(200, reelData, 'Reel details fetched successfully'));
 });
 
 // // Like a reel
@@ -247,19 +243,18 @@ export const getReelDetails = asyncHandler(async (req, res) => {
 //     .json(new ApiResponse(200, null, "Reel unliked successfully"));
 // });
 
-
 export const toggleLikeReel = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
   const userId = req.user._id;
 
   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
   if (!reel) {
-    throw new ApiError(404, "Reel not found");
+    throw new ApiError(404, 'Reel not found');
   }
 
   const existingLike = await Like.findOne({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
   });
 
@@ -270,7 +265,7 @@ export const toggleLikeReel = asyncHandler(async (req, res) => {
     // Unlike
     await Like.findOneAndDelete({
       user_id: userId,
-      target_type: "reel",
+      target_type: 'reel',
       target_id: reelId,
     });
 
@@ -278,18 +273,18 @@ export const toggleLikeReel = asyncHandler(async (req, res) => {
       reel.likes_count -= 1;
     }
     isLiked = false;
-    message = "Reel unliked successfully";
+    message = 'Reel unliked successfully';
   } else {
     // Like
     await Like.create({
       user_id: userId,
-      target_type: "reel",
+      target_type: 'reel',
       target_id: reelId,
     });
 
     reel.likes_count += 1;
     isLiked = true;
-    message = "Reel liked successfully";
+    message = 'Reel liked successfully';
 
     // Create notification for reel owner (only if liker is not the reel owner)
     if (reel.user_id.toString() !== userId.toString()) {
@@ -300,16 +295,15 @@ export const toggleLikeReel = asyncHandler(async (req, res) => {
         await Notification.create({
           recipient_id: reel.user_id,
           sender_id: userId,
-          type: "reel_like",
+          type: 'reel_like',
           reference_id: reelId,
-          reference_type: "Reel",
-          title: "New Like",
+          reference_type: 'Reel',
+          title: 'New Like',
           message: `${liker.firstName} ${liker.lastName} liked your reel`,
           thumbnail: reel.media?.url || null,
           is_read: false,
-          action_url: `/reel/${reelId}`
+          action_url: `/reel/${reelId}`,
         });
-
       } catch (notifError) {
         // Don't fail the like operation if notification creation fails
         console.error('Failed to create notification:', notifError);
@@ -324,7 +318,7 @@ export const toggleLikeReel = asyncHandler(async (req, res) => {
       200,
       {
         likes_count: reel.likes_count,
-        isLiked: isLiked
+        isLiked: isLiked,
       },
       message
     )
@@ -340,19 +334,19 @@ export const commentOnReel = asyncHandler(async (req, res) => {
 
   // Validate input
   if (!text || text.trim().length === 0) {
-    throw new ApiError(400, "Comment text is required");
+    throw new ApiError(400, 'Comment text is required');
   }
 
   // Check if reel exists
   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
   if (!reel) {
-    throw new ApiError(404, "Reel not found");
+    throw new ApiError(404, 'Reel not found');
   }
 
   // Create comment
   const comment = await Comment.create({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
     text: text.trim(),
     reply_to_comment_id: reply_to_comment_id || null,
@@ -377,16 +371,15 @@ export const commentOnReel = asyncHandler(async (req, res) => {
       await Notification.create({
         recipient_id: reel.user_id,
         sender_id: userId,
-        type: "reel_comment",
+        type: 'reel_comment',
         reference_id: reelId,
-        reference_type: "Reel",
-        title: "New Comment",
+        reference_type: 'Reel',
+        title: 'New Comment',
         message: `${commenter.firstName} ${commenter.lastName} commented on your reel`,
         thumbnail: reel.media?.url || null,
         is_read: false,
-        action_url: `/reel/${reelId}`
+        action_url: `/reel/${reelId}`,
       });
-
     } catch (notifError) {
       // Don't fail the comment operation if notification creation fails
       console.error('Failed to create notification:', notifError);
@@ -398,9 +391,9 @@ export const commentOnReel = asyncHandler(async (req, res) => {
       201,
       {
         comment: populatedComment,
-        comments_count: reel.comments_count
+        comments_count: reel.comments_count,
       },
-      "Comment added successfully"
+      'Comment added successfully'
     )
   );
 });
@@ -411,25 +404,22 @@ export const getReelComments = asyncHandler(async (req, res) => {
 
   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
   if (!reel) {
-    throw new ApiError(404, "Reel not found");
+    throw new ApiError(404, 'Reel not found');
   }
 
   const comments = await Comment.find({
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
     reply_to_comment_id: null,
-    is_deleted: false
+    is_deleted: false,
   })
     .populate('user_id', 'firstName lastName profilePicture profileImage avatar')
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
     .skip((parseInt(page) - 1) * parseInt(limit));
 
-  return res.status(200).json(
-    new ApiResponse(200, { comments }, "Comments fetched successfully")
-  );
+  return res.status(200).json(new ApiResponse(200, { comments }, 'Comments fetched successfully'));
 });
-
 
 export const getUserReels = asyncHandler(async (req, res) => {
   const { userId } = req.params;
@@ -439,7 +429,7 @@ export const getUserReels = asyncHandler(async (req, res) => {
   // Validate user exists and get privacy settings
   const targetUser = await User.findById(userId);
   if (!targetUser) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   // Check if account is private and user is not following
@@ -450,7 +440,7 @@ export const getUserReels = asyncHandler(async (req, res) => {
     const isFollowing = await Followers.findOne({
       follower_id: currentUserId,
       following_id: userId,
-      status: 'accepted'
+      status: 'accepted',
     });
 
     if (!isFollowing) {
@@ -464,12 +454,12 @@ export const getUserReels = asyncHandler(async (req, res) => {
               page: parseInt(page),
               limit: parseInt(limit),
               total: 0,
-              pages: 0
+              pages: 0,
             },
             isPrivate: true,
-            message: 'This account is private'
+            message: 'This account is private',
           },
-          "This account is private"
+          'This account is private'
         )
       );
     }
@@ -478,9 +468,12 @@ export const getUserReels = asyncHandler(async (req, res) => {
   // User is allowed to see reels
   const reels = await Reel.find({
     user_id: userId,
-    is_deleted: false
+    is_deleted: false,
   })
-    .populate('user_id', 'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified isPrivate')
+    .populate(
+      'user_id',
+      'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified isPrivate'
+    )
     .sort({ createdAt: -1 })
     .limit(limit * 1)
     .skip((page - 1) * limit)
@@ -496,7 +489,7 @@ export const getUserReels = asyncHandler(async (req, res) => {
       return {
         ...reel,
         isLiked: !!isLiked,
-        canDownload: reel.user_id?.allowDownloads !== false
+        canDownload: reel.user_id?.allowDownloads !== false,
       };
     })
   );
@@ -504,20 +497,24 @@ export const getUserReels = asyncHandler(async (req, res) => {
   // Get total count for pagination
   const total = await Reel.countDocuments({
     user_id: userId,
-    is_deleted: false
+    is_deleted: false,
   });
 
   return res.status(200).json(
-    new ApiResponse(200, {
-      reels: reelsWithLikeStatus,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
+    new ApiResponse(
+      200,
+      {
+        reels: reelsWithLikeStatus,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+        },
+        isPrivate: false,
       },
-      isPrivate: false
-    }, "User reels fetched successfully")
+      'User reels fetched successfully'
+    )
   );
 });
 
@@ -529,23 +526,23 @@ export const saveReel = asyncHandler(async (req, res) => {
   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
 
   if (!reel) {
-    throw new ApiError(404, "Reel not found");
+    throw new ApiError(404, 'Reel not found');
   }
 
   // Check if already saved
   const existingSave = await Save.findOne({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
   });
 
   if (existingSave) {
-    throw new ApiError(400, "Reel already saved");
+    throw new ApiError(400, 'Reel already saved');
   }
 
   await Save.create({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
   });
 
@@ -553,10 +550,9 @@ export const saveReel = asyncHandler(async (req, res) => {
   reel.saves_count = (reel.saves_count || 0) + 1;
   await reel.save();
 
-
   return res
     .status(200)
-    .json(new ApiResponse(200, { saves_count: reel.saves_count }, "Reel saved successfully"));
+    .json(new ApiResponse(200, { saves_count: reel.saves_count }, 'Reel saved successfully'));
 });
 
 // Unsave a reel
@@ -566,12 +562,12 @@ export const unsaveReel = asyncHandler(async (req, res) => {
 
   const save = await Save.findOneAndDelete({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
   });
 
   if (!save) {
-    throw new ApiError(404, "Saved reel not found");
+    throw new ApiError(404, 'Saved reel not found');
   }
 
   // Decrement saves count
@@ -581,10 +577,7 @@ export const unsaveReel = asyncHandler(async (req, res) => {
     await reel.save();
   }
 
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Reel unsaved successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Reel unsaved successfully'));
 });
 
 // Get user's saved reels
@@ -597,13 +590,14 @@ export const getUserSavedReels = asyncHandler(async (req, res) => {
   // Find all saved reels for the user
   const savedReels = await Save.find({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
   })
     .populate({
-      path: "target_id",
+      path: 'target_id',
       populate: {
-        path: "user_id",
-        select: "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified",
+        path: 'user_id',
+        select:
+          'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified',
       },
     })
     .sort({ createdAt: -1 })
@@ -615,12 +609,12 @@ export const getUserSavedReels = asyncHandler(async (req, res) => {
     .filter((save) => save.target_id && !save.target_id.is_deleted)
     .map((save) => ({
       ...save.target_id.toObject(),
-      canDownload: save.target_id.user_id?.allowDownloads !== false
+      canDownload: save.target_id.user_id?.allowDownloads !== false,
     }));
 
   const totalSavedReels = await Save.countDocuments({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
   });
 
   return res.status(200).json(
@@ -636,7 +630,7 @@ export const getUserSavedReels = asyncHandler(async (req, res) => {
           itemsPerPage: parseInt(limit),
         },
       },
-      "Saved reels fetched successfully"
+      'Saved reels fetched successfully'
     )
   );
 });
@@ -648,26 +642,23 @@ export const reportReel = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   if (!reason) {
-    throw new ApiError(400, "Reason is required");
+    throw new ApiError(400, 'Reason is required');
   }
 
   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
 
   if (!reel) {
-    throw new ApiError(404, "Reel not found");
+    throw new ApiError(404, 'Reel not found');
   }
 
   const report = await Report.create({
     user_id: userId,
-    target_type: "reel",
+    target_type: 'reel',
     target_id: reelId,
     reason,
     details,
     attachments,
   });
 
-
-  return res
-    .status(201)
-    .json(new ApiResponse(201, report, "Reel reported successfully"));
+  return res.status(201).json(new ApiResponse(201, report, 'Reel reported successfully'));
 });
