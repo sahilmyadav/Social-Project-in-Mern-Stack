@@ -36,10 +36,12 @@ export const initSocket = (token: string) => {
   });
 
   socket.on('connect', () => {
+    console.log('🔌 Socket connected! Socket ID:', socket?.id);
     isConnecting = false;
   });
 
   socket.on('disconnect', (reason) => {
+    console.log('🔌 Socket disconnected. Reason:', reason);
     isConnecting = false;
     // If the server closed the connection, try to reconnect
     if (reason === 'io server disconnect') {
@@ -48,7 +50,8 @@ export const initSocket = (token: string) => {
     }
   });
 
-  socket.on('connect_error', () => {
+  socket.on('connect_error', (error) => {
+    console.error('🔌 Socket connection error:', error.message);
     isConnecting = false;
   });
 
@@ -240,7 +243,11 @@ export const offIceCandidate = (callback: (data: any) => void) => {
 };
 
 // Emit call events
-export const emitInitiateCall = (recipientId: string, threadId: string, callType: "voice" | "video" = "voice") => {
+export const emitInitiateCall = (
+  recipientId: string,
+  threadId: string,
+  callType: 'voice' | 'video' = 'voice'
+) => {
   socket?.emit('initiateCall', {
     recipientId,
     threadId,
@@ -474,7 +481,11 @@ export const emitLiveStreamAnswer = (streamId: string, broadcasterId: string, an
   });
 };
 
-export const emitLiveStreamIceCandidate = (streamId: string, recipientId: string, candidate: RTCIceCandidate) => {
+export const emitLiveStreamIceCandidate = (
+  streamId: string,
+  recipientId: string,
+  candidate: RTCIceCandidate
+) => {
   socket?.emit('liveStreamIceCandidate', {
     streamId,
     recipientId,

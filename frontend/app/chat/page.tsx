@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import VideoCallModal from '@/components/video-call-modal';
 import VoiceCallModal from '@/components/voice-call-modal';
 import { authService, chatService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import {
   disconnectSocket,
   emitInitiateCall,
@@ -273,6 +274,15 @@ function ChatPageContent() {
           });
           console.log('✅ All conversations:', convList);
           setConversations(convList);
+
+          // Request online users list AFTER conversations are loaded
+          // Use a small delay to ensure socket listeners are attached
+          setTimeout(() => {
+            const socket = getSocket();
+            if (socket?.connected) {
+              socket.emit('getOnlineUsers');
+            }
+          }, 500);
         } else {
           console.warn(' No data in response:', response);
           setConversations([]);
@@ -284,14 +294,6 @@ function ChatPageContent() {
     };
 
     loadConvs();
-
-    // Request online users list after conversations are loaded
-    setTimeout(() => {
-      const socket = getSocket();
-      if (socket?.connected) {
-        socket.emit('getOnlineUsers');
-      }
-    }, 500);
 
     // Initialize socket connection FIRST
     const token = localStorage.getItem('accessToken');
@@ -313,6 +315,9 @@ function ChatPageContent() {
         console.log('📩 New message received:', data);
 
         if (data.threadId && data.message) {
+          // Skip if this is our own message (we already added it optimistically)
+          const isOwnMessage = data.message.senderId?._id === parsedUser._id;
+
           const newMessage = {
             id: data.message._id,
             sender:
@@ -322,20 +327,22 @@ function ChatPageContent() {
               hour: '2-digit',
               minute: '2-digit',
             }),
-            isSent: data.message.senderId?._id === parsedUser._id,
+            isSent: isOwnMessage,
           };
 
           // Add message to chat if thread is currently open
           setSelectedThreadId((currentThreadId) => {
             if (currentThreadId === data.threadId) {
-              // Check if message already exists to prevent duplicates
-              setMessages((prev) => {
-                const messageExists = prev.some((msg) => msg.id === data.message._id);
-                if (messageExists) {
-                  return prev;
-                }
-                return [...prev, newMessage];
-              });
+              // Only add message if it's from another user (not our own)
+              if (!isOwnMessage) {
+                setMessages((prev) => {
+                  const messageExists = prev.some((msg) => msg.id === data.message._id);
+                  if (messageExists) {
+                    return prev;
+                  }
+                  return [...prev, newMessage];
+                });
+              }
               // Emit message delivered acknowledgment
               if (data.message._id) {
                 emitMessageDelivered(data.message._id);
@@ -503,23 +510,15 @@ function ChatPageContent() {
       };
 
       const handleUserOnline = (data: any) => {
-        console.log('🟢 User came online:', data);
-
         // Handle multiple data formats
         const userId = data?.userId || data?.user?._id || data?._id || data?.id;
         const userIdStr = userId?.toString();
-        console.log('🔍 Extracted userId (as string):', userIdStr);
 
         if (userIdStr) {
           setConversations((prev) => {
-            console.log(
-              '📋 Current conversations participantIds:',
-              prev.map((c) => ({ name: c.name, participantId: c.participantId }))
-            );
             const updated = prev.map((conv) => {
               const convParticipantStr = conv.participantId?.toString();
               if (convParticipantStr === userIdStr) {
-                console.log('✅ Marking user as online:', conv.name, userIdStr);
                 return { ...conv, online: true };
               }
               return conv;
@@ -534,25 +533,19 @@ function ChatPageContent() {
             }
             return prev;
           });
-        } else {
-          console.warn('No userId found in online event:', data);
         }
       };
 
       const handleUserOffline = (data: any) => {
-        console.log('🔴 User went offline:', data);
-
         // Handle multiple data formats
         const userId = data?.userId || data?.user?._id || data?._id || data?.id;
         const userIdStr = userId?.toString();
-        console.log('🔍 Extracted userId (as string):', userIdStr);
 
         if (userIdStr) {
           setConversations((prev) => {
             const updated = prev.map((conv) => {
               const convParticipantStr = conv.participantId?.toString();
               if (convParticipantStr === userIdStr) {
-                console.log('🔴 Marking user as offline:', conv.name, userIdStr);
                 return { ...conv, online: false };
               }
               return conv;
@@ -567,8 +560,6 @@ function ChatPageContent() {
             }
             return prev;
           });
-        } else {
-          console.warn('⚠️ No userId found in offline event:', data);
         }
       };
 
@@ -768,21 +759,12 @@ function ChatPageContent() {
 
         // Listen for initial online users list
         currentSocket.on('onlineUsersList', (data: { users: string[] }) => {
-          console.log('📋 Received online users list:', data.users);
-
           // Update all conversations with online status
           setConversations((prev) => {
-            console.log(
-              '📋 Checking conversations:',
-              prev.map((c) => ({ name: c.name, participantId: c.participantId }))
-            );
             return prev.map((conv) => {
               const isOnline =
                 data.users.includes(conv.participantId) ||
                 data.users.includes(conv.participantId.toString());
-              console.log(
-                `${isOnline ? '🟢' : '🔴'} ${conv.name} (${conv.participantId}): ${isOnline ? 'online' : 'offline'}`
-              );
               return {
                 ...conv,
                 online: isOnline,
@@ -799,11 +781,12 @@ function ChatPageContent() {
           });
         });
 
-        // Request initial online users list
-        currentSocket.emit('getOnlineUsers');
-
-        // Generic listener to catch any event
-        currentSocket.onAny((eventName, ...args) => {});
+        // Request initial online users list (immediately if connected, otherwise wait for connect)
+        if (currentSocket.connected) {
+          console.log('🔌 Socket already connected, requesting online users...');
+          currentSocket.emit('getOnlineUsers');
+        }
+        // Socket not connected yet - the 'connect' handler will request online users
       } else {
         console.error('Socket not available!');
       }
@@ -969,7 +952,7 @@ function ChatPageContent() {
       id: Date.now(),
       sender: 'You',
       content: messageInput,
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isSent: true,
       media: selectedFile
         ? [
@@ -1224,11 +1207,21 @@ function ChatPageContent() {
     }
   };
 
-  const filteredConversations = conversations.filter((conv) =>
+  // Deduplicate conversations by id before filtering
+  const uniqueConversations = conversations.filter(
+    (conv, index, self) => index === self.findIndex((c) => c.id === conv.id)
+  );
+
+  const filteredConversations = uniqueConversations.filter((conv) =>
     conv.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredGroups = groups.filter((group) =>
+  // Deduplicate groups by id before filtering
+  const uniqueGroups = groups.filter(
+    (group, index, self) => index === self.findIndex((g) => g.id === group.id)
+  );
+
+  const filteredGroups = uniqueGroups.filter((group) =>
     group.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -1300,7 +1293,7 @@ function ChatPageContent() {
               <div className="p-3 border-b border-border">
                 <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
                   {/* Sort: Online users first, then by recent message */}
-                  {[...conversations]
+                  {[...uniqueConversations]
                     .sort((a, b) => {
                       // Online users come first
                       if (a.online && !b.online) return -1;
@@ -1309,9 +1302,9 @@ function ChatPageContent() {
                       return 0; // Keep original order (already sorted by recent)
                     })
                     .slice(0, 15) // Limit to 15 users
-                    .map((friend) => (
+                    .map((friend, friendIndex) => (
                       <div
-                        key={friend.participantId || friend.id}
+                        key={`friend-${friend.id}-${friendIndex}`}
                         onClick={() => {
                           setSelectedConversation(friend);
                           if (friend.threadId) {
@@ -1338,7 +1331,7 @@ function ChatPageContent() {
                                 {friend.avatar?.startsWith('http') ||
                                 friend.avatar?.startsWith('/') ? (
                                   <img
-                                    src={friend.avatar}
+                                    src={getMediaUrl(friend.avatar)}
                                     alt={friend.name}
                                     className="w-full h-full object-cover"
                                   />
@@ -1367,9 +1360,9 @@ function ChatPageContent() {
                 </div>
               </div>
             )}
-            {displayList.map((conversation) => (
+            {displayList.map((conversation, index) => (
               <div
-                key={conversation.id}
+                key={`conversation-${conversation.id}-${index}`}
                 className="relative flex items-center border-b border-border hover:bg-muted transition"
               >
                 <button
@@ -1400,14 +1393,15 @@ function ChatPageContent() {
                         conversation.isGroup ? 'text-2xl' : ''
                       } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                     >
-                      {conversation.avatar?.startsWith('http') ? (
+                      {conversation.avatar?.startsWith('http') ||
+                      conversation.avatar?.startsWith('/') ? (
                         <img
-                          src={conversation.avatar}
+                          src={getMediaUrl(conversation.avatar)}
                           alt={conversation.name}
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        conversation.avatar
+                        conversation.avatar || conversation.name?.charAt(0) || '👤'
                       )}
                     </div>
                     {!conversation.isGroup && conversation.online && (
@@ -1548,14 +1542,15 @@ function ChatPageContent() {
                     selectedConversation.isGroup ? 'text-2xl' : ''
                   } overflow-hidden ${!selectedConversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                 >
-                  {selectedConversation.avatar?.startsWith('http') ? (
+                  {selectedConversation.avatar?.startsWith('http') ||
+                  selectedConversation.avatar?.startsWith('/') ? (
                     <img
-                      src={selectedConversation.avatar}
+                      src={getMediaUrl(selectedConversation.avatar)}
                       alt={selectedConversation.name}
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    selectedConversation.avatar
+                    selectedConversation.avatar || selectedConversation.name?.charAt(0) || '👤'
                   )}
                 </div>
                 <div>
@@ -1728,11 +1723,14 @@ function ChatPageContent() {
                 </div>
               ) : (
                 <>
-                  {messages.map((message) => {
+                  {messages.map((message, msgIndex) => {
                     // Render system messages differently
                     if ((message as any).isSystemMessage) {
                       return (
-                        <div key={message.id} className="flex justify-center my-2">
+                        <div
+                          key={`msg-${message.id}-${msgIndex}`}
+                          className="flex justify-center my-2"
+                        >
                           <div className="px-3 py-1 rounded-full bg-muted/50 text-muted-foreground text-xs">
                             {message.content}
                           </div>
@@ -1742,7 +1740,7 @@ function ChatPageContent() {
 
                     return (
                       <div
-                        key={message.id}
+                        key={`msg-${message.id}-${msgIndex}`}
                         className={`flex ${message.isSent ? 'justify-end' : 'justify-start'}`}
                       >
                         <div className="flex items-start gap-2 group max-w-xs">
@@ -1880,10 +1878,11 @@ function ChatPageContent() {
                   {isOtherUserTyping && (
                     <div className="flex justify-start mb-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-lg flex-shrink-0">
-                          {selectedConversation?.avatar?.startsWith('http') ? (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
+                          {selectedConversation?.avatar?.startsWith('http') ||
+                          selectedConversation?.avatar?.startsWith('/') ? (
                             <img
-                              src={selectedConversation.avatar}
+                              src={getMediaUrl(selectedConversation.avatar)}
                               alt={selectedConversation.name}
                               className="w-full h-full rounded-full object-cover"
                             />

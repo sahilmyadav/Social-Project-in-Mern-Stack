@@ -91,6 +91,23 @@ export default function GlobalSocketHandler() {
       return;
     }
 
+    // Check if token is expired before connecting
+    try {
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1]));
+        if (payload.exp && Date.now() > payload.exp * 1000) {
+          console.warn('🔌 Token expired, clearing storage...');
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('🔌 Error parsing token:', e);
+    }
+
     const user = JSON.parse(userData);
 
     // Request notification permission

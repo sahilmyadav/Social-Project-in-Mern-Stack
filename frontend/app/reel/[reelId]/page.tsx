@@ -4,6 +4,7 @@ import Navigation from '@/components/navigation';
 import ReportReelModal from '@/components/report-reel-modal';
 import ShareModal from '@/components/share-modal';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,6 +71,7 @@ export default function ReelPage() {
   // Modals
   const [showShareModal, setShowShareModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const { confirm, dialogProps } = useConfirmDialog();
 
   const commentInputRef = useRef<HTMLInputElement>(null);
 
@@ -215,21 +217,28 @@ export default function ReelPage() {
   };
 
   // Handle delete
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (isDeleting || !reel) return;
 
-    if (!confirm('Are you sure you want to delete this reel?')) return;
-
-    setIsDeleting(true);
-    try {
-      await reelService.deleteReel(reel._id);
-      toasts.reelDeleted();
-      router.push('/reels');
-    } catch (error) {
-      showToast.error('Failed to delete reel');
-    } finally {
-      setIsDeleting(false);
-    }
+    confirm({
+      title: 'Delete Reel',
+      message: 'Are you sure you want to delete this reel? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        setIsDeleting(true);
+        try {
+          await reelService.deleteReel(reel._id);
+          toasts.reelDeleted();
+          router.push('/reels');
+        } catch (error) {
+          showToast.error('Failed to delete reel');
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+    });
   };
 
   // Handle comment submit
@@ -577,6 +586,9 @@ export default function ReelPage() {
         onClose={() => setShowReportModal(false)}
         reelId={reel._id}
       />
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

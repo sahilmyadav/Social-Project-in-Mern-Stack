@@ -2,6 +2,7 @@
 
 import ReportReelModal from '@/components/report-reel-modal';
 import ShareModal from '@/components/share-modal';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +49,7 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
   const [userPaused, setUserPaused] = useState(false); // Track if user manually paused
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { confirm, dialogProps } = useConfirmDialog();
 
   // Check if this is the user's own reel
   const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
@@ -222,21 +224,28 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
     }
   };
 
-  const handleDeleteReel = async () => {
-    if (!confirm('Are you sure you want to delete this reel?')) return;
-
-    try {
-      const response = await reelService.deleteReel(reel._id);
-      if (response.success) {
-        showToast.success('Deleted', 'Reel deleted successfully');
-        setIsHidden(true); // Hide the reel immediately
-      } else {
-        throw new Error(response.message || 'Failed to delete reel');
-      }
-    } catch (error: any) {
-      console.error('Error deleting reel:', error);
-      showToast.error('Delete failed', error.message || 'Failed to delete reel');
-    }
+  const handleDeleteReel = () => {
+    confirm({
+      title: 'Delete Reel',
+      message: 'Are you sure you want to delete this reel? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const response = await reelService.deleteReel(reel._id);
+          if (response.success) {
+            showToast.success('Deleted', 'Reel deleted successfully');
+            setIsHidden(true); // Hide the reel immediately
+          } else {
+            throw new Error(response.message || 'Failed to delete reel');
+          }
+        } catch (error: any) {
+          console.error('Error deleting reel:', error);
+          showToast.error('Delete failed', error.message || 'Failed to delete reel');
+        }
+      },
+    });
   };
 
   const authorName = reel.user_id?.firstName
@@ -482,6 +491,9 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
         reelAuthor={authorName}
         onReported={() => setIsHidden(true)}
       />
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }
