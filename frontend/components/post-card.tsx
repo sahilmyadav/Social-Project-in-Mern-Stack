@@ -12,9 +12,20 @@ import UserAvatar from '@/components/user-avatar';
 import { commentService, postService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
-import { Download, Heart, MessageCircle, MoreHorizontal, Send, Share2, Trash2 } from 'lucide-react';
+import {
+  Download,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Send,
+  Share2,
+  Trash2,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 
 interface PostCardProps {
   post: any;
@@ -23,6 +34,119 @@ interface PostCardProps {
   currentUserId?: string;
   onPostClick?: (post: any) => void;
   showComments?: boolean;
+}
+
+// Custom Video Player Component for Posts (same as reel-card)
+function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isInView, setIsInView] = useState(false);
+  const [userPaused, setUserPaused] = useState(true); // Start paused by default
+
+  // Intersection Observer for auto-play/pause
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          setIsInView(entry.isIntersecting);
+        });
+      },
+      {
+        threshold: 0.5,
+      }
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      if (containerRef.current) {
+        observer.unobserve(containerRef.current);
+      }
+    };
+  }, []);
+
+  // Pause when out of view
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    if (!isInView && isPlaying) {
+      videoRef.current.pause();
+    }
+  }, [isInView, isPlaying]);
+
+  const handlePlayPause = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+        setUserPaused(true);
+      } else {
+        videoRef.current.play().catch(() => {});
+        setUserPaused(false);
+      }
+    }
+  };
+
+  const handleMuteToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full bg-black aspect-square">
+      <video
+        ref={videoRef}
+        src={src}
+        className="w-full h-full object-cover"
+        poster={poster}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        controls={false}
+        loop
+        playsInline
+        muted={isMuted}
+        preload="metadata"
+      />
+
+      {/* Play Button Overlay - Always show when not playing */}
+      {!isPlaying && (
+        <div
+          className="absolute inset-0 flex items-center justify-center cursor-pointer"
+          onClick={handlePlayPause}
+        >
+          <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition">
+            <Play size={32} className="text-white ml-1" />
+          </div>
+        </div>
+      )}
+
+      {/* Pause on click when playing */}
+      {isPlaying && (
+        <div
+          className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 hover:opacity-100 transition"
+          onClick={handlePlayPause}
+        >
+          <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+            <div className="w-0 h-0 border-l-[20px] border-l-white border-y-[12px] border-y-transparent ml-1"></div>
+          </div>
+        </div>
+      )}
+
+      {/* Mute/Unmute Button */}
+      <button
+        className="absolute bottom-4 right-4 p-2 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition cursor-pointer"
+        onClick={handleMuteToggle}
+      >
+        {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+      </button>
+    </div>
+  );
 }
 
 function PostCard({
@@ -40,6 +164,7 @@ function PostCard({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isHidden, setIsHidden] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -58,6 +183,11 @@ function PostCard({
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
   const [repliesData, setRepliesData] = useState<Map<string, any[]>>(new Map());
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
+
+  // If post is hidden (reported), don't render it
+  if (isHidden) {
+    return null;
+  }
 
   // Sync with API data when it changes
   useEffect(() => {
@@ -485,17 +615,21 @@ function PostCard({
   const handleDeletePost = async () => {
     if (isDeleting || !postId) return;
 
+    if (!confirm('Are you sure you want to delete this post?')) return;
+
     setIsDeleting(true);
 
     try {
       const response = await postService.deletePost(postId);
       if (response.success) {
-        // We'll need to add a separate callback for post deletion if needed
+        showToast.success('Deleted', 'Post deleted successfully');
+        setIsHidden(true); // Hide the post immediately
       } else {
         throw new Error(response.message || 'Failed to delete post');
       }
     } catch (error: any) {
       console.error('Error deleting post:', error.message || error);
+      showToast.error('Delete failed', error.message || 'Failed to delete post');
     } finally {
       setIsDeleting(false);
     }
@@ -602,16 +736,17 @@ function PostCard({
   };
 
   return (
-    <article className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition">
+    <article className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto">
       {/* Header */}
-      <div className="p-4 flex items-center justify-between">
-        <div className="flex items-center gap-3 flex-1">
+      <div className="p-4 border-b border-border">
+        <div className="flex items-center gap-3">
           <div
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
               router.push(`/profile/${post.user_id?._id}`);
             }}
+            className="cursor-pointer hover:opacity-80 transition"
           >
             <UserAvatar
               user={{
@@ -624,13 +759,13 @@ function PostCard({
                 profilePicture: post.user_id?.profilePicture,
                 avatar: post.user_id?.avatar,
               }}
-              size="md"
+              size="sm"
               clickable={false}
             />
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h3
-              className="font-bold text-foreground cursor-pointer hover:text-primary transition"
+              className="font-bold text-foreground truncate cursor-pointer hover:text-primary transition"
               onClick={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -648,70 +783,61 @@ function PostCard({
               )}
             </div>
           </div>
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="p-1 hover:bg-muted rounded-full transition"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal size={18} className="text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={handleSavePost} disabled={isSaving}>
-              {isSaving ? 'Saving...' : saved ? 'Unsave Post' : 'Save Post'}
-            </DropdownMenuItem>
-            {mediaUrl && (
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDownloadPost();
-                }}
-                disabled={post.canDownload === false || post.user_id?.allowDownloads === false}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="p-2 hover:bg-muted rounded-full transition cursor-pointer"
+                onClick={(e) => e.stopPropagation()}
               >
-                <Download size={14} className="mr-2" />
-                {post.canDownload === false || post.user_id?.allowDownloads === false
-                  ? 'Download Disabled'
-                  : 'Download'}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsReportModalOpen(true);
-              }}
-            >
-              Report Post
-            </DropdownMenuItem>
-            {isOwnPost && (
-              <DropdownMenuItem onClick={handleDeletePost} disabled={isDeleting}>
-                {isDeleting ? 'Deleting...' : 'Delete Post'}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={(e) => e.stopPropagation()}>Copy Link</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {/* Content */}
-      {content && (
-        <div className="px-4 pb-3">
-          <p className="text-foreground leading-relaxed whitespace-pre-wrap">{content}</p>
+                <MoreHorizontal size={20} className="text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {!isOwnPost && (
+                <DropdownMenuItem onClick={handleSavePost} disabled={isSaving}>
+                  {isSaving ? 'Saving...' : saved ? 'Unsave Post' : 'Save Post'}
+                </DropdownMenuItem>
+              )}
+              {!isOwnPost && mediaUrl && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadPost();
+                  }}
+                  disabled={post.canDownload === false || post.user_id?.allowDownloads === false}
+                >
+                  <Download size={14} className="mr-2" />
+                  {post.canDownload === false || post.user_id?.allowDownloads === false
+                    ? 'Download Disabled'
+                    : 'Download'}
+                </DropdownMenuItem>
+              )}
+              {!isOwnPost && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsReportModalOpen(true);
+                  }}
+                >
+                  Report Post
+                </DropdownMenuItem>
+              )}
+              {isOwnPost && (
+                <DropdownMenuItem onClick={handleDeletePost} disabled={isDeleting}>
+                  {isDeleting ? 'Deleting...' : 'Delete Post'}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={(e) => e.stopPropagation()}>Copy Link</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      )}
+      </div>
 
       {/* Image/Video */}
       {mediaUrl && (
-        <div className="relative w-full h-64 bg-muted overflow-hidden">
+        <div className="relative w-full bg-black aspect-square overflow-hidden">
           {post.media?.[0]?.type === 'video' ? (
-            <video
-              src={mediaUrl}
-              controls
-              className="w-full h-full object-cover"
-              preload="metadata"
-              poster={post.media?.[0]?.thumbnail}
-            />
+            <PostVideoPlayer src={mediaUrl} poster={getMediaUrl(post.media?.[0]?.thumbnail)} />
           ) : (
             <img
               src={mediaUrl}
@@ -724,39 +850,40 @@ function PostCard({
         </div>
       )}
 
-      {/* Interactions */}
-      <div className="p-4 border-t border-border">
-        <div className="flex items-center justify-between mb-3 text-sm text-muted-foreground">
-          <span className="cursor-pointer">{likeCount} likes</span>
-          <div className="space-x-4">
-            <span className="hover:underline cursor-pointer">{commentCount} comments</span>
-            <span className="hover:underline cursor-pointer">{sharesCount} shares</span>
-          </div>
+      {/* Caption/Content - Below Media */}
+      {content && (
+        <div className="px-4 pt-3">
+          <p className="text-foreground leading-relaxed whitespace-pre-wrap line-clamp-3">
+            {content}
+          </p>
         </div>
+      )}
 
-        <div className="flex items-center justify-between">
+      {/* Interactions - Same format as Reel */}
+      <div className="p-4">
+        <div className="flex items-center gap-4">
           <button
             onClick={(e) => {
               e.stopPropagation();
               handleLike();
             }}
             disabled={isLoading}
-            className={`cursor-pointer flex items-center gap-2 px-4 py-2 rounded-lg transition font-semibold flex-1 justify-center ${
-              liked ? 'text-accent bg-accent/10' : 'text-muted-foreground hover:bg-muted'
+            className={`flex items-center gap-1 transition cursor-pointer ${
+              liked ? 'text-red-500' : 'text-muted-foreground hover:text-foreground'
             } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <Heart size={18} fill={liked ? 'currentColor' : 'none'} />
-            Like
+            <Heart size={20} fill={liked ? 'currentColor' : 'none'} />
+            <span className="text-sm">{likeCount}</span>
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onCommentClick?.(post);
             }}
-            className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-muted transition font-semibold text-muted-foreground flex-1 justify-center"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition cursor-pointer"
           >
-            <MessageCircle size={18} />
-            Comment
+            <MessageCircle size={20} />
+            <span className="text-sm">{commentCount}</span>
           </button>
           <button
             onClick={(e) => {
@@ -764,10 +891,10 @@ function PostCard({
               handleSharePost();
             }}
             disabled={isSharing}
-            className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-muted transition font-semibold text-muted-foreground flex-1 justify-center"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition cursor-pointer"
           >
-            <Share2 size={18} />
-            {isSharing ? 'Sharing...' : 'Share'}
+            <Share2 size={20} />
+            <span className="text-sm">{sharesCount}</span>
           </button>
         </div>
       </div>
@@ -1012,6 +1139,7 @@ function PostCard({
         onOpenChange={setIsReportModalOpen}
         postId={postId}
         postAuthor={authorName}
+        onReported={() => setIsHidden(true)}
       />
 
       {/* Share Modal */}

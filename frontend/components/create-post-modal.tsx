@@ -5,6 +5,7 @@ import { ApiError } from '@/lib/api-client';
 import { postService } from '@/lib/api-services';
 import { Image as ImageIcon, Video, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import TagPeopleInput from './tag-people-input';
 
 interface CreatePostModalProps {
   isOpen: boolean;
@@ -14,6 +15,16 @@ interface CreatePostModalProps {
 
 type FileType = 'image' | 'video' | null;
 
+// Type for tagged users
+interface TaggedUser {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  username?: string;
+  profileImage?: string;
+  avatar?: string;
+}
+
 export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePostModalProps) {
   const [caption, setCaption] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -22,6 +33,8 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
+  const [taggedPeople, setTaggedPeople] = useState<TaggedUser[]>([]);
+  const [hashtags, setHashtags] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -93,10 +106,27 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
       formData.append('files', file);
       formData.append('caption', caption.trim());
 
+      // Add tagged people (user IDs)
+      if (taggedPeople.length > 0) {
+        const taggedUserIds = taggedPeople.map((user) => user._id);
+        formData.append('tags', JSON.stringify(taggedUserIds));
+      }
+
+      // Add hashtags
+      if (hashtags.trim()) {
+        const tagArray = hashtags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+        formData.append('hashtags', JSON.stringify(tagArray));
+      }
+
       const response = await postService.createPost(formData);
 
       if (response.success) {
         setCaption('');
+        setTaggedPeople([]);
+        setHashtags('');
         handleRemoveFile();
 
         if (onSubmit) {
@@ -126,6 +156,8 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
 
   const resetForm = () => {
     setCaption('');
+    setTaggedPeople([]);
+    setHashtags('');
     handleRemoveFile();
     setError('');
   };
@@ -246,6 +278,29 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Tag People Section */}
+          <TagPeopleInput
+            selectedUsers={taggedPeople}
+            onUsersChange={setTaggedPeople}
+            disabled={loading}
+            maxTags={10}
+          />
+
+          {/* Hashtags Section */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground block">
+              Add Tags <span className="text-muted-foreground font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={hashtags}
+              onChange={(e) => setHashtags(e.target.value)}
+              placeholder="e.g., #design #photography #creative"
+              className="w-full p-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
+              disabled={loading}
+            />
           </div>
 
           <div className="flex gap-3 pt-4">

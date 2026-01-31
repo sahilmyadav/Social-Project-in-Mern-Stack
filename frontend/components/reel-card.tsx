@@ -43,10 +43,19 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
   const [isMuted, setIsMuted] = useState(true);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isHidden, setIsHidden] = useState(false);
   const [isInView, setIsInView] = useState(false);
   const [userPaused, setUserPaused] = useState(false); // Track if user manually paused
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Check if this is the user's own reel
+  const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
+
+  // If reel is hidden (reported), don't render it
+  if (isHidden) {
+    return null;
+  }
 
   // Intersection Observer for auto-play/pause
   useEffect(() => {
@@ -212,6 +221,23 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
     }
   };
 
+  const handleDeleteReel = async () => {
+    if (!confirm('Are you sure you want to delete this reel?')) return;
+
+    try {
+      const response = await reelService.deleteReel(reel._id);
+      if (response.success) {
+        showToast.success('Deleted', 'Reel deleted successfully');
+        setIsHidden(true); // Hide the reel immediately
+      } else {
+        throw new Error(response.message || 'Failed to delete reel');
+      }
+    } catch (error: any) {
+      console.error('Error deleting reel:', error);
+      showToast.error('Delete failed', error.message || 'Failed to delete reel');
+    }
+  };
+
   const authorName = reel.user_id?.firstName
     ? `${reel.user_id.firstName} ${reel.user_id.lastName || ''}`.trim()
     : reel.user_id?.username || 'Unknown User';
@@ -268,11 +294,13 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={handleSaveReel} disabled={isSaving}>
-                <Bookmark size={16} className={`mr-2 ${saved ? 'fill-current' : ''}`} />
-                {saved ? 'Unsave Reel' : 'Save Reel'}
-              </DropdownMenuItem>
-              {videoUrl && (
+              {!isOwnReel && (
+                <DropdownMenuItem onClick={handleSaveReel} disabled={isSaving}>
+                  <Bookmark size={16} className={`mr-2 ${saved ? 'fill-current' : ''}`} />
+                  {saved ? 'Unsave Reel' : 'Save Reel'}
+                </DropdownMenuItem>
+              )}
+              {!isOwnReel && videoUrl && (
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
@@ -285,15 +313,17 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
                     : 'Download'}
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsReportModalOpen(true);
-                }}
-              >
-                <span className="mr-2">⚠️</span>
-                Report Reel
-              </DropdownMenuItem>
+              {!isOwnReel && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsReportModalOpen(true);
+                  }}
+                >
+                  <span className="mr-2">⚠️</span>
+                  Report Reel
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
@@ -303,14 +333,17 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
                 <Share2 size={16} className="mr-2" />
                 Share
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsReportModalOpen(true);
-                }}
-              >
-                Delete Reel
-              </DropdownMenuItem>
+              {isOwnReel && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteReel();
+                  }}
+                  className="text-destructive"
+                >
+                  Delete Reel
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -446,6 +479,7 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
         onOpenChange={setIsReportModalOpen}
         reelId={reel._id}
         reelAuthor={authorName}
+        onReported={() => setIsHidden(true)}
       />
     </div>
   );

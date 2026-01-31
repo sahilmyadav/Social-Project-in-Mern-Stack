@@ -9,7 +9,7 @@ import { User } from '../models/user.model.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { deleteLocalFile, saveFileLocally, validateFile } from '../utils/localStorage.js';
+import { deleteLocalFile, saveFileLocally } from '../utils/localStorage.js';
 
 const MAX_CAPTION_LENGTH = 2000;
 const MAX_REEL_SIZE = 100 * 1024 * 1024;
@@ -65,6 +65,14 @@ export const uploadReel = asyncHandler(async (req, res) => {
   }
   parsedTags = parsedTags.slice(0, 30);
 
+  // Filter to only valid user IDs
+  const validTags = parsedTags.filter((tag) => {
+    if (typeof tag === 'string' && mongoose.Types.ObjectId.isValid(tag)) {
+      return true;
+    }
+    return false;
+  });
+
   let reel;
   try {
     reel = await Reel.create({
@@ -72,8 +80,36 @@ export const uploadReel = asyncHandler(async (req, res) => {
       media,
       caption: caption?.trim() || '',
       music_id: music_id || null,
-      tags: parsedTags,
+      tags: validTags,
     });
+
+    // Send notifications to tagged users
+    if (validTags.length > 0) {
+      const reelCreator = await User.findById(userId).select('firstName lastName');
+
+      for (const taggedUserId of validTags) {
+        // Don't notify yourself if you tag yourself
+        if (taggedUserId.toString() === userId.toString()) continue;
+
+        try {
+          await Notification.create({
+            recipient_id: taggedUserId,
+            sender_id: userId,
+            type: 'tag',
+            reference_id: reel._id,
+            reference_type: 'Reel',
+            title: 'You were tagged',
+            message: `${reelCreator.firstName} ${reelCreator.lastName} tagged you in a reel`,
+            thumbnail: reel.media?.thumbnail || reel.media?.url || null,
+            is_read: false,
+            action_url: `/reel/${reel._id}`,
+          });
+        } catch (notifError) {
+          // Don't fail reel creation if notification fails
+          console.error('Failed to send tag notification:', notifError);
+        }
+      }
+    }
   } catch (dbError) {
     await deleteLocalFile(savedFile.url);
     throw new ApiError(500, 'Failed to create reel. Please try again.');

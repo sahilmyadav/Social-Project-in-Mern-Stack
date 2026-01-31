@@ -12,6 +12,7 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { uploadOnCloudinary } from '../utils/cloudinary.js';
+import { saveFileLocally } from '../utils/localStorage.js';
 import redis from '../utils/redis.config.js';
 // import crypto from "crypto";
 
@@ -52,6 +53,15 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'First name, last name, and password are required');
   }
 
+  // Password validation (min 8 chars, 1 uppercase, 1 lowercase, 1 number)
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+  if (!passwordRegex.test(password)) {
+    throw new ApiError(
+      400,
+      'Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number'
+    );
+  }
+
   // At least one of email or phone must be provided
   if (!email && !phone) {
     throw new ApiError(400, 'Either email or phone number is required');
@@ -62,7 +72,7 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid gender value');
   }
 
-  // Validate date of birth (must be 18+)
+  // Validate date of birth (must be 16+)
   if (dob) {
     const birthDate = new Date(dob);
     const today = new Date();
@@ -71,8 +81,8 @@ const registerUser = asyncHandler(async (req, res) => {
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
       age--;
     }
-    if (age < 18) {
-      throw new ApiError(400, 'You must be at least 18 years old to create an account');
+    if (age < 16) {
+      throw new ApiError(400, 'You must be at least 16 years old to create an account');
     }
   }
 
@@ -751,7 +761,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     new ApiResponse(
       200,
       {
-        data: req.user,
+        ...user.toObject(),
         followersCount,
         followingCount,
         totalPosts,
@@ -886,8 +896,13 @@ const resetPassword = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'New password is required');
   }
 
-  if (newPassword.length < 6) {
-    throw new ApiError(400, 'Password must be at least 6 characters long');
+  // Password validation (min 8 chars, 1 uppercase, 1 lowercase, 1 number)
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    throw new ApiError(
+      400,
+      'Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number'
+    );
   }
 
   // Verify the JWT token
@@ -949,7 +964,17 @@ const deleteUser = asyncHandler(async (req, res) => {
 
 const updateProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  let { firstName, lastName, bio, profile_type, coverPhoto, isPrivate } = req.body;
+  let {
+    firstName,
+    lastName,
+    username,
+    bio,
+    profile_type,
+    coverPhoto,
+    isPrivate,
+    dateOfBirth,
+    allowDownloads,
+  } = req.body;
 
   // BACKWARD COMPATIBILITY: Handle frontend sending profile_type: "private"/"public"
   // Convert to isPrivate boolean
@@ -974,12 +999,32 @@ const updateProfile = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'User not found');
   }
 
+  // Validate and update username if provided
+  if (username) {
+    const normalizedUsername = username.toLowerCase().trim();
+
+    // Check if username is different from current
+    if (normalizedUsername !== user.username) {
+      // Check if username is already taken
+      const existingUser = await User.findOne({
+        username: normalizedUsername,
+        _id: { $ne: userId },
+      });
+      if (existingUser) {
+        throw new ApiError(400, 'This username is already taken');
+      }
+      user.username = normalizedUsername;
+    }
+  }
+
   // Update fields if provided
   if (firstName) user.firstName = firstName;
-  if (lastName) user.lastName = lastName;
+  if (lastName !== undefined) user.lastName = lastName;
   if (bio !== undefined) user.bio = bio;
   if (profile_type) user.profile_type = profile_type;
   if (coverPhoto) user.coverPhoto = coverPhoto;
+  if (dateOfBirth) user.dob = dateOfBirth;
+  if (allowDownloads !== undefined) user.allowDownloads = allowDownloads;
 
   // Handle privacy toggle
   if (isPrivate !== undefined) {
@@ -1215,18 +1260,50 @@ const updateProfileImage = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'At least one media file (image/video) is required');
   }
 
-  // Upload to Cloudinary
-  const cloudinaryResponse = await uploadOnCloudinary(file.path);
+  // Save to local storage instead of Cloudinary
+  const result = await saveFileLocally(file, userId.toString(), 'avatar');
 
-  if (!cloudinaryResponse) {
+  if (!result) {
     throw new ApiError(500, `Failed to upload profile image`);
   }
+
   const user = await User.findByIdAndUpdate(
     userId,
-    { profileImage: cloudinaryResponse.secure_url },
+    { profileImage: result.url, avatar: result.url },
     { new: true }
   ).select('-password -refreshToken -otp');
+
   return res.status(200).json(new ApiResponse(200, user, 'Profile image updated successfully'));
+});
+
+// Update Cover Photo
+const updateCoverPhoto = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  if (!userId) {
+    throw new ApiError(400, 'Please provide user ID first');
+  }
+
+  // The file will be available as req.file after upload middleware
+  const file = req.file || req.files?.coverPhoto?.[0] || req.files?.[0];
+
+  if (!file) {
+    throw new ApiError(400, 'Cover photo is required');
+  }
+
+  // Save to local storage
+  const result = await saveFileLocally(file, userId.toString(), 'cover');
+
+  if (!result) {
+    throw new ApiError(500, 'Failed to upload cover photo');
+  }
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { coverPhoto: result.url },
+    { new: true }
+  ).select('-password -refreshToken -otp');
+
+  return res.status(200).json(new ApiResponse(200, user, 'Cover photo updated successfully'));
 });
 
 // Block a user
@@ -1637,6 +1714,232 @@ const completeProfile = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, { user: updatedUser }, 'Profile completed successfully'));
 });
 
+// Request Email Change - Send OTP to both current email and phone
+const requestEmailChange = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { newEmail } = req.body;
+
+  if (!newEmail) {
+    throw new ApiError(400, 'New email is required');
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(newEmail)) {
+    throw new ApiError(400, 'Please enter a valid email address');
+  }
+
+  // Check if email already exists
+  const existingUser = await User.findOne({ email: newEmail.toLowerCase() });
+  if (existingUser) {
+    throw new ApiError(400, 'This email is already registered');
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  // Generate OTP
+  const otp = generateOTP();
+  const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+  // Store OTP and new email in Redis or user document
+  await redis.set(
+    `email_change:${userId}`,
+    JSON.stringify({ newEmail: newEmail.toLowerCase(), otp, expiry: otpExpiry }),
+    'EX',
+    600 // 10 minutes
+  );
+
+  // Send OTP to current email
+  if (user.email) {
+    try {
+      await emailService.sendOTPEmail(user.email, otp, 'email_change');
+    } catch (error) {
+      console.error('Error sending email OTP:', error);
+    }
+  }
+
+  // Send OTP to phone if available
+  if (user.phone) {
+    try {
+      await smsService.sendOTP(user.phone, otp, 'email_change');
+    } catch (error) {
+      console.error('Error sending SMS OTP:', error);
+    }
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, 'Verification code sent to your email and phone'));
+});
+
+// Verify Email Change OTP
+const verifyEmailChange = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { newEmail, otp } = req.body;
+
+  if (!newEmail || !otp) {
+    throw new ApiError(400, 'New email and OTP are required');
+  }
+
+  // Get stored OTP data from Redis
+  const storedData = await redis.get(`email_change:${userId}`);
+  if (!storedData) {
+    throw new ApiError(400, 'Verification code expired. Please request a new one.');
+  }
+
+  const { newEmail: storedEmail, otp: storedOtp, expiry } = JSON.parse(storedData);
+
+  // Verify OTP
+  if (otp !== storedOtp) {
+    throw new ApiError(400, 'Invalid verification code');
+  }
+
+  // Verify email matches
+  if (newEmail.toLowerCase() !== storedEmail) {
+    throw new ApiError(400, 'Email mismatch. Please try again.');
+  }
+
+  // Check expiry
+  if (new Date() > new Date(expiry)) {
+    await redis.del(`email_change:${userId}`);
+    throw new ApiError(400, 'Verification code expired. Please request a new one.');
+  }
+
+  // Update user email
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  user.email = newEmail.toLowerCase();
+  await user.save();
+
+  // Clear Redis data
+  await redis.del(`email_change:${userId}`);
+
+  const updatedUser = await User.findById(userId).select('-password -refreshToken -otp');
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { user: updatedUser }, 'Email updated successfully'));
+});
+
+// Request Phone Change - Send OTP to both email and current phone
+const requestPhoneChange = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { newPhone } = req.body;
+
+  if (!newPhone) {
+    throw new ApiError(400, 'New phone number is required');
+  }
+
+  // Clean phone number (remove spaces, dashes, etc.)
+  const cleanPhone = newPhone.replace(/\s+/g, '').replace(/-/g, '');
+
+  // Check if phone already exists
+  const existingUser = await User.findOne({ phone: cleanPhone });
+  if (existingUser) {
+    throw new ApiError(400, 'This phone number is already registered');
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  // Generate OTP
+  const otp = generateOTP();
+  const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+  // Store OTP and new phone in Redis
+  await redis.set(
+    `phone_change:${userId}`,
+    JSON.stringify({ newPhone: cleanPhone, otp, expiry: otpExpiry }),
+    'EX',
+    600 // 10 minutes
+  );
+
+  // Send OTP to email
+  if (user.email) {
+    try {
+      await emailService.sendOTPEmail(user.email, otp, 'phone_change');
+    } catch (error) {
+      console.error('Error sending email OTP:', error);
+    }
+  }
+
+  // Send OTP to current phone if available
+  if (user.phone) {
+    try {
+      await smsService.sendOTP(user.phone, otp, 'phone_change');
+    } catch (error) {
+      console.error('Error sending SMS OTP:', error);
+    }
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, 'Verification code sent to your email and phone'));
+});
+
+// Verify Phone Change OTP
+const verifyPhoneChange = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { newPhone, otp } = req.body;
+
+  if (!newPhone || !otp) {
+    throw new ApiError(400, 'New phone number and OTP are required');
+  }
+
+  // Clean phone number
+  const cleanPhone = newPhone.replace(/\s+/g, '').replace(/-/g, '');
+
+  // Get stored OTP data from Redis
+  const storedData = await redis.get(`phone_change:${userId}`);
+  if (!storedData) {
+    throw new ApiError(400, 'Verification code expired. Please request a new one.');
+  }
+
+  const { newPhone: storedPhone, otp: storedOtp, expiry } = JSON.parse(storedData);
+
+  // Verify OTP
+  if (otp !== storedOtp) {
+    throw new ApiError(400, 'Invalid verification code');
+  }
+
+  // Verify phone matches
+  if (cleanPhone !== storedPhone) {
+    throw new ApiError(400, 'Phone number mismatch. Please try again.');
+  }
+
+  // Check expiry
+  if (new Date() > new Date(expiry)) {
+    await redis.del(`phone_change:${userId}`);
+    throw new ApiError(400, 'Verification code expired. Please request a new one.');
+  }
+
+  // Update user phone
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, 'User not found');
+  }
+
+  user.phone = cleanPhone;
+  await user.save();
+
+  // Clear Redis data
+  await redis.del(`phone_change:${userId}`);
+
+  const updatedUser = await User.findById(userId).select('-password -refreshToken -otp');
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { user: updatedUser }, 'Phone number updated successfully'));
+});
+
 export {
   blockUser,
   changePassword,
@@ -1651,14 +1954,19 @@ export {
   logOutUser,
   refreshAccessToken,
   registerUser,
+  requestEmailChange,
+  requestPhoneChange,
   resendRegistrationOtp,
   resetPassword,
   resetPasswordForTesting,
   unblockUser,
   unlockAccount,
+  updateCoverPhoto,
   updatePrivacySettings,
   updateProfile,
   updateProfileImage,
+  verifyEmailChange,
   verifyLoginOtp,
+  verifyPhoneChange,
   verifyRegisterOtp,
 };

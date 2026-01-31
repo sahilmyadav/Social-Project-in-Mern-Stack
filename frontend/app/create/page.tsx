@@ -1,6 +1,7 @@
 'use client';
 
 import Navigation from '@/components/navigation';
+import TagPeopleInput from '@/components/tag-people-input';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -18,12 +19,22 @@ import { useEffect, useState } from 'react';
 
 type ContentType = 'post' | 'reel';
 
+// Type for tagged users
+interface TaggedUser {
+  _id: string;
+  firstName: string;
+  lastName: string;
+  username?: string;
+  profileImage?: string;
+  avatar?: string;
+}
+
 export default function CreatePage() {
   const [user, setUser] = useState<any>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [caption, setCaption] = useState('');
-  const [tags, setTags] = useState('');
+  const [taggedPeople, setTaggedPeople] = useState<TaggedUser[]>([]);
   const [contentType, setContentType] = useState<ContentType>('post');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -102,15 +113,18 @@ export default function CreatePage() {
 
     try {
       const formData = new FormData();
-      formData.append('files', uploadedFile);
+      // Posts use 'files' field, reels use 'file' field
+      if (contentType === 'post') {
+        formData.append('files', uploadedFile);
+      } else {
+        formData.append('file', uploadedFile);
+      }
       formData.append('caption', caption.trim());
 
-      if (tags.trim()) {
-        const tagArray = tags
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean);
-        formData.append('tags', JSON.stringify(tagArray));
+      // Add tagged people (user IDs)
+      if (taggedPeople.length > 0) {
+        const taggedUserIds = taggedPeople.map((user) => user._id);
+        formData.append('tags', JSON.stringify(taggedUserIds));
       }
 
       let response;
@@ -122,7 +136,7 @@ export default function CreatePage() {
 
       if (response.success) {
         setCaption('');
-        setTags('');
+        setTaggedPeople([]);
         handleRemoveFile();
         setShowSuccessDialog(true);
       } else {
@@ -164,9 +178,11 @@ export default function CreatePage() {
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        <section className="lg:col-span-2 max-w-2xl mx-auto">
-          <div className="bg-card rounded-2xl border border-border p-8">
-            <h1 className="text-3xl font-bold text-foreground mb-6">Create New Content</h1>
+        <section className="lg:col-span-2 max-w-2xl mx-auto w-full">
+          <div className="bg-card rounded-2xl border border-border p-4 md:p-8">
+            <h1 className="text-xl md:text-3xl font-bold text-foreground mb-4">
+              Create New Content
+            </h1>
 
             {error && (
               <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
@@ -174,45 +190,47 @@ export default function CreatePage() {
               </div>
             )}
 
-            <div className="mb-8">
-              <p className="text-foreground font-semibold mb-4">What would you like to create?</p>
-              <div className="grid grid-cols-2 gap-4">
+            <div className="mb-4 md:mb-8">
+              <p className="text-foreground font-semibold mb-2 md:mb-4 text-sm md:text-base">
+                What would you like to create?
+              </p>
+              <div className="grid grid-cols-2 gap-2 md:gap-4">
                 <button
                   onClick={() => handleContentTypeChange('post')}
-                  className={`p-4 rounded-xl border-2 transition ${
+                  className={`p-2 md:p-4 rounded-xl border-2 transition ${
                     contentType === 'post'
                       ? 'border-primary bg-primary/10'
                       : 'border-border hover:border-primary/50'
                   }`}
                 >
-                  <p className="text-2xl mb-2">📸</p>
-                  <p className="font-semibold text-foreground">Post</p>
-                  <p className="text-xs text-muted-foreground mt-1">Photos & Videos</p>
+                  <p className="text-xl md:text-2xl mb-1">📸</p>
+                  <p className="font-semibold text-foreground text-sm md:text-base">Post</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground">Photos & Videos</p>
                 </button>
                 <button
                   onClick={() => handleContentTypeChange('reel')}
-                  className={`p-4 rounded-xl border-2 transition ${
+                  className={`p-2 md:p-4 rounded-xl border-2 transition ${
                     contentType === 'reel'
                       ? 'border-primary bg-primary/10'
                       : 'border-border hover:border-primary/50'
                   }`}
                 >
-                  <p className="text-2xl mb-2">🎬</p>
-                  <p className="font-semibold text-foreground">Reel</p>
-                  <p className="text-xs text-muted-foreground mt-1">Short Videos</p>
+                  <p className="text-xl md:text-2xl mb-1">🎬</p>
+                  <p className="font-semibold text-foreground text-sm md:text-base">Reel</p>
+                  <p className="text-[10px] md:text-xs text-muted-foreground">Short Videos</p>
                 </button>
               </div>
             </div>
 
-            <div className="mb-8">
+            <div className="mb-4 md:mb-8">
               <label className="block">
-                <div className="border-2 border-dashed border-primary/50 rounded-xl p-8 text-center cursor-pointer hover:border-primary transition">
+                <div className="border-2 border-dashed border-primary/50 rounded-xl p-4 md:p-8 text-center cursor-pointer hover:border-primary transition">
                   {uploadedFile ? (
                     <div className="relative">
                       {isVideo ? (
                         <video
                           src={previewUrl}
-                          className="w-full max-h-64 object-contain rounded-lg mx-auto"
+                          className="w-full max-h-32 md:max-h-64 object-contain rounded-lg mx-auto"
                           controls
                           muted
                         />
@@ -220,32 +238,33 @@ export default function CreatePage() {
                         <img
                           src={previewUrl}
                           alt="Preview"
-                          className="w-full max-h-64 object-contain rounded-lg mx-auto"
+                          className="w-full max-h-32 md:max-h-64 object-contain rounded-lg mx-auto"
                         />
                       )}
-                      <p className="text-sm text-muted-foreground mt-3">{uploadedFile.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
+                      <p className="text-xs md:text-sm text-muted-foreground mt-2">
+                        {uploadedFile.name}
                       </p>
                       <button
                         onClick={(e) => {
                           e.preventDefault();
                           handleRemoveFile();
                         }}
-                        className="mt-4 px-4 py-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition text-sm"
+                        className="mt-2 px-3 py-1 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition text-xs"
                         type="button"
                       >
-                        Remove File
+                        Remove
                       </button>
                     </div>
                   ) : (
                     <div>
-                      <Upload size={40} className="mx-auto mb-2 text-primary" />
-                      <p className="text-foreground font-semibold">Click to upload</p>
-                      <p className="text-sm text-muted-foreground">
+                      <Upload size={28} className="mx-auto mb-1 text-primary" />
+                      <p className="text-foreground font-semibold text-sm md:text-base">
+                        Click to upload
+                      </p>
+                      <p className="text-xs text-muted-foreground">
                         {contentType === 'post'
-                          ? 'Images (up to 10MB) or Videos (up to 100MB)'
-                          : 'Videos only (up to 100MB)'}
+                          ? 'Images (10MB) / Videos (100MB)'
+                          : 'Videos only (100MB)'}
                       </p>
                     </div>
                   )}
@@ -260,34 +279,33 @@ export default function CreatePage() {
               </label>
             </div>
 
-            <div className="mb-6">
-              <label className="text-foreground font-semibold block mb-2">Caption</label>
+            <div className="mb-3 md:mb-6">
+              <label className="text-foreground font-semibold block mb-1 text-sm md:text-base">
+                Caption
+              </label>
               <textarea
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 placeholder="Write a caption..."
-                className="w-full p-4 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
-                rows={3}
+                className="w-full p-3 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground text-sm"
+                rows={2}
                 disabled={loading}
                 maxLength={500}
               />
-              <p className="text-xs text-muted-foreground mt-1 text-right">{caption.length}/500</p>
+              <p className="text-xs text-muted-foreground text-right">{caption.length}/500</p>
             </div>
 
-            <div className="mb-8">
-              <label className="text-foreground font-semibold block mb-2">Tags (optional)</label>
-              <input
-                type="text"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-                placeholder="travel, photography, nature"
-                className="w-full p-4 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
+            {/* Tag People Section */}
+            <div className="mb-4 md:mb-8">
+              <TagPeopleInput
+                selectedUsers={taggedPeople}
+                onUsersChange={setTaggedPeople}
                 disabled={loading}
+                maxTags={10}
               />
-              <p className="text-xs text-muted-foreground mt-1">Separate tags with commas</p>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex gap-2 md:gap-4">
               <Button
                 onClick={() => router.push('/home')}
                 variant="outline"

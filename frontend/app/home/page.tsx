@@ -6,6 +6,7 @@ import ReelCard from '@/components/reel-card';
 import ReelComments from '@/components/reel-comments';
 import StoriesBar from '@/components/stories-bar';
 import { feedService, followService, reelService, searchService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import { Plus } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -211,17 +212,23 @@ export default function HomePage() {
           <div className="bg-card rounded-2xl border border-border p-4 mb-6 sticky top-0 z-10">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-xl overflow-hidden">
-                {(user?.profileImage || user?.profilePicture || user?.avatar)?.startsWith?.(
-                  'http'
-                ) ? (
-                  <img
-                    src={user?.profileImage || user?.profilePicture || user?.avatar}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span>{user?.profileImage || user?.profilePicture || user?.avatar || '😊'}</span>
-                )}
+                {(() => {
+                  const avatar = user?.profileImage || user?.profilePicture || user?.avatar;
+                  if (
+                    avatar &&
+                    avatar !== '👤' &&
+                    (avatar.startsWith('http') || avatar.startsWith('/'))
+                  ) {
+                    return (
+                      <img
+                        src={getMediaUrl(avatar)}
+                        alt="Profile"
+                        className="w-full h-full object-cover"
+                      />
+                    );
+                  }
+                  return <span>{user?.firstName?.[0] || '😊'}</span>;
+                })()}
               </div>
               <button
                 onClick={() => setShowCreateModal(true)}

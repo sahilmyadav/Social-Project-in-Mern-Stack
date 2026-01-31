@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import UserAvatar from '@/components/user-avatar';
 import { chatService, followService } from '@/lib/api-services';
 import { showToast } from '@/lib/toast';
-import { Loader2, Search, Send, X } from 'lucide-react';
+import { Link2, Loader2, Search, Send, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface ShareModalProps {
@@ -21,6 +21,7 @@ interface User {
   firstName: string;
   lastName?: string;
   username: string;
+  profileImage?: string;
   profilePicture?: string;
   avatar?: string;
 }
@@ -32,7 +33,7 @@ export default function ShareModal({
   contentId,
   contentUrl,
 }: ShareModalProps) {
-  const [following, setFollowing] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -93,7 +94,7 @@ export default function ShareModal({
 
   useEffect(() => {
     if (isOpen) {
-      loadFollowing();
+      loadUsersToShare();
       setSearchQuery('');
       setSharedUsers(new Set());
       setCopied(false);
@@ -103,7 +104,7 @@ export default function ShareModal({
   useEffect(() => {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      const filtered = following.filter(
+      const filtered = users.filter(
         (user) =>
           user.firstName?.toLowerCase().includes(query) ||
           user.lastName?.toLowerCase().includes(query) ||
@@ -111,26 +112,79 @@ export default function ShareModal({
       );
       setFilteredUsers(filtered);
     } else {
-      setFilteredUsers(following);
+      setFilteredUsers(users);
     }
-  }, [searchQuery, following]);
+  }, [searchQuery, users]);
 
-  const loadFollowing = async () => {
+  const loadUsersToShare = async () => {
     try {
       setLoading(true);
       const userData = localStorage.getItem('user');
       if (!userData) return;
 
-      const user = JSON.parse(userData);
-      const response = await followService.getFollowing(user._id, { limit: 100 });
+      const currentUser = JSON.parse(userData);
+      const userMap = new Map<string, User>();
 
-      if (response.success && response.data) {
-        const users = response.data.following || response.data || [];
-        setFollowing(users);
-        setFilteredUsers(users);
+      // Load following
+      try {
+        const followingResponse = await followService.getFollowing(currentUser._id, { limit: 100 });
+        if (followingResponse.success && followingResponse.data) {
+          const followingUsers = followingResponse.data.following || followingResponse.data || [];
+          followingUsers.forEach((user: any) => {
+            if (user._id && user._id !== currentUser._id) {
+              userMap.set(user._id, {
+                _id: user._id,
+                firstName: user.firstName || user.username || 'User',
+                lastName: user.lastName || '',
+                username: user.username || '',
+                profileImage: user.profileImage || user.profilePicture,
+                profilePicture: user.profilePicture || user.profileImage,
+                avatar: user.avatar,
+              });
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error loading following:', error);
       }
+
+      // Load chat conversations
+      try {
+        const threadsResponse = await chatService.getThreads();
+        if (threadsResponse.success && threadsResponse.data) {
+          const threads = threadsResponse.data.threads || threadsResponse.data || [];
+          threads.forEach((thread: any) => {
+            // Get the other participant from the thread
+            const participants = thread.participants || [];
+            participants.forEach((participant: any) => {
+              const participantId = participant._id || participant;
+              if (
+                participantId &&
+                participantId !== currentUser._id &&
+                typeof participant === 'object'
+              ) {
+                userMap.set(participantId, {
+                  _id: participantId,
+                  firstName: participant.firstName || participant.username || 'User',
+                  lastName: participant.lastName || '',
+                  username: participant.username || '',
+                  profileImage: participant.profileImage || participant.profilePicture,
+                  profilePicture: participant.profilePicture || participant.profileImage,
+                  avatar: participant.avatar,
+                });
+              }
+            });
+          });
+        }
+      } catch (error) {
+        console.error('Error loading chat threads:', error);
+      }
+
+      const allUsers = Array.from(userMap.values());
+      setUsers(allUsers);
+      setFilteredUsers(allUsers);
     } catch (error) {
-      console.error('Error loading following:', error);
+      console.error('Error loading users:', error);
     } finally {
       setLoading(false);
     }
@@ -220,21 +274,15 @@ export default function ShareModal({
 
         {/* Copy Link & External Share Options */}
         <div className="p-4 border-b border-border space-y-3">
-          {/* Copy Link */}
-          <div className="flex items-center gap-2">
-            <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-muted rounded-lg">
-              <Link2 size={16} className="text-muted-foreground flex-shrink-0" />
-              <span className="text-sm text-muted-foreground truncate">{shareableLink}</span>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleCopyLink}
-              className="gap-1 flex-shrink-0"
-            >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-              {copied ? 'Copied!' : 'Copy'}
-            </Button>
+          {/* Copy Link - Click to copy */}
+          <div
+            className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition-colors"
+            onClick={handleCopyLink}
+            title="Click to copy link"
+          >
+            <Link2 size={16} className="text-muted-foreground flex-shrink-0" />
+            <span className="text-sm text-muted-foreground truncate flex-1">{shareableLink}</span>
+            {copied && <span className="text-xs text-green-500 font-medium">Copied!</span>}
           </div>
 
           {/* External Share Buttons */}
@@ -271,13 +319,25 @@ export default function ShareModal({
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
               </button>
-              {/* More (native share) */}
+              {/* Copy Link */}
               <button
-                onClick={handleNativeShare}
-                className="w-10 h-10 rounded-full bg-muted hover:bg-muted/80 flex items-center justify-center transition-colors"
-                title="More options"
+                onClick={handleCopyLink}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                  copied ? 'bg-green-500 hover:bg-green-600' : 'bg-primary hover:bg-primary/90'
+                }`}
+                title={copied ? 'Copied!' : 'Copy Link'}
               >
-                <MessageCircle size={18} className="text-foreground" />
+                {copied ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="w-5 h-5 text-white fill-none stroke-current"
+                    strokeWidth="2"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <Link2 size={18} className="text-white" />
+                )}
               </button>
             </div>
           </div>
@@ -292,7 +352,9 @@ export default function ShareModal({
           ) : filteredUsers.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">
-                {searchQuery ? 'No users found' : "You're not following anyone yet"}
+                {searchQuery
+                  ? 'No users found'
+                  : 'No users to share with yet. Follow people or start chatting!'}
               </p>
             </div>
           ) : (
@@ -307,7 +369,18 @@ export default function ShareModal({
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-muted transition"
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <UserAvatar user={user} size="md" />
+                      <UserAvatar
+                        user={{
+                          _id: user._id,
+                          firstName: user.firstName,
+                          lastName: user.lastName,
+                          username: user.username,
+                          profileImage: user.profileImage,
+                          profilePicture: user.profilePicture,
+                          avatar: user.avatar,
+                        }}
+                        size="md"
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-foreground truncate">
                           {user.firstName} {user.lastName || ''}

@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
-import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { storyService } from "@/lib/api-services";
-import "@/styles/filters.css";
-import { ChevronLeft, ChevronRight, Eye, Music, Trash2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
+import { storyService } from '@/lib/api-services';
+import '@/styles/filters.css';
+import { ChevronLeft, ChevronRight, Eye, Music, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Story {
   _id: string;
@@ -17,7 +17,7 @@ interface Story {
   };
   media: {
     url: string;
-    type: "image" | "video";
+    type: 'image' | 'video';
   };
   filter?: string;
   music?: {
@@ -72,19 +72,15 @@ export default function StoryViewer({
 
   const currentStory = stories[currentIndex];
   const isOwner = currentUserId === currentStory?.user._id;
-  const mediaUrl = typeof currentStory?.media === 'string'
-    ? currentStory.media
-    : currentStory?.media?.url || '';
-  const isImage = currentStory?.media?.type === "image" ||
+  const mediaUrl =
+    typeof currentStory?.media === 'string' ? currentStory.media : currentStory?.media?.url || '';
+  const isImage =
+    currentStory?.media?.type === 'image' ||
     (!currentStory?.media?.type && mediaUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i));
-
-
 
   // Calculate time ago
   const getTimeAgo = (date: string) => {
-    const seconds = Math.floor(
-      (new Date().getTime() - new Date(date).getTime()) / 1000
-    );
+    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
     if (seconds < 60) return `${seconds}s ago`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -100,7 +96,11 @@ export default function StoryViewer({
     if (currentStory?.music) {
       duration = 30000; // 30 seconds for stories with music
     } else {
-      duration = isImage ? 5000 : videoRef.current?.duration ? videoRef.current.duration * 1000 : 15000;
+      duration = isImage
+        ? 5000
+        : videoRef.current?.duration
+          ? videoRef.current.duration * 1000
+          : 15000;
     }
 
     const interval = 50;
@@ -133,15 +133,14 @@ export default function StoryViewer({
       return;
     }
 
-
-
     const audio = new Audio(currentStory.music.previewUrl);
     let checkPlayback: NodeJS.Timeout | null = null;
 
     // Validate startTime is a finite number
-    const startTime = typeof currentStory.music.startTime === 'number' && isFinite(currentStory.music.startTime)
-      ? currentStory.music.startTime
-      : 0;
+    const startTime =
+      typeof currentStory.music.startTime === 'number' && isFinite(currentStory.music.startTime)
+        ? currentStory.music.startTime
+        : 0;
 
     // Wait for audio metadata to load before setting currentTime and playing
     audio.addEventListener('loadedmetadata', () => {
@@ -149,25 +148,28 @@ export default function StoryViewer({
     });
 
     // Start timer only when audio actually starts playing
-    audio.addEventListener('playing', () => {
-      const playbackStartTime = Date.now();
+    audio.addEventListener(
+      'playing',
+      () => {
+        const playbackStartTime = Date.now();
 
-      checkPlayback = setInterval(() => {
-        const elapsed = (Date.now() - playbackStartTime) / 1000;
+        checkPlayback = setInterval(() => {
+          const elapsed = (Date.now() - playbackStartTime) / 1000;
 
-
-        if (elapsed >= 30) {
-          if (checkPlayback) clearInterval(checkPlayback);
-          if (musicAudioRef.current) {
-            musicAudioRef.current.pause();
-            musicAudioRef.current = null;
+          if (elapsed >= 30) {
+            if (checkPlayback) clearInterval(checkPlayback);
+            if (musicAudioRef.current) {
+              musicAudioRef.current.pause();
+              musicAudioRef.current = null;
+            }
           }
-        }
-      }, 1000);
-    }, { once: true }); // Only trigger once
+        }, 1000);
+      },
+      { once: true }
+    ); // Only trigger once
 
     audio.volume = 0.7;
-    audio.play().catch(() => { });
+    audio.play().catch(() => {});
     musicAudioRef.current = audio;
 
     return () => {
@@ -197,7 +199,7 @@ export default function StoryViewer({
         setViewCount(viewersList.length);
       }
     } catch (error) {
-      console.error("❌ Error loading story viewers:", error);
+      console.error('❌ Error loading story viewers:', error);
       // Don't break the story viewer if this fails
       setViewers([]);
       setViewCount(0);
@@ -222,7 +224,7 @@ export default function StoryViewer({
           await storyService.viewStory(currentStory._id);
           hasTrackedView.current.add(currentStory._id);
         } catch (error) {
-          console.error("❌ Error tracking story view:", error);
+          console.error('❌ Error tracking story view:', error);
           // Don't break the story viewer if tracking fails
         }
       }
@@ -256,10 +258,10 @@ export default function StoryViewer({
     if (!isOwner || !currentStory) return;
 
     confirm({
-      title: "Delete Story",
-      message: "Are you sure you want to delete this story? This action cannot be undone.",
-      confirmText: "Delete",
-      variant: "danger",
+      title: 'Delete Story',
+      message: 'Are you sure you want to delete this story? This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
       onConfirm: async () => {
         await onDelete?.(currentStory._id);
 
@@ -275,35 +277,30 @@ export default function StoryViewer({
     });
   };
 
-
   // Close viewer if stories become invalid
   useEffect(() => {
     if (isOpen && (!stories || stories.length === 0 || !currentStory)) {
-      onClose();
+      // Use setTimeout to defer state update and avoid updating parent during render
+      const timeoutId = setTimeout(() => {
+        onClose();
+      }, 0);
+      return () => clearTimeout(timeoutId);
     }
   }, [isOpen, stories, currentStory, onClose]);
 
   if (!isOpen || !currentStory) return null;
-
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
       <div className="absolute top-0 left-0 right-0 flex gap-1 p-2 z-10">
         <ConfirmDialog {...dialogProps} />
         {stories.map((_, index) => (
-          <div
-            key={index}
-            className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden"
-          >
+          <div key={index} className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden">
             <div
               className="h-full bg-white transition-all duration-100"
               style={{
                 width:
-                  index === currentIndex
-                    ? `${progress}%`
-                    : index < currentIndex
-                      ? "100%"
-                      : "0%",
+                  index === currentIndex ? `${progress}%` : index < currentIndex ? '100%' : '0%',
               }}
             />
           </div>
@@ -327,12 +324,8 @@ export default function StoryViewer({
             )}
           </div>
           <div>
-            <p className="text-white font-semibold text-sm">
-              {currentStory.user.firstName}
-            </p>
-            <p className="text-white/70 text-xs">
-              {getTimeAgo(currentStory.createdAt)}
-            </p>
+            <p className="text-white font-semibold text-sm">{currentStory.user.firstName}</p>
+            <p className="text-white/70 text-xs">{getTimeAgo(currentStory.createdAt)}</p>
           </div>
         </div>
 
@@ -356,10 +349,7 @@ export default function StoryViewer({
               <Trash2 className="w-5 h-5 text-white" />
             </button>
           )}
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/20 rounded-full transition"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition">
             <X className="w-6 h-6 text-white" />
           </button>
         </div>
@@ -430,9 +420,7 @@ export default function StoryViewer({
               <p className="text-white font-semibold text-sm truncate">
                 {currentStory.music.trackName}
               </p>
-              <p className="text-white/70 text-xs truncate">
-                {currentStory.music.artistName}
-              </p>
+              <p className="text-white/70 text-xs truncate">{currentStory.music.artistName}</p>
             </div>
           </div>
         </div>
@@ -478,12 +466,8 @@ export default function StoryViewer({
             <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-purple-500" />
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                  Viewers
-                </h3>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  ({viewCount})
-                </span>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Viewers</h3>
+                <span className="text-sm text-gray-500 dark:text-gray-400">({viewCount})</span>
               </div>
               <button
                 onClick={() => setShowViewers(false)}
@@ -522,7 +506,7 @@ export default function StoryViewer({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-gray-900 dark:text-white truncate">
-                          {viewer.firstName} {viewer.lastName || ""}
+                          {viewer.firstName} {viewer.lastName || ''}
                         </p>
                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                           @{viewer.username}
@@ -531,8 +515,8 @@ export default function StoryViewer({
                       {viewer.viewedAt && (
                         <div className="text-xs text-gray-400 dark:text-gray-500">
                           {new Date(viewer.viewedAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
+                            hour: '2-digit',
+                            minute: '2-digit',
                           })}
                         </div>
                       )}

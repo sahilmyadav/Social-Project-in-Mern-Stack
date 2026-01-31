@@ -102,8 +102,11 @@ export default function PostPage() {
           setError('Post not found');
         }
       } catch (err: any) {
-        console.error('Error fetching post:', err);
-        setError(err.message || 'Failed to load post');
+        console.error(
+          'Error fetching post:',
+          err?.message || err?.error || JSON.stringify(err) || 'Unknown error'
+        );
+        setError(err?.message || err?.error || 'Failed to load post');
       } finally {
         setLoading(false);
       }

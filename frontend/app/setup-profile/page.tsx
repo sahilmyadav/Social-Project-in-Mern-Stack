@@ -1,5 +1,6 @@
 'use client';
 
+import { ProfileImageEditor } from '@/components/profile-image-editor';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api-client';
 import { authService } from '@/lib/api-services';
@@ -7,386 +8,21 @@ import {
   Bookmark,
   Camera,
   Check,
-  FlipHorizontal,
-  FlipVertical,
   Heart,
   Image as ImageIcon,
   Loader2,
   MessageCircle,
   Play,
   RotateCcw,
-  RotateCw,
   Send,
   Sparkles,
   User,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-
-// Image Editor Modal Component
-interface ImageEditorProps {
-  isOpen: boolean;
-  onClose: () => void;
-  imageFile: File | null;
-  type: 'profile' | 'cover';
-  onSave: (croppedImageBlob: Blob, previewUrl: string) => void;
-}
-
-function ImageEditorModal({ isOpen, onClose, imageFile, type, onSave }: ImageEditorProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [imageSrc, setImageSrc] = useState<string>('');
-  const [rotation, setRotation] = useState(0);
-  const [flipH, setFlipH] = useState(false);
-  const [flipV, setFlipV] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
-  const [lastPinchDistance, setLastPinchDistance] = useState(0);
-
-  // Load image when file changes
-  useEffect(() => {
-    if (imageFile) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const src = e.target?.result as string;
-        setImageSrc(src);
-        const img = new Image();
-        img.onload = () => {
-          setOriginalImage(img);
-          setImageLoaded(true);
-          // Reset transforms
-          setRotation(0);
-          setFlipH(false);
-          setFlipV(false);
-          setZoom(1);
-          setPosition({ x: 0, y: 0 });
-        };
-        img.src = src;
-      };
-      reader.readAsDataURL(imageFile);
-    }
-  }, [imageFile]);
-
-  // Draw image on canvas
-  const drawCanvas = useCallback(() => {
-    if (!canvasRef.current || !originalImage || !imageLoaded) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Set canvas size based on type - compact sizes
-    const size = type === 'profile' ? 180 : 350;
-    const aspectRatio = type === 'profile' ? 1 : 2.5;
-    canvas.width = size;
-    canvas.height = type === 'profile' ? size : size / aspectRatio;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Save context
-    ctx.save();
-
-    // Move to center
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-
-    // Apply rotation
-    ctx.rotate((rotation * Math.PI) / 180);
-
-    // Apply flip
-    ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
-
-    // Calculate scaled dimensions
-    const imgAspect = originalImage.width / originalImage.height;
-    const canvasAspect = canvas.width / canvas.height;
-
-    let drawWidth, drawHeight;
-    if (imgAspect > canvasAspect) {
-      drawHeight = canvas.height * zoom;
-      drawWidth = drawHeight * imgAspect;
-    } else {
-      drawWidth = canvas.width * zoom;
-      drawHeight = drawWidth / imgAspect;
-    }
-
-    // Draw image
-    ctx.drawImage(
-      originalImage,
-      -drawWidth / 2 + position.x,
-      -drawHeight / 2 + position.y,
-      drawWidth,
-      drawHeight
-    );
-
-    // Restore context
-    ctx.restore();
-
-    // Draw crop overlay for profile (circular)
-    if (type === 'profile') {
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-in';
-      ctx.beginPath();
-      ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-  }, [originalImage, imageLoaded, rotation, flipH, flipV, zoom, position, type]);
-
-  useEffect(() => {
-    drawCanvas();
-  }, [drawCanvas]);
-
-  // Mouse wheel/trackpad scroll for zoom (Instagram style)
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-
-    // Detect if it's a pinch gesture (ctrlKey is true for pinch on trackpad)
-    const isPinch = e.ctrlKey;
-    const delta = isPinch ? -e.deltaY * 0.01 : -e.deltaY * 0.002;
-
-    setZoom((z) => Math.min(Math.max(z + delta, 0.5), 3));
-  }, []);
-
-  // Mouse handlers for dragging
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-  };
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isDragging) return;
-      setPosition({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
-      });
-    },
-    [isDragging, dragStart]
-  );
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  // Touch handlers with pinch-to-zoom support
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      // Pinch start
-      const distance = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      setLastPinchDistance(distance);
-    } else if (e.touches.length === 1) {
-      // Single finger drag
-      const touch = e.touches[0];
-      setIsDragging(true);
-      setDragStart({ x: touch.clientX - position.x, y: touch.clientY - position.y });
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      // Pinch zoom
-      e.preventDefault();
-      const distance = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-
-      if (lastPinchDistance > 0) {
-        const delta = (distance - lastPinchDistance) * 0.01;
-        setZoom((z) => Math.min(Math.max(z + delta, 0.5), 3));
-      }
-      setLastPinchDistance(distance);
-    } else if (e.touches.length === 1 && isDragging) {
-      // Single finger drag
-      const touch = e.touches[0];
-      setPosition({
-        x: touch.clientX - dragStart.x,
-        y: touch.clientY - dragStart.y,
-      });
-    }
-  };
-
-  const handleTouchEnd = () => {
-    setIsDragging(false);
-    setLastPinchDistance(0);
-  };
-
-  // Control functions
-  const rotateLeft = () => setRotation((r) => (r - 90) % 360);
-  const rotateRight = () => setRotation((r) => (r + 90) % 360);
-  const toggleFlipH = () => setFlipH((f) => !f);
-  const toggleFlipV = () => setFlipV((f) => !f);
-  const zoomIn = () => setZoom((z) => Math.min(z + 0.2, 3));
-  const zoomOut = () => setZoom((z) => Math.max(z - 0.2, 0.5));
-  const resetAll = () => {
-    setRotation(0);
-    setFlipH(false);
-    setFlipV(false);
-    setZoom(1);
-    setPosition({ x: 0, y: 0 });
-  };
-
-  // Save cropped image
-  const handleSave = () => {
-    if (!canvasRef.current) return;
-
-    canvasRef.current.toBlob(
-      (blob) => {
-        if (blob) {
-          const previewUrl = canvasRef.current!.toDataURL('image/jpeg', 0.9);
-          onSave(blob, previewUrl);
-          onClose();
-        }
-      },
-      'image/jpeg',
-      0.9
-    );
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/95" onClick={onClose} />
-
-      {/* Modal Content - Compact */}
-      <div className="relative z-10 w-full max-w-md bg-gray-900/90 backdrop-blur rounded-2xl overflow-hidden animate-in zoom-in-95 fade-in duration-200">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-          <h2 className="text-base font-semibold text-white">
-            {type === 'profile' ? 'Edit Photo' : 'Edit Cover'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
-          >
-            <X className="w-4 h-4 text-white/70" />
-          </button>
-        </div>
-
-        {/* Image Preview Area - Compact */}
-        <div
-          ref={containerRef}
-          className="relative flex items-center justify-center p-4"
-          style={{ minHeight: type === 'profile' ? '220px' : '150px' }}
-        >
-          {/* Canvas Container */}
-          <div
-            className={`relative ${type === 'profile' ? 'rounded-full' : 'rounded-xl'} overflow-hidden ring-2 ring-white/20`}
-            style={{
-              width: type === 'profile' ? '180px' : '100%',
-              maxWidth: type === 'profile' ? '180px' : '350px',
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              className={`w-full h-auto cursor-move ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} touch-none`}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              onWheel={handleWheel}
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-            />
-          </div>
-        </div>
-
-        {/* Zoom Slider - Compact */}
-        <div className="px-4 flex items-center gap-3">
-          <ZoomOut className="w-3.5 h-3.5 text-white/50" />
-          <input
-            type="range"
-            min="0.5"
-            max="3"
-            step="0.1"
-            value={zoom}
-            onChange={(e) => setZoom(parseFloat(e.target.value))}
-            className="flex-1 h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none
-              [&::-webkit-slider-thumb]:w-4
-              [&::-webkit-slider-thumb]:h-4
-              [&::-webkit-slider-thumb]:rounded-full
-              [&::-webkit-slider-thumb]:bg-purple-500
-              [&::-webkit-slider-thumb]:cursor-pointer"
-          />
-          <ZoomIn className="w-3.5 h-3.5 text-white/50" />
-          <span className="text-white/50 text-xs w-10 text-right">{Math.round(zoom * 100)}%</span>
-        </div>
-
-        {/* Control Buttons - Compact Row */}
-        <div className="px-4 py-3 flex items-center justify-center gap-2">
-          <button
-            onClick={rotateLeft}
-            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            title="Rotate Left"
-          >
-            <RotateCcw className="w-4 h-4 text-white" />
-          </button>
-          <button
-            onClick={rotateRight}
-            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            title="Rotate Right"
-          >
-            <RotateCw className="w-4 h-4 text-white" />
-          </button>
-          <button
-            onClick={toggleFlipH}
-            className={`p-2 rounded-lg transition-colors ${flipH ? 'bg-purple-500/50' : 'bg-white/10 hover:bg-white/20'}`}
-            title="Flip Horizontal"
-          >
-            <FlipHorizontal className="w-4 h-4 text-white" />
-          </button>
-          <button
-            onClick={toggleFlipV}
-            className={`p-2 rounded-lg transition-colors ${flipV ? 'bg-purple-500/50' : 'bg-white/10 hover:bg-white/20'}`}
-            title="Flip Vertical"
-          >
-            <FlipVertical className="w-4 h-4 text-white" />
-          </button>
-          <button
-            onClick={resetAll}
-            className="p-2 rounded-lg bg-white/10 hover:bg-red-500/30 transition-colors"
-            title="Reset"
-          >
-            <X className="w-4 h-4 text-white" />
-          </button>
-        </div>
-
-        {/* Action Buttons - Compact */}
-        <div className="flex items-center gap-2 p-4 pt-0">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex-1 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-500 text-white text-sm font-medium transition-all"
-          >
-            Apply
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -613,6 +249,11 @@ export default function SetupProfilePage() {
     setSuggestions(availableSuggestions);
     setLoadingSuggestions(false);
     setShowSuggestions(true);
+
+    // Auto-fill the first suggestion if username is empty
+    if (!input && availableSuggestions.length > 0 && !username) {
+      setUsername(availableSuggestions[0]);
+    }
   };
 
   // Load user data and generate suggestions on mount
@@ -804,13 +445,18 @@ export default function SetupProfilePage() {
 
   return (
     <>
-      {/* Image Editor Modal */}
-      <ImageEditorModal
+      {/* Profile Image Editor Modal - WhatsApp/Instagram/Telegram style */}
+      <ProfileImageEditor
         isOpen={showImageEditor}
-        onClose={() => setShowImageEditor(false)}
+        onClose={() => {
+          setShowImageEditor(false);
+          setEditorImageFile(null);
+        }}
         imageFile={editorImageFile}
         type={editorType}
         onSave={handleImageEditorSave}
+        enableFaceDetection={true}
+        coverAspectRatio={2.5}
       />
 
       <main className="min-h-screen bg-gray-50 dark:bg-black flex">
@@ -1228,9 +874,25 @@ export default function SetupProfilePage() {
                       {selectedInterests.length}/10 selected
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                    Select topics you're interested in to personalize your experience
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    {selectedInterests.length > 0 ? (
+                      <>
+                        Your interests:{' '}
+                        <span className="text-purple-600 dark:text-purple-400 font-medium">
+                          {selectedInterests.join(', ')}
+                        </span>
+                      </>
+                    ) : (
+                      'Select topics to connect with people who share your passions'
+                    )}
                   </p>
+                  {selectedInterests.length > 1 && (
+                    <p className="text-xs text-green-600 dark:text-green-400 mb-3 flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      Great choices! You'll connect with others who love{' '}
+                      {selectedInterests.slice(0, 2).join(' & ')}
+                    </p>
+                  )}
 
                   {/* Interests - Mixed Grid */}
                   <div className="flex flex-wrap gap-2">

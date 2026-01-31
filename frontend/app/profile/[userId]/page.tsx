@@ -1,36 +1,37 @@
-"use client";
+'use client';
 
-import Navigation from "@/components/navigation";
-import PostDetailsModal from "@/components/post-details-modal";
-import ReelCard from "@/components/reel-card";
-import ReelCommentsModal from "@/components/reel-comments-modal";
-import { Button } from "@/components/ui/button";
-import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { authService, feedService, followService, reelService } from "@/lib/api-services";
-import { showToast, toasts } from "@/lib/toast";
+import Navigation from '@/components/navigation';
+import PostDetailsModal from '@/components/post-details-modal';
+import { ProfileImageEditor } from '@/components/profile-image-editor';
+import ReelCard from '@/components/reel-card';
+import ReelCommentsModal from '@/components/reel-comments-modal';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { authService, feedService, followService, reelService } from '@/lib/api-services';
+import { showToast, toasts } from '@/lib/toast';
 import {
-    ArrowLeft,
-    Ban,
-    Camera,
-    Clapperboard,
-    Clock,
-    Edit2,
-    Flag,
-    Grid,
-    Heart,
-    Link as LinkIcon,
-    MessageCircle,
-    MoreHorizontal,
-    Share2,
-    Unlock,
-    UserCheck,
-    UserPlus,
-    UserX,
-} from "lucide-react";
-import Image from "next/image";
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+  ArrowLeft,
+  Ban,
+  Camera,
+  Clapperboard,
+  Clock,
+  Edit2,
+  Flag,
+  Grid,
+  Heart,
+  Link as LinkIcon,
+  MessageCircle,
+  MoreHorizontal,
+  Share2,
+  Unlock,
+  UserCheck,
+  UserPlus,
+  UserX,
+} from 'lucide-react';
+import Image from 'next/image';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
 export default function UserProfilePage() {
   const router = useRouter();
@@ -45,13 +46,11 @@ export default function UserProfilePage() {
   const [posts, setPosts] = useState<any[]>([]);
   const [reels, setReels] = useState<any[]>([]);
   const [reelsLoading, setReelsLoading] = useState(true);
-  const [followStatus, setFollowStatus] = useState<
-    "none" | "following" | "pending"
-  >("none");
+  const [followStatus, setFollowStatus] = useState<'none' | 'following' | 'pending'>('none');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
-  const [activeTab, setActiveTab] = useState<"posts" | "reels">("posts");
+  const [activeTab, setActiveTab] = useState<'posts' | 'reels'>('posts');
   const [showPostDetails, setShowPostDetails] = useState(false);
   const [showProfileImageModal, setShowProfileImageModal] = useState(false);
 
@@ -59,6 +58,10 @@ export default function UserProfilePage() {
   const [selectedReel, setSelectedReel] = useState<any>(null);
   const [showReelComments, setShowReelComments] = useState(false);
   const [notFound, setNotFound] = useState(false);
+
+  // Image editor state
+  const [showCoverEditor, setShowCoverEditor] = useState(false);
+  const [selectedCoverFile, setSelectedCoverFile] = useState<File | null>(null);
 
   useEffect(() => {
     loadCurrentUser();
@@ -75,7 +78,7 @@ export default function UserProfilePage() {
 
   const loadCurrentUser = async () => {
     try {
-      const userData = localStorage.getItem("user");
+      const userData = localStorage.getItem('user');
       if (userData) {
         setCurrentUser(JSON.parse(userData));
       } else {
@@ -85,11 +88,11 @@ export default function UserProfilePage() {
           // Handle potential nested data structure { data: user, ... }
           const userData = response.data.data || response.data;
           setCurrentUser(userData);
-          localStorage.setItem("user", JSON.stringify(userData));
+          localStorage.setItem('user', JSON.stringify(userData));
         }
       }
     } catch (error) {
-      console.error("Error loading current user:", error);
+      console.error('Error loading current user:', error);
     }
   };
 
@@ -98,30 +101,29 @@ export default function UserProfilePage() {
     setNotFound(false);
     try {
       const response = await authService.getUserProfile(userId);
-      console.log("getUserProfile response:", response);
+      console.log('getUserProfile response:', response);
 
       if (response.success && response.data) {
         const user = response.data;
-        console.log("Setting profile user with coverPhoto:", user.coverPhoto);
+        console.log('Setting profile user with coverPhoto:', user.coverPhoto);
 
         setProfileUser({
           _id: user._id || userId,
-          firstName: user.firstName || "",
-          lastName: user.lastName || "",
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
           fullName: user.fullName || `${user.firstName} ${user.lastName}`,
           username:
-            user.username ||
-            `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
-          bio: user.bio || "",
+            user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
+          bio: user.bio || '',
           // Use profileImage (backend convention), falling back to avatar, then legacy profilePicture, then default
-          profilePicture: user.profileImage || user.avatar || user.profilePicture || "👤",
+          profilePicture: user.profileImage || user.avatar || user.profilePicture || '👤',
           coverPhoto: user.coverPhoto || null,
           followersCount: user.followersCount || 0,
           followingCount: user.followingCount || 0,
           postsCount: user.postsCount || 0,
           reelsCount: user.reelsCount || user.totalReels || 0,
           isVerified: user.isVerified || false,
-          isPrivate: user.profile_type === "private" || user.isPrivate || false,
+          isPrivate: user.profile_type === 'private' || user.isPrivate || false,
           isFollowing: user.isFollowing || false,
           isPending: user.isPending || false,
         });
@@ -135,19 +137,19 @@ export default function UserProfilePage() {
 
         // Set follow status from API response (API is source of truth)
         if (user.isFollowing === true) {
-          setFollowStatus("following");
-          localStorage.setItem(`follow_status_${userId}`, "following");
+          setFollowStatus('following');
+          localStorage.setItem(`follow_status_${userId}`, 'following');
         } else if (user.isPending === true) {
-          setFollowStatus("pending");
-          localStorage.setItem(`follow_status_${userId}`, "pending");
+          setFollowStatus('pending');
+          localStorage.setItem(`follow_status_${userId}`, 'pending');
         } else {
           // Not following
-          setFollowStatus("none");
-          localStorage.setItem(`follow_status_${userId}`, "none");
+          setFollowStatus('none');
+          localStorage.setItem(`follow_status_${userId}`, 'none');
         }
       }
     } catch (error: any) {
-      console.error("Error loading user profile:", error);
+      console.error('Error loading user profile:', error);
 
       // Handle 404 Not Found (User blocked or doesn't exist)
       if (error?.statusCode === 404 || error?.status === 404) {
@@ -168,7 +170,7 @@ export default function UserProfilePage() {
       const isOwnProfile = currentUser?._id === userId;
 
       // Don't load posts if account is private and not following
-      if (profileUser?.isPrivate && followStatus !== "following" && !isOwnProfile) {
+      if (profileUser?.isPrivate && followStatus !== 'following' && !isOwnProfile) {
         setPosts([]);
         return;
       }
@@ -179,15 +181,13 @@ export default function UserProfilePage() {
       });
       if (response.success && response.data) {
         // Handle different response structures - data might be an array or an object with posts
-        const userPosts = Array.isArray(response.data)
-          ? response.data
-          : response.data.posts || [];
+        const userPosts = Array.isArray(response.data) ? response.data : response.data.posts || [];
         setPosts(userPosts);
       } else {
         setPosts([]);
       }
     } catch (error) {
-      console.error("Error loading user posts:", error);
+      console.error('Error loading user posts:', error);
       setPosts([]);
     }
   };
@@ -198,7 +198,7 @@ export default function UserProfilePage() {
       const isOwnProfile = currentUser?._id === userId;
 
       // Don't load reels if account is private and not following
-      if (profileUser?.isPrivate && followStatus !== "following" && !isOwnProfile) {
+      if (profileUser?.isPrivate && followStatus !== 'following' && !isOwnProfile) {
         setReels([]);
         setReelsLoading(false);
         return;
@@ -210,15 +210,13 @@ export default function UserProfilePage() {
       });
       if (response.success && response.data) {
         // Handle different response structures - data might be an array or an object with reels
-        const userReels = Array.isArray(response.data)
-          ? response.data
-          : response.data.reels || [];
+        const userReels = Array.isArray(response.data) ? response.data : response.data.reels || [];
         setReels(userReels);
       } else {
         setReels([]);
       }
     } catch (error) {
-      console.error("Error loading user reels:", error);
+      console.error('Error loading user reels:', error);
       setReels([]);
     } finally {
       setReelsLoading(false);
@@ -230,33 +228,33 @@ export default function UserProfilePage() {
 
     setIsProcessing(true);
     try {
-      if (followStatus === "following") {
+      if (followStatus === 'following') {
         const response = await followService.unfollowUser(userId);
         if (response.success) {
-          setFollowStatus("none");
-          localStorage.setItem(`follow_status_${userId}`, "none");
+          setFollowStatus('none');
+          localStorage.setItem(`follow_status_${userId}`, 'none');
           // Update follower count
           setProfileUser((prev: any) => ({
             ...prev,
             followersCount: Math.max(0, (prev?.followersCount || 0) - 1),
           }));
         }
-      } else if (followStatus === "pending") {
+      } else if (followStatus === 'pending') {
         try {
           const response = await followService.cancelFollowRequest(userId);
           if (response.success) {
-            setFollowStatus("none");
-            localStorage.setItem(`follow_status_${userId}`, "none");
+            setFollowStatus('none');
+            localStorage.setItem(`follow_status_${userId}`, 'none');
           }
         } catch (cancelError: any) {
           // Check if error is "not found" (request already canceled or doesn't exist)
-          const errorMessage = cancelError?.message || cancelError?.error || "";
+          const errorMessage = cancelError?.message || cancelError?.error || '';
           const statusCode = cancelError?.statusCode || 0;
 
-          if (statusCode === 404 || errorMessage.toLowerCase().includes("not found")) {
+          if (statusCode === 404 || errorMessage.toLowerCase().includes('not found')) {
             // Request doesn't exist - set status to none anyway
-            setFollowStatus("none");
-            localStorage.setItem(`follow_status_${userId}`, "none");
+            setFollowStatus('none');
+            localStorage.setItem(`follow_status_${userId}`, 'none');
           } else {
             // Other error - rethrow
             throw cancelError;
@@ -270,10 +268,10 @@ export default function UserProfilePage() {
             // Check if auto-approved (public account)
             if (
               response.data?.autoApproved ||
-              response.data?.followRequest?.status === "accepted"
+              response.data?.followRequest?.status === 'accepted'
             ) {
-              setFollowStatus("following");
-              localStorage.setItem(`follow_status_${userId}`, "following");
+              setFollowStatus('following');
+              localStorage.setItem(`follow_status_${userId}`, 'following');
               // Update follower count for public accounts
               setProfileUser((prev: any) => ({
                 ...prev,
@@ -281,17 +279,17 @@ export default function UserProfilePage() {
               }));
             } else {
               // Request pending for private accounts
-              setFollowStatus("pending");
-              localStorage.setItem(`follow_status_${userId}`, "pending");
+              setFollowStatus('pending');
+              localStorage.setItem(`follow_status_${userId}`, 'pending');
             }
           }
         } catch (followError: any) {
           // Check if error is "already sent"
-          const errorMessage = followError?.message || followError?.error || "";
-          if (errorMessage.toLowerCase().includes("already sent")) {
+          const errorMessage = followError?.message || followError?.error || '';
+          if (errorMessage.toLowerCase().includes('already sent')) {
             // Request already exists - set status to pending
-            setFollowStatus("pending");
-            localStorage.setItem(`follow_status_${userId}`, "pending");
+            setFollowStatus('pending');
+            localStorage.setItem(`follow_status_${userId}`, 'pending');
           } else {
             // Other error - rethrow to be caught by outer catch
             throw followError;
@@ -299,10 +297,10 @@ export default function UserProfilePage() {
         }
       }
     } catch (error: any) {
-      const errorMessage = error?.message || error?.error || "Failed to perform action";
+      const errorMessage = error?.message || error?.error || 'Failed to perform action';
 
       // Don't show alert for "already sent" errors (already handled above)
-      if (!errorMessage.toLowerCase().includes("already sent")) {
+      if (!errorMessage.toLowerCase().includes('already sent')) {
         toasts.error(errorMessage);
       }
     } finally {
@@ -312,47 +310,64 @@ export default function UserProfilePage() {
 
   const handleMessage = async () => {
     // Navigate to chat page with user info
-    const userName = profileUser?.fullName || `${profileUser?.firstName} ${profileUser?.lastName}` || profileUser?.username || 'User';
+    const userName =
+      profileUser?.fullName ||
+      `${profileUser?.firstName} ${profileUser?.lastName}` ||
+      profileUser?.username ||
+      'User';
     const avatar = profileUser?.profilePicture || profileUser?.avatar || '👤';
-    router.push(`/chat?userId=${userId}&userName=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`);
+    router.push(
+      `/chat?userId=${userId}&userName=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`
+    );
   };
 
-  const handleCoverPhotoUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file selection - open editor
+  const handleCoverPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      toasts.error("File size too large (max 5MB)");
+    if (file.size > 10 * 1024 * 1024) {
+      toasts.error('File size too large (max 10MB)');
       return;
     }
 
+    // Open the image editor with the selected file
+    setSelectedCoverFile(file);
+    setShowCoverEditor(true);
+
+    // Reset input so same file can be selected again
+    e.target.value = '';
+  };
+
+  // Handle save from image editor
+  const handleCoverPhotoSave = async (croppedBlob: Blob, previewUrl: string) => {
     const formData = new FormData();
-    formData.append("coverPhoto", file);
+    formData.append('coverPhoto', croppedBlob, 'cover.jpg');
 
     const previousCover = profileUser.coverPhoto;
-    const objectUrl = URL.createObjectURL(file);
 
-    // Optimistic update
-    setProfileUser((prev: any) => ({ ...prev, coverPhoto: objectUrl }));
+    // Optimistic update with preview
+    setProfileUser((prev: any) => ({ ...prev, coverPhoto: previewUrl }));
 
     try {
       const response = await authService.updateCoverPhoto(formData);
       if (response.success && response.data) {
-        showToast.success("Cover photo updated successfully");
+        showToast.success('Cover photo updated successfully');
         setProfileUser((prev: any) => ({ ...prev, coverPhoto: response.data.coverPhoto }));
       } else {
         setProfileUser((prev: any) => ({ ...prev, coverPhoto: previousCover }));
-        toasts.error(response.message || "Failed to update cover photo");
+        toasts.error(response.message || 'Failed to update cover photo');
       }
     } catch (error: any) {
-      console.error("Error updating cover photo:", error);
-      // Try to log generic error details if error object is empty
+      console.error('Error updating cover photo:', error);
       if (Object.keys(error).length === 0) {
-        console.error("Empty error object received. Check network tab or server logs.");
+        console.error('Empty error object received. Check network tab or server logs.');
       }
       setProfileUser((prev: any) => ({ ...prev, coverPhoto: previousCover }));
-      const errorMsg = error?.message || "Failed to update cover photo";
+      const errorMsg = error?.message || 'Failed to update cover photo';
       showToast.error(errorMsg);
+    } finally {
+      setSelectedCoverFile(null);
     }
   };
 
@@ -360,11 +375,11 @@ export default function UserProfilePage() {
     setShowOptionsMenu(false);
 
     confirm({
-      title: "Block User",
+      title: 'Block User',
       message: `Are you sure you want to block ${profileUser.fullName || profileUser.username}?\n\n• They won't be able to find your profile or posts\n• They won't be able to message you\n• You won't see their posts or messages`,
-      variant: "danger",
-      confirmText: "Block",
-      cancelText: "Cancel",
+      variant: 'danger',
+      confirmText: 'Block',
+      cancelText: 'Cancel',
       onConfirm: async () => {
         try {
           const response = await authService.blockUser(userId);
@@ -379,7 +394,7 @@ export default function UserProfilePage() {
           console.error('Error blocking user:', error);
           toasts.error(error?.message || 'Failed to block user');
         }
-      }
+      },
     });
   };
 
@@ -387,11 +402,11 @@ export default function UserProfilePage() {
     setShowOptionsMenu(false);
 
     confirm({
-      title: "Unblock User",
+      title: 'Unblock User',
       message: `Unblock ${profileUser.fullName || profileUser.username}?\n\nThey will be able to see your profile and interact with you again.`,
-      variant: "warning",
-      confirmText: "Unblock",
-      cancelText: "Cancel",
+      variant: 'warning',
+      confirmText: 'Unblock',
+      cancelText: 'Cancel',
       onConfirm: async () => {
         try {
           const response = await authService.unblockUser(userId);
@@ -406,13 +421,13 @@ export default function UserProfilePage() {
           console.error('Error unblocking user:', error);
           toasts.error(error?.message || 'Failed to unblock user');
         }
-      }
+      },
     });
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
-    router.push("/");
+    localStorage.removeItem('user');
+    router.push('/');
   };
 
   if (loading) {
@@ -426,23 +441,18 @@ export default function UserProfilePage() {
     );
   }
 
-
-
   if (notFound) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[80vh] text-center p-4">
         <div className="w-24 h-24 bg-muted rounded-full flex items-center justify-center mb-6">
           <UserX className="w-12 h-12 text-muted-foreground" />
         </div>
-        <h2 className="text-2xl font-bold text-foreground mb-2">
-          User Not Found
-        </h2>
+        <h2 className="text-2xl font-bold text-foreground mb-2">User Not Found</h2>
         <p className="text-muted-foreground max-w-sm mb-8">
-          Sorry, this page isn't available. The link you followed may be broken, or the page may have been removed.
+          Sorry, this page isn't available. The link you followed may be broken, or the page may
+          have been removed.
         </p>
-        <Button onClick={() => router.push("/")}>
-          Go back to Home
-        </Button>
+        <Button onClick={() => router.push('/')}>Go back to Home</Button>
       </div>
     );
   }
@@ -472,11 +482,7 @@ export default function UserProfilePage() {
         {/* Main Content */}
         <section className="lg:col-span-3 p-4 lg:p-8">
           {/* Back Button */}
-          <Button
-            variant="ghost"
-            onClick={() => router.back()}
-            className="mb-6 gap-2"
-          >
+          <Button variant="ghost" onClick={() => router.back()} className="mb-6 gap-2">
             <ArrowLeft size={20} />
             Back
           </Button>
@@ -508,7 +514,7 @@ export default function UserProfilePage() {
                     type="file"
                     ref={coverInputRef}
                     className="hidden"
-                    onChange={handleCoverPhotoUpdate}
+                    onChange={handleCoverPhotoSelect}
                     accept="image/*"
                   />
                 </>
@@ -520,24 +526,26 @@ export default function UserProfilePage() {
                 {/* Profile Picture */}
                 <div
                   className="relative cursor-pointer hover:opacity-90 transition"
-                  onClick={() => (profileUser.profilePicture && profileUser.profilePicture !== "👤") && setShowProfileImageModal(true)}
+                  onClick={() =>
+                    profileUser.profilePicture &&
+                    profileUser.profilePicture !== '👤' &&
+                    setShowProfileImageModal(true)
+                  }
                 >
                   {profileUser.profilePicture &&
-                    profileUser.profilePicture !== "👤" &&
-                    profileUser.profilePicture.startsWith("http") ? (
+                  profileUser.profilePicture !== '👤' &&
+                  profileUser.profilePicture.startsWith('http') ? (
                     <img
                       src={profileUser.profilePicture}
                       alt={
-                        profileUser.fullName ||
-                        `${profileUser.firstName} ${profileUser.lastName}`
+                        profileUser.fullName || `${profileUser.firstName} ${profileUser.lastName}`
                       }
                       className="w-32 h-32 rounded-full object-cover border-4 border-card"
                     />
                   ) : (
                     <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-5xl border-4 border-card text-white">
-                      {profileUser.profilePicture === "👤" ||
-                        !profileUser.profilePicture
-                        ? (profileUser.firstName?.[0] || "U").toUpperCase()
+                      {profileUser.profilePicture === '👤' || !profileUser.profilePicture
+                        ? (profileUser.firstName?.[0] || 'U').toUpperCase()
                         : profileUser.profilePicture}
                     </div>
                   )}
@@ -552,17 +560,12 @@ export default function UserProfilePage() {
                   <div className="flex flex-col md:flex-row items-center md:items-start gap-4 mb-4">
                     <div>
                       <h1 className="text-3xl font-bold text-foreground flex items-center gap-2 justify-center md:justify-start">
-                        {profileUser.fullName ||
-                          `${profileUser.firstName} ${profileUser.lastName}`}
+                        {profileUser.fullName || `${profileUser.firstName} ${profileUser.lastName}`}
                         {profileUser.isPrivate && (
-                          <span className="text-muted-foreground text-lg">
-                            🔒
-                          </span>
+                          <span className="text-muted-foreground text-lg">🔒</span>
                         )}
                       </h1>
-                      <p className="text-muted-foreground">
-                        @{profileUser.username}
-                      </p>
+                      <p className="text-muted-foreground">@{profileUser.username}</p>
                     </div>
 
                     {/* Action Buttons */}
@@ -571,23 +574,19 @@ export default function UserProfilePage() {
                         <Button
                           onClick={handleFollowAction}
                           disabled={isProcessing}
-                          variant={
-                            followStatus === "none" ? "default" : "outline"
-                          }
+                          variant={followStatus === 'none' ? 'default' : 'outline'}
                           className="gap-2"
                         >
-                          {followStatus === "following" && (
-                            <UserCheck size={16} />
-                          )}
-                          {followStatus === "pending" && <Clock size={16} />}
-                          {followStatus === "none" && <UserPlus size={16} />}
-                          {followStatus === "following"
-                            ? "Unfollow"
-                            : followStatus === "pending"
-                              ? "Requested"
+                          {followStatus === 'following' && <UserCheck size={16} />}
+                          {followStatus === 'pending' && <Clock size={16} />}
+                          {followStatus === 'none' && <UserPlus size={16} />}
+                          {followStatus === 'following'
+                            ? 'Unfollow'
+                            : followStatus === 'pending'
+                              ? 'Requested'
                               : profileUser.isPrivate
-                                ? "Request"
-                                : "Follow"}
+                                ? 'Request'
+                                : 'Follow'}
                         </Button>
                         <Button
                           onClick={handleMessage}
@@ -631,11 +630,13 @@ export default function UserProfilePage() {
                                           text: `Check out ${profileUser.fullName || profileUser.username} on our platform!`,
                                           url: profileUrl,
                                         });
-                                      } catch (err) {
-                                      }
+                                      } catch (err) {}
                                     } else {
                                       await navigator.clipboard.writeText(profileUrl);
-                                      showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                      showToast.success(
+                                        'Link copied',
+                                        'Profile link copied to clipboard!'
+                                      );
                                     }
                                   }}
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
@@ -650,7 +651,10 @@ export default function UserProfilePage() {
                                     setShowOptionsMenu(false);
                                     const profileUrl = `${window.location.origin}/profile/${userId}`;
                                     await navigator.clipboard.writeText(profileUrl);
-                                    showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                    showToast.success(
+                                      'Link copied',
+                                      'Profile link copied to clipboard!'
+                                    );
                                   }}
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
                                 >
@@ -662,15 +666,17 @@ export default function UserProfilePage() {
                                 <button
                                   onClick={() => {
                                     setShowOptionsMenu(false);
-                                    const reason = prompt('Please specify the reason for reporting this user:');
+                                    const reason = prompt(
+                                      'Please specify the reason for reporting this user:'
+                                    );
                                     if (reason && reason.trim()) {
                                       // TODO: Implement report user API call
                                       confirm({
-                                        title: "User Reported",
+                                        title: 'User Reported',
                                         message: `User reported for: ${reason}\n\nThank you for helping keep our community safe.`,
-                                        variant: "success",
-                                        confirmText: "OK",
-                                        cancelText: null
+                                        variant: 'success',
+                                        confirmText: 'OK',
+                                        cancelText: null,
                                       });
                                     }
                                   }}
@@ -714,7 +720,7 @@ export default function UserProfilePage() {
                     {isOwnProfile && (
                       <div className="flex gap-2">
                         <Button
-                          onClick={() => router.push("/account-settings")}
+                          onClick={() => router.push('/account-settings')}
                           variant="outline"
                           className="gap-2 cursor-pointer"
                         >
@@ -751,11 +757,13 @@ export default function UserProfilePage() {
                                           text: `Check out ${profileUser.fullName || profileUser.username} on our platform!`,
                                           url: profileUrl,
                                         });
-                                      } catch (err) {
-                                      }
+                                      } catch (err) {}
                                     } else {
                                       await navigator.clipboard.writeText(profileUrl);
-                                      showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                      showToast.success(
+                                        'Link copied',
+                                        'Profile link copied to clipboard!'
+                                      );
                                     }
                                   }}
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
@@ -769,7 +777,10 @@ export default function UserProfilePage() {
                                     setShowOptionsMenu(false);
                                     const profileUrl = `${window.location.origin}/profile/${userId}`;
                                     await navigator.clipboard.writeText(profileUrl);
-                                    showToast.success('Link copied', 'Profile link copied to clipboard!');
+                                    showToast.success(
+                                      'Link copied',
+                                      'Profile link copied to clipboard!'
+                                    );
                                   }}
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-foreground cursor-pointer"
                                 >
@@ -820,11 +831,12 @@ export default function UserProfilePage() {
           {/* Content Tabs */}
           <div className="flex border-b border-border mb-6">
             <button
-              onClick={() => setActiveTab("posts")}
-              className={`flex-1 flex items-center justify-center gap-2 pb-3 text-sm font-medium transition cursor-pointer relative ${activeTab === "posts"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-                }`}
+              onClick={() => setActiveTab('posts')}
+              className={`flex-1 flex items-center justify-center gap-2 pb-3 text-sm font-medium transition cursor-pointer relative ${
+                activeTab === 'posts'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
             >
               <Grid size={20} />
               Posts
@@ -833,16 +845,17 @@ export default function UserProfilePage() {
                   {profileUser.postsCount}
                 </span>
               )}
-              {activeTab === "posts" && (
+              {activeTab === 'posts' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
               )}
             </button>
             <button
-              onClick={() => setActiveTab("reels")}
-              className={`flex-1 flex items-center justify-center gap-2 pb-3 text-sm font-medium transition cursor-pointer relative ${activeTab === "reels"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-                }`}
+              onClick={() => setActiveTab('reels')}
+              className={`flex-1 flex items-center justify-center gap-2 pb-3 text-sm font-medium transition cursor-pointer relative ${
+                activeTab === 'reels'
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
             >
               <Clapperboard size={20} />
               Reels
@@ -851,120 +864,121 @@ export default function UserProfilePage() {
                   {profileUser.reelsCount}
                 </span>
               )}
-              {activeTab === "reels" && (
+              {activeTab === 'reels' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
               )}
             </button>
           </div>
 
           {/* Posts Section */}
-          {
-            activeTab === "posts" && (
-              <div className="mb-6">
-                {!posts || posts.length === 0 ? (
-                  <div className="bg-card rounded-2xl border border-border p-12 text-center">
-                    <p className="text-muted-foreground">
-                      {profileUser.isPrivate && followStatus !== "following"
-                        ? "This account is private. Follow to see their posts."
-                        : "No posts yet"}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Array.isArray(posts) &&
-                      posts.map((post) => {
-                        const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url;
-                        const mediaType = post.media?.[0]?.type;
+          {activeTab === 'posts' && (
+            <div className="mb-6">
+              {!posts || posts.length === 0 ? (
+                <div className="bg-card rounded-2xl border border-border p-12 text-center">
+                  <p className="text-muted-foreground">
+                    {profileUser.isPrivate && followStatus !== 'following'
+                      ? 'This account is private. Follow to see their posts.'
+                      : 'No posts yet'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.isArray(posts) &&
+                    posts.map((post) => {
+                      const mediaUrl =
+                        post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url;
+                      const mediaType = post.media?.[0]?.type;
 
-                        return (
-                          <div
-                            key={post._id || post.id}
-                            className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group"
-                            onClick={() => {
-                              setSelectedPost(post);
-                              setShowPostDetails(true);
-                            }}
-                          >
-                            {mediaUrl ? (
-                              mediaType === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                  muted
-                                />
-                              ) : (
-                                <img
-                                  src={mediaUrl}
-                                  alt={post.caption || "Post"}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                />
-                              )
+                      return (
+                        <div
+                          key={post._id || post.id}
+                          className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group"
+                          onClick={() => {
+                            setSelectedPost(post);
+                            setShowPostDetails(true);
+                          }}
+                        >
+                          {mediaUrl ? (
+                            mediaType === 'video' ? (
+                              <video
+                                src={mediaUrl}
+                                className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
+                                muted
+                              />
                             ) : (
-                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                                <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
-                                  <Camera size={48} className="text-white" />
-                                </div>
-                              </div>
-                            )}
-                            <div className="p-4">
-                              <p className="font-semibold text-foreground line-clamp-2">
-                                {post.caption || post.content || "No caption"}
-                              </p>
-                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                                <span className="flex items-center gap-1"><Heart size={14} className="text-red-500" /> {post.likes_count || 0}</span>
-                                <span className="flex items-center gap-1"><MessageCircle size={14} /> {post.comments_count || 0}</span>
+                              <img
+                                src={mediaUrl}
+                                alt={post.caption || 'Post'}
+                                className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
+                              />
+                            )
+                          ) : (
+                            <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
+                              <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
+                                <Camera size={48} className="text-white" />
                               </div>
                             </div>
+                          )}
+                          <div className="p-4">
+                            <p className="font-semibold text-foreground line-clamp-2">
+                              {post.caption || post.content || 'No caption'}
+                            </p>
+                            <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Heart size={14} className="text-red-500" /> {post.likes_count || 0}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <MessageCircle size={14} /> {post.comments_count || 0}
+                              </span>
+                            </div>
                           </div>
-                        );
-                      })}
-                  </div>
-                )}
-              </div>
-            )
-          }
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Reels Section */}
-          {
-            activeTab === "reels" && (
-              <div className="mb-6">
-                {reelsLoading ? (
-                  <div className="bg-card rounded-2xl border border-border p-12 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                    <p className="text-muted-foreground">Loading reels...</p>
-                  </div>
-                ) : !reels || reels.length === 0 ? (
-                  <div className="bg-card rounded-2xl border border-border p-12 text-center">
-                    <p className="text-muted-foreground">
-                      {profileUser.isPrivate && followStatus !== "following"
-                        ? "This account is private. Follow to see their reels."
-                        : "No reels yet"}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Array.isArray(reels) &&
-                      reels.map((reel) => (
-                        <ReelCard
-                          key={reel.id || reel._id}
-                          reel={reel}
-                          currentUserId={currentUser?._id}
-                          onCommentClick={() => {
-                            setSelectedReel(reel)
-                            setShowReelComments(true)
-                          }}
-                        />
-                      ))}
-                  </div>
-                )}
-              </div>
-            )
-          }
-        </section >
-      </div >
+          {activeTab === 'reels' && (
+            <div className="mb-6">
+              {reelsLoading ? (
+                <div className="bg-card rounded-2xl border border-border p-12 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Loading reels...</p>
+                </div>
+              ) : !reels || reels.length === 0 ? (
+                <div className="bg-card rounded-2xl border border-border p-12 text-center">
+                  <p className="text-muted-foreground">
+                    {profileUser.isPrivate && followStatus !== 'following'
+                      ? 'This account is private. Follow to see their reels.'
+                      : 'No reels yet'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.isArray(reels) &&
+                    reels.map((reel) => (
+                      <ReelCard
+                        key={reel.id || reel._id}
+                        reel={reel}
+                        currentUserId={currentUser?._id}
+                        onCommentClick={() => {
+                          setSelectedReel(reel);
+                          setShowReelComments(true);
+                        }}
+                      />
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
 
       {/* Mobile Navigation */}
-      < Navigation user={currentUser} onLogout={handleLogout} isMobile={true} />
+      <Navigation user={currentUser} onLogout={handleLogout} isMobile={true} />
 
       {selectedPost && (
         <PostDetailsModal
@@ -972,8 +986,7 @@ export default function UserProfilePage() {
           onClose={() => setShowPostDetails(false)}
           post={selectedPost}
         />
-      )
-      }
+      )}
 
       {/* Reel Comments Modal */}
       {selectedReel && (
@@ -993,7 +1006,7 @@ export default function UserProfilePage() {
           <div className="relative w-full h-[80vh] flex items-center justify-center group">
             <Image
               src={profileUser?.profilePicture}
-              alt={profileUser?.username || "Profile"}
+              alt={profileUser?.username || 'Profile'}
               fill
               className="object-contain"
               sizes="(max-width: 768px) 100vw, (max-width: 1200px) 80vw, 1200px"
@@ -1003,6 +1016,20 @@ export default function UserProfilePage() {
           </div>
         </DialogContent>
       </Dialog>
-    </main >
+
+      {/* Cover Photo Editor - WhatsApp/Instagram/Telegram style */}
+      <ProfileImageEditor
+        isOpen={showCoverEditor}
+        onClose={() => {
+          setShowCoverEditor(false);
+          setSelectedCoverFile(null);
+        }}
+        imageFile={selectedCoverFile}
+        type="cover"
+        onSave={handleCoverPhotoSave}
+        enableFaceDetection={false}
+        coverAspectRatio={2.5}
+      />
+    </main>
   );
 }

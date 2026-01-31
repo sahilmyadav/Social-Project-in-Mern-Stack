@@ -4,6 +4,7 @@ import Navigation from '@/components/navigation';
 import ReelCommentsModal from '@/components/reel-comments-modal';
 import UserAvatar from '@/components/user-avatar';
 import { feedService, reelService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import {
   ChevronDown,
   ChevronUp,
@@ -48,7 +49,7 @@ export default function ReelsPage() {
   const [user, setUser] = useState<any>(null);
   const [currentReelIndex, setCurrentReelIndex] = useState(0);
   const [likedReels, setLikedReels] = useState<string[]>([]);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -288,11 +289,12 @@ export default function ReelsPage() {
                     {index === currentReelIndex && (
                       <video
                         ref={videoRef}
-                        src={reel.media.url}
-                        poster={reel.media.thumbnail}
+                        src={getMediaUrl(reel.media.url)}
+                        poster={getMediaUrl(reel.media.thumbnail)}
                         className="w-full h-full object-cover"
                         loop
                         playsInline
+                        autoPlay
                         muted={isMuted}
                         onClick={togglePlayPause}
                       />
@@ -301,7 +303,7 @@ export default function ReelsPage() {
                     {index !== currentReelIndex && (
                       <div
                         className="w-full h-full bg-cover bg-center"
-                        style={{ backgroundImage: `url(${reel.media.thumbnail})` }}
+                        style={{ backgroundImage: `url(${getMediaUrl(reel.media.thumbnail)})` }}
                       />
                     )}
 
@@ -340,9 +342,11 @@ export default function ReelsPage() {
                             {reel.user_id.firstName} {reel.user_id.lastName}
                           </p>
                         </div>
-                        <button className="ml-2 px-3 py-1 border border-white/80 rounded text-white text-xs font-medium">
-                          Follow
-                        </button>
+                        {user?._id !== reel.user_id._id && (
+                          <button className="ml-2 px-3 py-1 border border-white/80 rounded text-white text-xs font-medium hover:bg-white/20 transition">
+                            Follow
+                          </button>
+                        )}
                       </div>
                       {reel.caption && (
                         <p className="text-white text-sm line-clamp-2">{reel.caption}</p>
@@ -450,9 +454,7 @@ export default function ReelsPage() {
                       </span>
                     </div>
                   </div>
-                  <button className="text-primary text-xs font-bold hover:underline">
-                    Follow
-                  </button>
+                  <button className="text-primary text-xs font-bold hover:underline">Follow</button>
                 </div>
               ))}
             </div>
@@ -464,10 +466,7 @@ export default function ReelsPage() {
             <div className="space-y-3">
               {['Summer Vibes - 12K reels', 'Dance Mix - 8K reels', 'Chill Beats - 5K reels'].map(
                 (sound, i) => (
-                  <div
-                    key={i}
-                    className="p-3 hover:bg-muted rounded-lg cursor-pointer transition"
-                  >
+                  <div key={i} className="p-3 hover:bg-muted rounded-lg cursor-pointer transition">
                     <p className="text-primary font-semibold">🎵 {sound.split(' - ')[0]}</p>
                     <p className="text-sm text-muted-foreground">{sound.split(' - ')[1]}</p>
                   </div>

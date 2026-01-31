@@ -11,6 +11,7 @@ const POSTS_DIR = path.join(UPLOADS_DIR, 'posts');
 const REELS_DIR = path.join(UPLOADS_DIR, 'reels');
 const STORIES_DIR = path.join(UPLOADS_DIR, 'stories');
 const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
+const COVERS_DIR = path.join(UPLOADS_DIR, 'covers');
 
 const MAX_FILE_SIZE = {
   image: 10 * 1024 * 1024,
@@ -29,7 +30,7 @@ const ensureDirectoryExists = (dir) => {
   }
 };
 
-[POSTS_DIR, REELS_DIR, STORIES_DIR, AVATARS_DIR].forEach(ensureDirectoryExists);
+[POSTS_DIR, REELS_DIR, STORIES_DIR, AVATARS_DIR, COVERS_DIR].forEach(ensureDirectoryExists);
 
 const generateUniqueFileName = (userId, originalName, type) => {
   const timestamp = Date.now();
@@ -76,24 +77,43 @@ const getTargetDirectory = (contentType) => {
     reel: REELS_DIR,
     story: STORIES_DIR,
     avatar: AVATARS_DIR,
+    avatars: AVATARS_DIR,
+    cover: COVERS_DIR,
+    covers: COVERS_DIR,
   };
   return dirs[contentType] || UPLOADS_DIR;
 };
 
-const saveFileLocally = async (tempFilePath, userId, contentType = 'post') => {
+const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
   try {
+    // Handle both file object and file path
+    let tempFilePath;
+    let originalName;
+    let fileSize;
+
+    if (typeof fileOrPath === 'string') {
+      tempFilePath = fileOrPath;
+      originalName = path.basename(fileOrPath);
+    } else if (fileOrPath && fileOrPath.path) {
+      tempFilePath = fileOrPath.path;
+      originalName = fileOrPath.originalname || path.basename(fileOrPath.path);
+      fileSize = fileOrPath.size;
+    } else {
+      console.error('[Storage] Invalid file input:', fileOrPath);
+      return null;
+    }
+
     if (!tempFilePath) {
       console.error('[Storage] No file path provided');
       return null;
     }
 
     if (!fs.existsSync(tempFilePath)) {
-      console.error('[Storage] Temp file does not exist:', tempFilePath);
+      console.error('[Storage] Temp file does not exist:', fileOrPath);
       return null;
     }
 
     const stats = fs.statSync(tempFilePath);
-    const originalName = path.basename(tempFilePath);
     const fileName = generateUniqueFileName(userId, originalName, contentType);
     const targetDir = getTargetDirectory(contentType);
     const targetPath = path.join(targetDir, fileName);
@@ -203,9 +223,7 @@ const deleteLocalFile = async (filePath) => {
 };
 
 const deleteMultipleFiles = async (filePaths) => {
-  const results = await Promise.all(
-    filePaths.map((fp) => deleteLocalFile(fp))
-  );
+  const results = await Promise.all(filePaths.map((fp) => deleteLocalFile(fp)));
   return results.filter(Boolean).length;
 };
 

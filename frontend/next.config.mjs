@@ -10,22 +10,38 @@ const nextConfig = {
   reactStrictMode: true,
 
   images: {
-    // Enable image optimization
-    unoptimized: false,
+    // Disable optimization in development to allow localhost images
+    unoptimized: process.env.NODE_ENV === 'development',
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60 * 60 * 24 * 30, // 30 days
+    dangerouslyAllowSVG: true,
     remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3333',
+        pathname: '/uploads/**',
+      },
+      {
+        protocol: 'http',
+        hostname: '127.0.0.1',
+        port: '3333',
+        pathname: '/uploads/**',
+      },
       {
         protocol: 'https',
         hostname: 'res.cloudinary.com',
+        pathname: '/**',
       },
       {
         protocol: 'https',
         hostname: 'cloudinary.com',
+        pathname: '/**',
       },
       {
         protocol: 'https',
         hostname: '*.cloudinary.com',
+        pathname: '/**',
       },
     ],
   },
@@ -72,6 +88,16 @@ const nextConfig = {
             value: 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
           },
         ],
+      },
+    ];
+  },
+
+  // Proxy uploads to backend server
+  async rewrites() {
+    return [
+      {
+        source: '/uploads/:path*',
+        destination: 'http://localhost:3333/uploads/:path*',
       },
     ];
   },

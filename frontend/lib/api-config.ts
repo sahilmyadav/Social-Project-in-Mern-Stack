@@ -29,6 +29,10 @@ export const API_ENDPOINTS = {
     GET_BLOCKED_USERS: '/users/blocked-list',
     CHECK_USERNAME: '/users/check-username',
     COMPLETE_PROFILE: '/users/complete-profile',
+    REQUEST_EMAIL_CHANGE: '/users/request-email-change',
+    VERIFY_EMAIL_CHANGE: '/users/verify-email-change',
+    REQUEST_PHONE_CHANGE: '/users/request-phone-change',
+    VERIFY_PHONE_CHANGE: '/users/verify-phone-change',
   },
 
   // Posts
@@ -86,7 +90,6 @@ export const API_ENDPOINTS = {
     VIEW_STORY: (storyId: string) => `/story/view/${storyId}`,
     GET_VIEWERS: (storyId: string) => `/story/viewers/${storyId}`,
   },
-
 
   // Feed
   FEED: {

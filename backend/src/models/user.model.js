@@ -124,10 +124,7 @@ const userSchema = new Schema(
   { timestamps: true }
 );
 
-// Indexes
-userSchema.index({ email: 1 });
-userSchema.index({ phone: 1 });
-userSchema.index({ username: 1 });
+// Indexes - email, phone, username already have unique: true which creates indexes
 
 // Virtual for full name
 userSchema.virtual('fullName').get(function () {

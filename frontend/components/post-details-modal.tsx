@@ -113,7 +113,10 @@ export default function PostDetailsModal({
     ? `${post.user_id.firstName} ${post.user_id.lastName || ''}`.trim()
     : post.user_id?.username || post.author || 'Unknown User';
 
-  const authorAvatar = post.user_id?.profileImage || post.user_id?.profilePicture || '😊';
+  const rawAuthorAvatar = post.user_id?.profileImage || post.user_id?.profilePicture;
+  const authorAvatar = rawAuthorAvatar
+    ? getMediaUrl(rawAuthorAvatar)
+    : authorName?.charAt(0)?.toUpperCase() || '😊';
 
   // Format timestamp
   const formatTimestamp = (timestamp: string) => {
@@ -393,7 +396,7 @@ export default function PostDetailsModal({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-xl overflow-hidden">
-                  {authorAvatar.startsWith('http') ? (
+                  {authorAvatar.startsWith('http') || authorAvatar.startsWith('/uploads') ? (
                     <img
                       src={authorAvatar}
                       alt={authorName}
@@ -415,10 +418,12 @@ export default function PostDetailsModal({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleSavePost} disabled={isSaving}>
-                    {isSaving ? 'Saving...' : savedPost ? 'Unsave Post' : 'Save Post'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>Report Post</DropdownMenuItem>
+                  {!isOwnPost && (
+                    <DropdownMenuItem onClick={handleSavePost} disabled={isSaving}>
+                      {isSaving ? 'Saving...' : savedPost ? 'Unsave Post' : 'Save Post'}
+                    </DropdownMenuItem>
+                  )}
+                  {!isOwnPost && <DropdownMenuItem>Report Post</DropdownMenuItem>}
                   {isOwnPost && (
                     <DropdownMenuItem
                       onClick={handleDeletePost}
@@ -512,13 +517,17 @@ export default function PostDetailsModal({
                     const commentAuthor = comment.user_id?.firstName
                       ? `${comment.user_id.firstName} ${comment.user_id.lastName || ''}`.trim()
                       : comment.user_id?.username || 'Unknown User';
-                    const commentAvatar =
-                      comment.user_id?.profileImage || comment.user_id?.profilePicture || '😊';
+                    const rawCommentAvatar =
+                      comment.user_id?.profileImage || comment.user_id?.profilePicture;
+                    const commentAvatar = rawCommentAvatar
+                      ? getMediaUrl(rawCommentAvatar)
+                      : commentAuthor?.charAt(0)?.toUpperCase() || '😊';
 
                     return (
                       <div key={comment._id || comment.id} className="flex gap-3">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
-                          {commentAvatar.startsWith('http') ? (
+                          {commentAvatar.startsWith('http') ||
+                          commentAvatar.startsWith('/uploads') ? (
                             <img
                               src={commentAvatar}
                               alt={commentAuthor}
@@ -589,8 +598,11 @@ export default function PostDetailsModal({
                       typeof window !== 'undefined'
                         ? JSON.parse(localStorage.getItem('user') || '{}')
                         : {};
-                    const userAvatar = user.profileImage || user.profilePicture || '😊';
-                    return userAvatar.startsWith('http') ? (
+                    const rawUserAvatar = user.profileImage || user.profilePicture;
+                    const userAvatar = rawUserAvatar
+                      ? getMediaUrl(rawUserAvatar)
+                      : user.firstName?.charAt(0)?.toUpperCase() || '😊';
+                    return userAvatar.startsWith('http') || userAvatar.startsWith('/uploads') ? (
                       <img src={userAvatar} alt="You" className="w-full h-full object-cover" />
                     ) : (
                       <span>{userAvatar}</span>

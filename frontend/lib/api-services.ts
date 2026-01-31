@@ -161,9 +161,11 @@ export const authService = {
   updateProfile: async (data: {
     firstName?: string;
     lastName?: string;
+    username?: string;
     bio?: string;
     profile_type?: string;
     coverPhoto?: string;
+    dateOfBirth?: string;
   }) => {
     return api.put(API_ENDPOINTS.AUTH.UPDATE_PROFILE, data);
   },
@@ -233,6 +235,26 @@ export const authService = {
     }
 
     return api.upload(API_ENDPOINTS.AUTH.COMPLETE_PROFILE, formData);
+  },
+
+  // Request Email Change (sends OTP to both email and phone)
+  requestEmailChange: async (data: { newEmail: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.REQUEST_EMAIL_CHANGE, data);
+  },
+
+  // Verify Email Change OTP
+  verifyEmailChange: async (data: { newEmail: string; otp: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.VERIFY_EMAIL_CHANGE, data);
+  },
+
+  // Request Phone Change (sends OTP to both email and phone)
+  requestPhoneChange: async (data: { newPhone: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.REQUEST_PHONE_CHANGE, data);
+  },
+
+  // Verify Phone Change OTP
+  verifyPhoneChange: async (data: { newPhone: string; otp: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.VERIFY_PHONE_CHANGE, data);
   },
 };
 

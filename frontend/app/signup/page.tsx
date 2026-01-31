@@ -35,6 +35,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState({ score: 0, label: '', color: '' });
   const [currentImage, setCurrentImage] = useState(0);
   const [genderDropdownOpen, setGenderDropdownOpen] = useState(false);
   const genderDropdownRef = useRef<HTMLDivElement>(null);
@@ -89,10 +90,10 @@ export default function SignupPage() {
     return age;
   };
 
-  // Get max date for 18+ restriction
+  // Get max date for 16+ restriction
   const getMaxDate = (): string => {
     const today = new Date();
-    today.setFullYear(today.getFullYear() - 18);
+    today.setFullYear(today.getFullYear() - 16);
     return today.toISOString().split('T')[0];
   };
 
@@ -140,8 +141,12 @@ export default function SignupPage() {
       return;
     }
 
-    if (formData.password.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    // Password regex validation
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(formData.password)) {
+      toast.error(
+        'Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number'
+      );
       setLoading(false);
       return;
     }
@@ -152,10 +157,10 @@ export default function SignupPage() {
       return;
     }
 
-    // Age validation (18+)
+    // Age validation (16+)
     const age = calculateAge(formData.birthday);
-    if (age < 18) {
-      toast.error('You must be at least 18 years old to create an account');
+    if (age < 16) {
+      toast.error('You must be at least 16 years old to create an account');
       setLoading(false);
       return;
     }
@@ -505,7 +510,7 @@ export default function SignupPage() {
               </div>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 -mt-1 lg:-mt-2">
-              You must be at least 18 years old
+              You must be at least 16 years old
             </p>
 
             {/* Password */}
@@ -517,9 +522,39 @@ export default function SignupPage() {
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   name="password"
-                  placeholder="Min 6 characters"
+                  placeholder="Min 8 chars, 1 upper, 1 lower, 1 number"
                   value={formData.password}
-                  onChange={handleChange}
+                  onChange={(e) => {
+                    handleChange(e);
+                    // Calculate password strength
+                    const pwd = e.target.value;
+                    let score = 0;
+                    if (pwd.length >= 8) score++;
+                    if (/[a-z]/.test(pwd)) score++;
+                    if (/[A-Z]/.test(pwd)) score++;
+                    if (/\d/.test(pwd)) score++;
+                    if (/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) score++;
+
+                    let label = '';
+                    let color = '';
+                    if (pwd.length === 0) {
+                      label = '';
+                      color = '';
+                    } else if (score <= 2) {
+                      label = 'Weak';
+                      color = 'bg-red-500';
+                    } else if (score === 3) {
+                      label = 'Fair';
+                      color = 'bg-yellow-500';
+                    } else if (score === 4) {
+                      label = 'Good';
+                      color = 'bg-blue-500';
+                    } else {
+                      label = 'Strong';
+                      color = 'bg-green-500';
+                    }
+                    setPasswordStrength({ score, label, color });
+                  }}
                   disabled={loading}
                   required
                   className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500 pr-12"
@@ -532,6 +567,46 @@ export default function SignupPage() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+              {/* Password Strength Indicator */}
+              {formData.password && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${passwordStrength.color}`}
+                        style={{ width: `${(passwordStrength.score / 5) * 100}%` }}
+                      />
+                    </div>
+                    <span
+                      className={`text-xs font-medium ${
+                        passwordStrength.label === 'Weak'
+                          ? 'text-red-500'
+                          : passwordStrength.label === 'Fair'
+                            ? 'text-yellow-500'
+                            : passwordStrength.label === 'Good'
+                              ? 'text-blue-500'
+                              : 'text-green-500'
+                      }`}
+                    >
+                      {passwordStrength.label}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    <span className={formData.password.length >= 8 ? 'text-green-500' : ''}>
+                      • 8+ chars
+                    </span>
+                    <span className={/[a-z]/.test(formData.password) ? 'text-green-500' : ''}>
+                      • lowercase
+                    </span>
+                    <span className={/[A-Z]/.test(formData.password) ? 'text-green-500' : ''}>
+                      • uppercase
+                    </span>
+                    <span className={/\d/.test(formData.password) ? 'text-green-500' : ''}>
+                      • number
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>

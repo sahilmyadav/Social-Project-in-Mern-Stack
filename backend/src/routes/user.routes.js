@@ -13,19 +13,24 @@ import {
   logOutUser,
   refreshAccessToken,
   registerUser,
+  requestEmailChange,
+  requestPhoneChange,
   resendRegistrationOtp,
   resetPassword,
   resetPasswordForTesting,
   unblockUser,
   unlockAccount,
+  updateCoverPhoto,
   updatePrivacySettings,
   updateProfile,
   updateProfileImage,
+  verifyEmailChange,
   verifyLoginOtp,
+  verifyPhoneChange,
   verifyRegisterOtp,
 } from '../controllers/user.controller.js';
 import { verifyJwt, verifyJwt as verifyRoute } from '../middleware/auth.middleware.js'; // use this to protect routes
-import upload, { uploadSingle } from '../middleware/upload.middleware.js';
+import upload, { uploadCoverPhoto, uploadSingle } from '../middleware/upload.middleware.js';
 
 const router = express.Router();
 
@@ -53,7 +58,7 @@ router.route('/current-user').get(verifyRoute, getCurrentUser);
 router.route('/change-password').post(verifyRoute, changePassword);
 router.route('/delete/:id').delete(verifyRoute, deleteUser);
 router.route('/update-profile-picture').put(verifyJwt, uploadSingle, updateProfileImage);
-// router.route("/update-cover-photo").put(verifyRoute, updateCoverPhoto);
+router.route('/update-cover-photo').put(verifyJwt, uploadCoverPhoto, updateCoverPhoto);
 router.route('/update-profile').put(verifyRoute, updateProfile);
 router.route('/privacy-settings').put(verifyRoute, updatePrivacySettings);
 
@@ -71,5 +76,11 @@ router.route('/complete-profile').post(
 router.route('/block/:userId').post(verifyRoute, blockUser);
 router.route('/unblock/:userId').post(verifyRoute, unblockUser);
 router.route('/blocked-list').get(verifyRoute, getBlockedUsers);
+
+// Email and Phone Change with OTP verification
+router.route('/request-email-change').post(verifyRoute, requestEmailChange);
+router.route('/verify-email-change').post(verifyRoute, verifyEmailChange);
+router.route('/request-phone-change').post(verifyRoute, requestPhoneChange);
+router.route('/verify-phone-change').post(verifyRoute, verifyPhoneChange);
 
 export { router as userRoutes };

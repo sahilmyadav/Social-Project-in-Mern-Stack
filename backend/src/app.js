@@ -1,150 +1,160 @@
-import express from "express";
-import cors from "cors";
-import cookieParser from "cookie-parser";
-import errorMiddleware from "./middleware/error.middleware.js";
-import { checkMaintenanceMode } from "./middleware/maintenance.middleware.js";
-import morgan from "morgan";
-import helmet from "helmet";
-import rateLimit from "express-rate-limit";
-import compression from "compression";
-import path from "path";
-import { fileURLToPath } from "url";
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import express from 'express';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import errorMiddleware from './middleware/error.middleware.js';
+import { checkMaintenanceMode } from './middleware/maintenance.middleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-app.use(compression({
-  level: 6,
-  threshold: 1024,
-  filter: (req, res) => {
-    if (req.headers['x-no-compression']) return false;
-    return compression.filter(req, res);
-  }
-}));
+app.use(
+  compression({
+    level: 6,
+    threshold: 1024,
+    filter: (req, res) => {
+      if (req.headers['x-no-compression']) return false;
+      return compression.filter(req, res);
+    },
+  })
+);
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || true,
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  exposedHeaders: ["set-cookie"],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
-}));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['set-cookie'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+  })
+);
 
-app.use(express.json({ limit: "16kb" }));
-app.use(express.urlencoded({ extended: true, limit: "16kb" }));
+app.use(express.json({ limit: '16kb' }));
+app.use(express.urlencoded({ extended: true, limit: '16kb' }));
 app.use(cookieParser());
-app.use(express.static("public"));
+app.use(express.static('public'));
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: false,
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false,
+  })
+);
 
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: "Too many requests, please try again later" },
-  skip: (req) => req.path.startsWith('/uploads'),
-});
+// Rate limiting disabled
+// const apiLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000,
+//   max: 500,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { success: false, message: 'Too many requests, please try again later' },
+//   skip: (req) => req.path.startsWith('/uploads'),
+// });
 
-const uploadLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 50,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: "Upload limit exceeded. Try again in an hour." },
-});
+// const uploadLimiter = rateLimit({
+//   windowMs: 60 * 60 * 1000,
+//   max: 50,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { success: false, message: 'Upload limit exceeded. Try again in an hour.' },
+// });
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: "Too many login attempts. Try again later." },
-});
+// const authLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000,
+//   max: 10,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { success: false, message: 'Too many login attempts. Try again later.' },
+// });
 
-app.use("/api", apiLimiter);
+// app.use('/api', apiLimiter);
 
-const uploadsPath = path.join(__dirname, "../uploads");
-app.use("/uploads", express.static(uploadsPath, {
-  maxAge: "7d",
-  etag: true,
-  lastModified: true,
-  immutable: true,
-  setHeaders: (res, filePath) => {
-    const ext = path.extname(filePath).toLowerCase();
-    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
-      res.setHeader('Content-Type', `image/${ext.slice(1) === 'jpg' ? 'jpeg' : ext.slice(1)}`);
-    } else if (['.mp4', '.webm', '.mov'].includes(ext)) {
-      res.setHeader('Content-Type', `video/${ext.slice(1)}`);
-      res.setHeader('Accept-Ranges', 'bytes');
-    }
-    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  }
-}));
+const uploadsPath = path.join(__dirname, '../uploads');
+app.use(
+  '/uploads',
+  express.static(uploadsPath, {
+    maxAge: '7d',
+    etag: true,
+    lastModified: true,
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      const ext = path.extname(filePath).toLowerCase();
+      if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
+        res.setHeader('Content-Type', `image/${ext.slice(1) === 'jpg' ? 'jpeg' : ext.slice(1)}`);
+      } else if (['.mp4', '.webm', '.mov'].includes(ext)) {
+        res.setHeader('Content-Type', `video/${ext.slice(1)}`);
+        res.setHeader('Accept-Ranges', 'bytes');
+      }
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    },
+  })
+);
 
 if (process.env.NODE_ENV === 'production') {
-  app.use(morgan("combined"));
+  app.use(morgan('combined'));
 } else {
-  app.use(morgan("dev"));
+  app.use(morgan('dev'));
 }
 
 app.use(checkMaintenanceMode);
 
-app.get("", (req, res) => res.json({ msg: "API Is Running", version: "1.0.0" }));
-app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
+app.get('', (req, res) => res.json({ msg: 'API Is Running', version: '1.0.0' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // routes
-import { userRoutes } from "./routes/user.routes.js";
-import { healthRoutes } from "./routes/health.routes.js";
-import { followRoutes } from "./routes/follow.routes.js";
-import postRoutes from "./routes/post.routes.js";
-import storyRoutes from "./routes/story.routes.js";
-import reelRoutes from "./routes/reel.routes.js";
-import feedRoutes from "./routes/feed.routes.js";
-import chatRoutes from "./routes/chat.routes.js";
-import notificationRoutes from "./routes/notification.routes.js";
-import systemRoutes from "./routes/system.routes.js";
-import adminRoutes from "./routes/admin.routes.js";
-import searchRoutes from "./routes/search.routes.js";
-import { commentRoutes } from "./routes/comment.routes.js";
-import liveStreamRoutes from "./routes/liveStream.routes.js";
+import adminRoutes from './routes/admin.routes.js';
+import chatRoutes from './routes/chat.routes.js';
+import { commentRoutes } from './routes/comment.routes.js';
+import feedRoutes from './routes/feed.routes.js';
+import { followRoutes } from './routes/follow.routes.js';
+import { healthRoutes } from './routes/health.routes.js';
+import liveStreamRoutes from './routes/liveStream.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+import postRoutes from './routes/post.routes.js';
+import reelRoutes from './routes/reel.routes.js';
+import searchRoutes from './routes/search.routes.js';
+import storyRoutes from './routes/story.routes.js';
+import systemRoutes from './routes/system.routes.js';
+import { userRoutes } from './routes/user.routes.js';
 
-app.use("/api/v1/users/login", authLimiter);
-app.use("/api/v1/users/register", authLimiter);
-app.use("/api/v1/post/upload", uploadLimiter);
-app.use("/api/v1/reel/upload", uploadLimiter);
-app.use("/api/v1/story/upload", uploadLimiter);
+// Rate limiting disabled
+// app.use('/api/v1/users/login', authLimiter);
+// app.use('/api/v1/users/register', authLimiter);
+// app.use('/api/v1/post/upload', uploadLimiter);
+// app.use('/api/v1/reel/upload', uploadLimiter);
+// app.use('/api/v1/story/upload', uploadLimiter);
 
-app.use("/api/v1/users", userRoutes);
-app.use("/api/v1/follow", followRoutes);
-app.use("/api/v1/post", postRoutes);
-app.use("/api/v1/story", storyRoutes);
-app.use("/api/v1/reel", reelRoutes);
-app.use("/api/v1/feed", feedRoutes);
-app.use("/api/v1/chat", chatRoutes);
-app.use("/api/v1/notifications", notificationRoutes);
-app.use("/api/v1/system", systemRoutes);
-app.use("/api/v1/admin", adminRoutes);
-app.use("/api/v1/search", searchRoutes);
-app.use("/api/v1/comment", commentRoutes);
-app.use("/api/v1/live", liveStreamRoutes);
+app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/follow', followRoutes);
+app.use('/api/v1/post', postRoutes);
+app.use('/api/v1/story', storyRoutes);
+app.use('/api/v1/reel', reelRoutes);
+app.use('/api/v1/feed', feedRoutes);
+app.use('/api/v1/chat', chatRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/system', systemRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/search', searchRoutes);
+app.use('/api/v1/comment', commentRoutes);
+app.use('/api/v1/live', liveStreamRoutes);
 app.use(healthRoutes);
 
 app.use((req, res, next) => {
   res.status(404).json({
     success: false,
-    message: "Route not found",
+    message: 'Route not found',
   });
 });
 
 app.use(errorMiddleware);
 
-export { app as Server, uploadLimiter, authLimiter };
+export { app as Server };

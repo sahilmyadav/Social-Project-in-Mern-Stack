@@ -180,7 +180,11 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
       <div className="pt-4 border-t border-border">
         <div className="mb-4">
           <p className="text-sm text-muted-foreground mb-2">Signed in as</p>
-          <p className="font-semibold text-foreground">{user?.name}</p>
+          <p className="font-semibold text-foreground">
+            {user?.firstName && user?.lastName
+              ? `${user.firstName} ${user.lastName}`
+              : user?.username || user?.name || 'User'}
+          </p>
         </div>
         <Button
           onClick={onLogout}
