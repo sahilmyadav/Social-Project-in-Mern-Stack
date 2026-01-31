@@ -183,11 +183,7 @@ function PostCard({
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
   const [repliesData, setRepliesData] = useState<Map<string, any[]>>(new Map());
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
-
-  // If post is hidden (reported), don't render it
-  if (isHidden) {
-    return null;
-  }
+  const [sharesCount, setSharesCount] = useState(post.shares_count || post.shares || 0);
 
   // Sync with API data when it changes
   useEffect(() => {
@@ -202,6 +198,12 @@ function PostCard({
       loadComments();
     }
   }, [showComments, post?._id]);
+
+  // If post is hidden (reported), don't render it
+  // IMPORTANT: This must come AFTER all hooks to follow React's Rules of Hooks
+  if (isHidden) {
+    return null;
+  }
 
   const loadComments = async () => {
     try {
@@ -535,7 +537,6 @@ function PostCard({
   const rawMediaUrl =
     post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.image || post.file_url;
   const mediaUrl = getMediaUrl(rawMediaUrl);
-  const [sharesCount, setSharesCount] = useState(post.shares_count || post.shares || 0);
 
   // Format timestamp
   const formatTimestamp = (timestamp: string) => {

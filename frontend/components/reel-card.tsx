@@ -52,11 +52,6 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
   // Check if this is the user's own reel
   const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
 
-  // If reel is hidden (reported), don't render it
-  if (isHidden) {
-    return null;
-  }
-
   // Intersection Observer for auto-play/pause
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -93,6 +88,12 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
       videoRef.current.pause();
     }
   }, [isInView, userPaused]);
+
+  // If reel is hidden (reported), don't render it
+  // IMPORTANT: This must come AFTER all hooks to follow React's Rules of Hooks
+  if (isHidden) {
+    return null;
+  }
 
   const handleOpenProfile = () => {
     router.push(`/profile/${reel.user_id?._id}`);
