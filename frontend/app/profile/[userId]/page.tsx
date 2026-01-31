@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { authService, feedService, followService, reelService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
   ArrowLeft,
@@ -25,6 +26,7 @@ import {
   MoreHorizontal,
   Share2,
   Unlock,
+  User,
   UserCheck,
   UserPlus,
   UserX,
@@ -62,6 +64,10 @@ export default function UserProfilePage() {
   // Image editor state
   const [showCoverEditor, setShowCoverEditor] = useState(false);
   const [selectedCoverFile, setSelectedCoverFile] = useState<File | null>(null);
+
+  // Report user modal state
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState('');
 
   useEffect(() => {
     loadCurrentUser();
@@ -488,12 +494,13 @@ export default function UserProfilePage() {
           </Button>
 
           {/* Profile Header */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden mb-6">
+          <div className="bg-card rounded-2xl border border-border mb-6">
             {/* Cover Photo */}
-            <div className="h-48 md:h-64 relative bg-muted group">
-              {profileUser.coverPhoto ? (
+            <div className="h-48 md:h-64 relative bg-muted group rounded-t-2xl overflow-hidden">
+              {profileUser.coverPhoto?.startsWith('http') ||
+              profileUser.coverPhoto?.startsWith('/') ? (
                 <img
-                  src={profileUser.coverPhoto}
+                  src={getMediaUrl(profileUser.coverPhoto)}
                   alt="Cover"
                   className="w-full h-full object-cover"
                 />
@@ -527,26 +534,23 @@ export default function UserProfilePage() {
                 <div
                   className="relative cursor-pointer hover:opacity-90 transition"
                   onClick={() =>
-                    profileUser.profilePicture &&
-                    profileUser.profilePicture !== '👤' &&
+                    (profileUser.profilePicture?.startsWith('http') ||
+                      profileUser.profilePicture?.startsWith('/')) &&
                     setShowProfileImageModal(true)
                   }
                 >
-                  {profileUser.profilePicture &&
-                  profileUser.profilePicture !== '👤' &&
-                  profileUser.profilePicture.startsWith('http') ? (
+                  {profileUser.profilePicture?.startsWith('http') ||
+                  profileUser.profilePicture?.startsWith('/') ? (
                     <img
-                      src={profileUser.profilePicture}
+                      src={getMediaUrl(profileUser.profilePicture)}
                       alt={
                         profileUser.fullName || `${profileUser.firstName} ${profileUser.lastName}`
                       }
                       className="w-32 h-32 rounded-full object-cover border-4 border-card"
                     />
                   ) : (
-                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-5xl border-4 border-card text-white">
-                      {profileUser.profilePicture === '👤' || !profileUser.profilePicture
-                        ? (profileUser.firstName?.[0] || 'U').toUpperCase()
-                        : profileUser.profilePicture}
+                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center border-4 border-card">
+                      <User size={48} className="text-white" />
                     </div>
                   )}
                   {profileUser.isVerified && (
@@ -613,11 +617,11 @@ export default function UserProfilePage() {
                             <>
                               {/* Backdrop to close menu */}
                               <div
-                                className="fixed inset-0 z-40"
+                                className="fixed inset-0 z-[9998]"
                                 onClick={() => setShowOptionsMenu(false)}
                               />
 
-                              <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-50 overflow-hidden">
+                              <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-[9999]">
                                 {/* Share Profile */}
                                 <button
                                   onClick={async () => {
@@ -666,19 +670,7 @@ export default function UserProfilePage() {
                                 <button
                                   onClick={() => {
                                     setShowOptionsMenu(false);
-                                    const reason = prompt(
-                                      'Please specify the reason for reporting this user:'
-                                    );
-                                    if (reason && reason.trim()) {
-                                      // TODO: Implement report user API call
-                                      confirm({
-                                        title: 'User Reported',
-                                        message: `User reported for: ${reason}\n\nThank you for helping keep our community safe.`,
-                                        variant: 'success',
-                                        confirmText: 'OK',
-                                        cancelText: null,
-                                      });
-                                    }
+                                    setShowReportModal(true);
                                   }}
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition border-b border-border flex items-center gap-2 text-orange-500 cursor-pointer"
                                 >
@@ -818,11 +810,7 @@ export default function UserProfilePage() {
                   </div>
 
                   {/* Bio */}
-                  {profileUser.bio ? (
-                    <p className="text-foreground text-lg">{profileUser.bio}</p>
-                  ) : (
-                    <p className="text-muted-foreground italic">No bio yet</p>
-                  )}
+                  {profileUser.bio && <p className="text-foreground text-lg">{profileUser.bio}</p>}
                 </div>
               </div>
             </div>
@@ -1030,6 +1018,57 @@ export default function UserProfilePage() {
         enableFaceDetection={false}
         coverAspectRatio={2.5}
       />
+
+      {/* Report User Modal */}
+      <Dialog open={showReportModal} onOpenChange={setShowReportModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle className="text-lg font-semibold">Report User</DialogTitle>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Please specify the reason for reporting this user:
+            </p>
+            <textarea
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              placeholder="Enter your reason..."
+              className="w-full min-h-[100px] p-3 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowReportModal(false);
+                setReportReason('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (reportReason.trim()) {
+                  // TODO: Implement report user API call
+                  setShowReportModal(false);
+                  setReportReason('');
+                  confirm({
+                    title: 'User Reported',
+                    message: `User reported for: ${reportReason}\n\nThank you for helping keep our community safe.`,
+                    variant: 'success',
+                    confirmText: 'OK',
+                    cancelText: null,
+                  });
+                }
+              }}
+              disabled={!reportReason.trim()}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              Submit Report
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog {...dialogProps} />
     </main>
   );
 }

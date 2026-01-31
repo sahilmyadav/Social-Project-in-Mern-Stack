@@ -1,26 +1,27 @@
-"use client";
+'use client';
 
-import { Button } from "@/components/ui/button";
+import { Button } from '@/components/ui/button';
+import { getMediaUrl } from '@/lib/media-utils';
 import {
-    emitAcceptCall,
-    emitAnswer,
-    emitEndCall,
-    emitIceCandidate,
-    emitOffer,
-    emitRejectCall,
-    offAnswer,
-    offCallAccepted,
-    offCallEnded,
-    offIceCandidate,
-    offOffer,
-    onAnswer,
-    onCallAccepted,
-    onCallEnded,
-    onIceCandidate,
-    onOffer
-} from "@/lib/socket";
-import { Mic, MicOff, PhoneOff, Video, VideoOff, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+  emitAcceptCall,
+  emitAnswer,
+  emitEndCall,
+  emitIceCandidate,
+  emitOffer,
+  emitRejectCall,
+  offAnswer,
+  offCallAccepted,
+  offCallEnded,
+  offIceCandidate,
+  offOffer,
+  onAnswer,
+  onCallAccepted,
+  onCallEnded,
+  onIceCandidate,
+  onOffer,
+} from '@/lib/socket';
+import { Mic, MicOff, PhoneOff, User, Video, VideoOff, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 interface VideoCallModalProps {
   isOpen: boolean;
@@ -45,13 +46,13 @@ export default function VideoCallModal({
   callerId,
   threadId = '',
 }: VideoCallModalProps) {
-  const [callStatus, setCallStatus] = useState<
-    "ringing" | "connecting" | "active" | "ended"
-  >(isIncoming ? "ringing" : "connecting");
+  const [callStatus, setCallStatus] = useState<'ringing' | 'connecting' | 'active' | 'ended'>(
+    isIncoming ? 'ringing' : 'connecting'
+  );
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
-  const [currentCallId, setCurrentCallId] = useState(callId || "");
+  const [currentCallId, setCurrentCallId] = useState(callId || '');
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -65,31 +66,29 @@ export default function VideoCallModal({
 
   // Store handlers for cleanup
   const handlersRef = useRef<{
-    offer?: (data: any) => void
-    answer?: (data: any) => void
-    iceCandidate?: (data: any) => void
-    callAccepted?: (data: any) => void
-    callEnded?: (data: any) => void
+    offer?: (data: any) => void;
+    answer?: (data: any) => void;
+    iceCandidate?: (data: any) => void;
+    callAccepted?: (data: any) => void;
+    callEnded?: (data: any) => void;
   }>({});
 
   // Format call duration
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Initialize peer connection
   const initializePeerConnection = () => {
     const configuration: RTCConfiguration = {
       iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
       ],
     };
 
@@ -97,7 +96,7 @@ export default function VideoCallModal({
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        const targetId = isIncoming ? (callerId || recipientId) : recipientId;
+        const targetId = isIncoming ? callerId || recipientId : recipientId;
         emitIceCandidate(targetId, event.candidate);
       }
     };
@@ -109,12 +108,12 @@ export default function VideoCallModal({
     };
 
     pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === "connected") {
-        setCallStatus("active");
+      if (pc.iceConnectionState === 'connected') {
+        setCallStatus('active');
       } else if (
-        pc.iceConnectionState === "disconnected" ||
-        pc.iceConnectionState === "failed" ||
-        pc.iceConnectionState === "closed"
+        pc.iceConnectionState === 'disconnected' ||
+        pc.iceConnectionState === 'failed' ||
+        pc.iceConnectionState === 'closed'
       ) {
         handleEndCall();
       }
@@ -139,8 +138,8 @@ export default function VideoCallModal({
 
       return stream;
     } catch (error) {
-      console.error("❌ Error accessing media devices:", error);
-      alert("Could not access camera/microphone. Please check permissions.");
+      console.error('❌ Error accessing media devices:', error);
+      alert('Could not access camera/microphone. Please check permissions.');
       handleEndCall();
       return null;
     }
@@ -148,7 +147,6 @@ export default function VideoCallModal({
 
   // Start outgoing call
   const startCall = async () => {
-
     const stream = await getLocalStream();
     if (!stream) return;
 
@@ -160,18 +158,17 @@ export default function VideoCallModal({
       pc.addTrack(track, stream);
     });
 
-    setCallStatus("ringing");
+    setCallStatus('ringing');
   };
 
   // Handle incoming call acceptance
   const handleAcceptCall = async () => {
-    setCallStatus("connecting");
+    setCallStatus('connecting');
 
     try {
       // Set up offer handler BEFORE notifying caller to avoid race condition
       const processOffer = async (offerData: any, pc: RTCPeerConnection) => {
         try {
-
           // Check if we're in the correct state to receive an offer
           if (pc.signalingState !== 'stable') {
             return;
@@ -206,7 +203,6 @@ export default function VideoCallModal({
       };
 
       const handleOffer = async (offerData: any) => {
-
         // If peer connection doesn't exist yet, store offer for later
         if (!peerConnectionRef.current) {
           pendingOffer.current = offerData;
@@ -220,7 +216,10 @@ export default function VideoCallModal({
       const handleCandidate = async (candidateData: any) => {
         try {
           // Skip if peer connection is closed or not ready
-          if (!peerConnectionRef.current || peerConnectionRef.current.connectionState === 'closed') {
+          if (
+            !peerConnectionRef.current ||
+            peerConnectionRef.current.connectionState === 'closed'
+          ) {
             return;
           }
 
@@ -256,7 +255,6 @@ export default function VideoCallModal({
       onOffer(handleOffer);
       onIceCandidate(handleCandidate);
 
-
       // Get local stream and create peer connection FIRST before notifying caller
       const stream = await getLocalStream();
       if (!stream) return;
@@ -268,7 +266,6 @@ export default function VideoCallModal({
       stream.getTracks().forEach((track) => {
         pc.addTrack(track, stream);
       });
-
 
       // NOW notify caller that we accepted (peer connection is ready)
       if (callerId && threadId) {
@@ -286,8 +283,6 @@ export default function VideoCallModal({
       setCallStatus('ended');
     }
   };
-
-
 
   // Toggle mute
   const toggleMute = () => {
@@ -371,7 +366,7 @@ export default function VideoCallModal({
       emitEndCall(recipientId || callerId || '', threadId);
     }
 
-    setCallStatus("ended");
+    setCallStatus('ended');
 
     setTimeout(() => {
       onClose();
@@ -388,7 +383,6 @@ export default function VideoCallModal({
 
   // Initialize call on mount
   useEffect(() => {
-
     if (isOpen) {
       // Reset state when modal opens
       setCallDuration(0);
@@ -425,7 +419,6 @@ export default function VideoCallModal({
             // Set up answer handler
             const handleAnswer = async (answerData: any) => {
               try {
-
                 // Only block if connection is actually closed or failed
                 if (!pc || pc.connectionState === 'closed' || pc.connectionState === 'failed') {
                   return;
@@ -519,7 +512,7 @@ export default function VideoCallModal({
 
   // Start timer when call becomes active
   useEffect(() => {
-    if (callStatus === "active") {
+    if (callStatus === 'active') {
       callTimerRef.current = setInterval(() => {
         setCallDuration((prev) => prev + 1);
       }, 1000);
@@ -545,41 +538,39 @@ export default function VideoCallModal({
       />
 
       {/* Show avatar if no remote video or call not active */}
-      {callStatus !== "active" && (
+      {callStatus !== 'active' && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-gray-900 to-black">
           <div className="text-center">
             <div className="relative inline-block mb-8">
               {/* Pulsing rings animation */}
-              {callStatus === "ringing" && (
+              {callStatus === 'ringing' && (
                 <>
                   <div className="absolute inset-0 rounded-full bg-blue-500 opacity-20 animate-ping" />
                   <div
                     className="absolute inset-0 rounded-full bg-blue-500 opacity-20 animate-ping"
-                    style={{ animationDelay: "0.5s" }}
+                    style={{ animationDelay: '0.5s' }}
                   />
                 </>
               )}
-              <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white/20">
-                {recipientAvatar ? (
+              <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white/20 bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500">
+                {recipientAvatar?.startsWith('http') || recipientAvatar?.startsWith('/') ? (
                   <img
-                    src={recipientAvatar}
+                    src={getMediaUrl(recipientAvatar)}
                     alt={recipientName}
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-4xl font-bold text-white">
-                    {(recipientName || 'U').charAt(0).toUpperCase()}
+                  <div className="w-full h-full flex items-center justify-center">
+                    <User size={48} className="text-white" />
                   </div>
                 )}
               </div>
             </div>
-            <h2 className="text-2xl font-semibold text-white mb-2">
-              {recipientName}
-            </h2>
+            <h2 className="text-2xl font-semibold text-white mb-2">{recipientName}</h2>
             <p className="text-gray-300">
-              {callStatus === "ringing" && !isIncoming && "Calling..."}
-              {callStatus === "ringing" && isIncoming && "Incoming video call"}
-              {callStatus === "connecting" && "Connecting..."}
+              {callStatus === 'ringing' && !isIncoming && 'Calling...'}
+              {callStatus === 'ringing' && isIncoming && 'Incoming video call'}
+              {callStatus === 'connecting' && 'Connecting...'}
             </p>
           </div>
         </div>
@@ -605,10 +596,8 @@ export default function VideoCallModal({
       <div className="absolute top-0 left-0 right-0 p-6 bg-gradient-to-b from-black/60 to-transparent">
         <div className="flex items-center justify-between">
           <div>
-            {callStatus === "active" && (
-              <p className="text-white font-medium">
-                {formatDuration(callDuration)}
-              </p>
+            {callStatus === 'active' && (
+              <p className="text-white font-medium">{formatDuration(callDuration)}</p>
             )}
           </div>
           <Button
@@ -624,7 +613,7 @@ export default function VideoCallModal({
 
       {/* Bottom controls */}
       <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black/60 to-transparent">
-        {isIncoming && callStatus === "ringing" ? (
+        {isIncoming && callStatus === 'ringing' ? (
           // Incoming call buttons
           <div className="flex items-center justify-center gap-6">
             <Button
@@ -648,14 +637,10 @@ export default function VideoCallModal({
             <Button
               onClick={toggleVideo}
               size="lg"
-              variant={isVideoOff ? "destructive" : "secondary"}
+              variant={isVideoOff ? 'destructive' : 'secondary'}
               className="w-14 h-14 rounded-full shadow-lg"
             >
-              {isVideoOff ? (
-                <VideoOff className="w-5 h-5" />
-              ) : (
-                <Video className="w-5 h-5" />
-              )}
+              {isVideoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
             </Button>
             <Button
               onClick={handleEndCall}
@@ -667,14 +652,10 @@ export default function VideoCallModal({
             <Button
               onClick={toggleMute}
               size="lg"
-              variant={isMuted ? "destructive" : "secondary"}
+              variant={isMuted ? 'destructive' : 'secondary'}
               className="w-14 h-14 rounded-full shadow-lg"
             >
-              {isMuted ? (
-                <MicOff className="w-5 h-5" />
-              ) : (
-                <Mic className="w-5 h-5" />
-              )}
+              {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </Button>
           </div>
         )}

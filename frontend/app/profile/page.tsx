@@ -42,6 +42,7 @@ import {
   Settings,
   Sun,
   Trash2,
+  User,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import dynamic from 'next/dynamic';
@@ -796,10 +797,8 @@ export default function ProfilePage() {
                       );
                     }
                     return (
-                      <div className="w-full h-full rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center border-3 md:border-4 border-card shadow-lg text-white">
-                        <span className="text-4xl md:text-5xl font-bold">
-                          {(user.firstName?.[0] || user.name?.[0] || 'U').toUpperCase()}
-                        </span>
+                      <div className="w-full h-full rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center border-3 md:border-4 border-card shadow-lg">
+                        <User size={48} className="text-white" />
                       </div>
                     );
                   })()}

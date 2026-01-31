@@ -1,14 +1,15 @@
-'use client'
+'use client';
 
-import { Phone, PhoneOff } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { getMediaUrl } from '@/lib/media-utils';
+import { Phone, PhoneOff, User } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface IncomingCallNotificationProps {
-  isVisible: boolean
-  callerName: string
-  callerAvatar: string
-  onAccept: () => void
-  onReject: () => void
+  isVisible: boolean;
+  callerName: string;
+  callerAvatar: string;
+  onAccept: () => void;
+  onReject: () => void;
 }
 
 export default function IncomingCallNotification({
@@ -18,29 +19,29 @@ export default function IncomingCallNotification({
   onAccept,
   onReject,
 }: IncomingCallNotificationProps) {
-  const [isAnimating, setIsAnimating] = useState(false)
+  const [isAnimating, setIsAnimating] = useState(false);
 
   useEffect(() => {
     if (isVisible) {
-      setIsAnimating(true)
+      setIsAnimating(true);
       // Play ringtone sound (optional)
       // const audio = new Audio('/ringtone.mp3')
       // audio.loop = true
       // audio.play()
     } else {
-      setIsAnimating(false)
+      setIsAnimating(false);
     }
-  }, [isVisible])
+  }, [isVisible]);
 
-  if (!isVisible) return null
+  if (!isVisible) return null;
 
   return (
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9998] animate-in fade-in duration-300" />
-      
+
       {/* Notification Card */}
-      <div 
+      <div
         className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[90%] max-w-md transition-all duration-300 ${
           isAnimating ? 'animate-in slide-in-from-top-4' : 'animate-out slide-out-to-top-4'
         }`}
@@ -58,18 +59,18 @@ export default function IncomingCallNotification({
           <div className="flex items-center gap-4 mb-6">
             {/* Avatar */}
             <div className="relative">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center text-3xl shadow-lg ring-4 ring-white/10">
-                {callerAvatar?.startsWith('http') ? (
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-3xl shadow-lg ring-4 ring-white/10">
+                {callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') ? (
                   <img
-                    src={callerAvatar}
+                    src={getMediaUrl(callerAvatar)}
                     alt={callerName}
                     className="w-full h-full rounded-full object-cover"
                   />
                 ) : (
-                  callerAvatar
+                  <User size={32} className="text-white" />
                 )}
               </div>
-              
+
               {/* Pulsing ring animation */}
               <div className="absolute inset-0 rounded-full border-4 border-blue-400 animate-ping opacity-75" />
             </div>
@@ -114,12 +115,21 @@ export default function IncomingCallNotification({
 
           {/* Ringing animation dots */}
           <div className="flex justify-center gap-1.5 mt-6">
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+            <div
+              className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"
+              style={{ animationDelay: '0ms' }}
+            />
+            <div
+              className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"
+              style={{ animationDelay: '150ms' }}
+            />
+            <div
+              className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"
+              style={{ animationDelay: '300ms' }}
+            />
           </div>
         </div>
       </div>
     </>
-  )
+  );
 }

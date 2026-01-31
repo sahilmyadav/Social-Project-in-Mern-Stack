@@ -1197,6 +1197,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
   // Count reels
   const reelsCount = await Reel.countDocuments({
     user_id: user._id,
+    is_deleted: false,
   });
 
   // Check if current user is following this profile user
@@ -1226,7 +1227,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     lastName: user.lastName,
     fullName: `${user.firstName} ${user.lastName}`,
     username: user.username,
-    bio: user.bio || 'User bio here',
+    bio: user.bio || '',
     profilePicture: user.profileImage || user.avatar,
     avatar: user.avatar,
     coverPhoto: user.coverPhoto,

@@ -1241,7 +1241,7 @@ function ChatPageContent() {
 
         {/* Conversations List - Hidden on mobile when chat is selected */}
         <section
-          className={`lg:col-span-1 border-r border-border flex flex-col ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
+          className={`lg:col-span-1 border-r border-border flex flex-col h-[100dvh] overflow-hidden ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
         >
           <div className="p-4 border-b border-border">
             <h1 className="text-2xl font-bold mb-4 text-foreground">Chats</h1>
@@ -1327,7 +1327,7 @@ function ChatPageContent() {
                             }`}
                           >
                             <div className="w-full h-full rounded-full bg-background p-[2px]">
-                              <div className="w-full h-full rounded-full overflow-hidden bg-muted flex items-center justify-center">
+                              <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center">
                                 {friend.avatar?.startsWith('http') ||
                                 friend.avatar?.startsWith('/') ? (
                                   <img
@@ -1336,9 +1336,7 @@ function ChatPageContent() {
                                     className="w-full h-full object-cover"
                                   />
                                 ) : (
-                                  <span className="text-lg">
-                                    {friend.avatar || friend.name?.charAt(0)}
-                                  </span>
+                                  <User className="w-6 h-6 text-white" />
                                 )}
                               </div>
                             </div>
@@ -1389,7 +1387,7 @@ function ChatPageContent() {
                         e.stopPropagation();
                         !conversation.isGroup && handleOpenProfile(conversation.participantId);
                       }}
-                      className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg ${
+                      className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${
                         conversation.isGroup ? 'text-2xl' : ''
                       } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                     >
@@ -1400,8 +1398,10 @@ function ChatPageContent() {
                           alt={conversation.name}
                           className="w-full h-full object-cover"
                         />
+                      ) : conversation.isGroup ? (
+                        <Users className="w-6 h-6 text-white" />
                       ) : (
-                        conversation.avatar || conversation.name?.charAt(0) || '👤'
+                        <User className="w-6 h-6 text-white" />
                       )}
                     </div>
                     {!conversation.isGroup && conversation.online && (
@@ -1516,7 +1516,7 @@ function ChatPageContent() {
 
         {/* Chat Area - Show on mobile when conversation is selected */}
         {selectedConversation ? (
-          <section className="lg:col-span-2 flex flex-col">
+          <section className="lg:col-span-2 flex flex-col h-[100dvh] overflow-hidden">
             {/* Chat Header */}
             <div className="p-4 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1538,7 +1538,7 @@ function ChatPageContent() {
                     !selectedConversation.isGroup &&
                     handleOpenProfile(selectedConversation.participantId)
                   }
-                  className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg ${
+                  className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${
                     selectedConversation.isGroup ? 'text-2xl' : ''
                   } overflow-hidden ${!selectedConversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                 >
@@ -1549,8 +1549,10 @@ function ChatPageContent() {
                       alt={selectedConversation.name}
                       className="w-full h-full object-cover"
                     />
+                  ) : selectedConversation.isGroup ? (
+                    <Users className="w-6 h-6 text-white" />
                   ) : (
-                    selectedConversation.avatar || selectedConversation.name?.charAt(0) || '👤'
+                    <User className="w-6 h-6 text-white" />
                   )}
                 </div>
                 <div>
@@ -1878,7 +1880,7 @@ function ChatPageContent() {
                   {isOtherUserTyping && (
                     <div className="flex justify-start mb-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
                           {selectedConversation?.avatar?.startsWith('http') ||
                           selectedConversation?.avatar?.startsWith('/') ? (
                             <img
@@ -1887,7 +1889,7 @@ function ChatPageContent() {
                               className="w-full h-full rounded-full object-cover"
                             />
                           ) : (
-                            selectedConversation?.avatar || '👤'
+                            <User className="w-4 h-4 text-white" />
                           )}
                         </div>
                         <div className="bg-muted text-muted-foreground rounded-2xl px-4 py-2.5 shadow-sm">
@@ -1953,7 +1955,7 @@ function ChatPageContent() {
                 </div>
               )}
 
-              <div className="p-4 border-t border-border flex items-end gap-2 mb-20 lg:mb-0 bg-background relative z-10 w-full">
+              <div className="p-4 border-t border-border flex items-end gap-2 mb-20 lg:mb-4 bg-background relative z-10 w-full">
                 {/* Hidden file inputs */}
                 <input
                   type="file"

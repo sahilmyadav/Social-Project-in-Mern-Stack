@@ -1,6 +1,7 @@
-"use client";
+'use client';
 
-import { Video, X } from "lucide-react";
+import { getMediaUrl } from '@/lib/media-utils';
+import { User, Video, X } from 'lucide-react';
 
 interface IncomingVideoCallNotificationProps {
   callerName: string;
@@ -25,25 +26,23 @@ export default function IncomingVideoCallNotification({
             <div className="absolute inset-0 rounded-full bg-blue-500 opacity-30 animate-ping" />
             <div
               className="absolute inset-0 rounded-full bg-blue-500 opacity-30 animate-ping"
-              style={{ animationDelay: "0.5s" }}
+              style={{ animationDelay: '0.5s' }}
             />
-            <div className="relative w-24 h-24 rounded-full overflow-hidden border-4 border-white/20">
-              {callerAvatar ? (
+            <div className="relative w-24 h-24 rounded-full overflow-hidden border-4 border-white/20 bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500">
+              {callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') ? (
                 <img
-                  src={callerAvatar}
+                  src={getMediaUrl(callerAvatar)}
                   alt={callerName}
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-3xl font-bold text-white">
-                  {(callerName || 'U').charAt(0).toUpperCase()}
+                <div className="w-full h-full flex items-center justify-center">
+                  <User size={40} className="text-white" />
                 </div>
               )}
             </div>
           </div>
-          <h2 className="text-2xl font-semibold text-white mb-2">
-            {callerName}
-          </h2>
+          <h2 className="text-2xl font-semibold text-white mb-2">{callerName}</h2>
           <p className="text-gray-300 flex items-center justify-center gap-2">
             <Video className="w-5 h-5" />
             Incoming video call
@@ -70,15 +69,15 @@ export default function IncomingVideoCallNotification({
         <div className="flex items-center justify-center gap-1.5 mt-6">
           <div
             className="w-2 h-2 rounded-full bg-blue-400 animate-bounce"
-            style={{ animationDelay: "0ms" }}
+            style={{ animationDelay: '0ms' }}
           />
           <div
             className="w-2 h-2 rounded-full bg-blue-400 animate-bounce"
-            style={{ animationDelay: "150ms" }}
+            style={{ animationDelay: '150ms' }}
           />
           <div
             className="w-2 h-2 rounded-full bg-blue-400 animate-bounce"
-            style={{ animationDelay: "300ms" }}
+            style={{ animationDelay: '300ms' }}
           />
         </div>
       </div>
