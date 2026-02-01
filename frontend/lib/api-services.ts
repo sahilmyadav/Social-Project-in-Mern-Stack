@@ -718,7 +718,8 @@ export const liveStreamService = {
       const formData = new FormData();
       formData.append('title', data.title);
       if (data.description) formData.append('description', data.description);
-      formData.append('thumbnail', data.thumbnail);
+      // Backend expects the field name to be 'file' (from uploadSingle middleware)
+      formData.append('file', data.thumbnail);
       return api.upload(API_ENDPOINTS.LIVE.CREATE, formData);
     }
     return api.post(API_ENDPOINTS.LIVE.CREATE, {

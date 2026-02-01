@@ -451,7 +451,12 @@ export const emitEndLiveStream = (streamId: string) => {
 };
 
 export const emitJoinLiveStream = (streamId: string) => {
-  socket?.emit('joinLiveStream', { streamId });
+  if (!socket?.connected) {
+    console.warn('⚠️ Socket not connected, cannot join live stream');
+    return;
+  }
+  console.log('📤 Emitting joinLiveStream for:', streamId);
+  socket.emit('joinLiveStream', { streamId });
 };
 
 export const emitLeaveLiveStream = (streamId: string) => {
@@ -466,6 +471,7 @@ export const emitLiveComment = (streamId: string, text: string) => {
 };
 
 export const emitLiveStreamOffer = (streamId: string, viewerId: string, offer: any) => {
+  console.log('📤 Emitting liveStreamOffer to viewer:', viewerId);
   socket?.emit('liveStreamOffer', {
     streamId,
     viewerId,
@@ -474,6 +480,7 @@ export const emitLiveStreamOffer = (streamId: string, viewerId: string, offer: a
 };
 
 export const emitLiveStreamAnswer = (streamId: string, broadcasterId: string, answer: any) => {
+  console.log('📤 Emitting liveStreamAnswer to broadcaster:', broadcasterId);
   socket?.emit('liveStreamAnswer', {
     streamId,
     broadcasterId,
@@ -483,16 +490,86 @@ export const emitLiveStreamAnswer = (streamId: string, broadcasterId: string, an
 
 export const emitLiveStreamIceCandidate = (
   streamId: string,
-  recipientId: string,
+  targetId: string,
   candidate: RTCIceCandidate
 ) => {
   socket?.emit('liveStreamIceCandidate', {
     streamId,
-    recipientId,
+    targetId,
     candidate: {
       candidate: candidate.candidate,
       sdpMLineIndex: candidate.sdpMLineIndex,
       sdpMid: candidate.sdpMid,
     },
   });
+};
+
+// ==================== LIVE REACTIONS (Hearts) ====================
+
+/**
+ * Send a reaction (heart) during a live stream
+ * These create floating heart animations for all viewers
+ */
+export const emitLiveReaction = (
+  streamId: string,
+  type: 'heart' | 'like' | 'fire' | 'clap' = 'heart',
+  color?: string
+) => {
+  socket?.emit('liveReaction', {
+    streamId,
+    type,
+    color,
+  });
+};
+
+/**
+ * Listen for reactions from other viewers
+ */
+export const onLiveReaction = (callback: (data: any) => void) => {
+  socket?.on('liveReaction', callback);
+};
+
+export const offLiveReaction = (callback: (data: any) => void) => {
+  socket?.off('liveReaction', callback);
+};
+
+// ==================== PINNED COMMENTS ====================
+
+/**
+ * Pin a comment (broadcaster only)
+ */
+export const emitPinComment = (streamId: string, commentId: string) => {
+  socket?.emit('pinLiveComment', {
+    streamId,
+    commentId,
+  });
+};
+
+/**
+ * Unpin the currently pinned comment (broadcaster only)
+ */
+export const emitUnpinComment = (streamId: string) => {
+  socket?.emit('unpinLiveComment', { streamId });
+};
+
+/**
+ * Listen for comment pinned events
+ */
+export const onCommentPinned = (callback: (data: any) => void) => {
+  socket?.on('commentPinned', callback);
+};
+
+export const offCommentPinned = (callback: (data: any) => void) => {
+  socket?.off('commentPinned', callback);
+};
+
+/**
+ * Listen for comment unpinned events
+ */
+export const onCommentUnpinned = (callback: (data: any) => void) => {
+  socket?.on('commentUnpinned', callback);
+};
+
+export const offCommentUnpinned = (callback: (data: any) => void) => {
+  socket?.off('commentUnpinned', callback);
 };

@@ -6,435 +6,553 @@ import { Notification } from '../models/notification.model.js';
 import { User } from '../models/user.model.js';
 
 export const liveStreamSocket = (io, socket, userId) => {
+  // ==================== LIVE STREAMING EVENTS ====================
 
-    // ==================== LIVE STREAMING EVENTS ====================
+  // Start Live Stream
+  socket.on('startLiveStream', async (data) => {
+    try {
+      const { streamId, title } = data;
 
-    // Start Live Stream
-    socket.on('startLiveStream', async (data) => {
+      const liveStream = await LiveStream.findById(streamId);
+
+      if (!liveStream) {
+        socket.emit('liveStreamError', { error: 'Live stream not found' });
+        return;
+      }
+
+      if (liveStream.streamerId.toString() !== userId.toString()) {
+        socket.emit('liveStreamError', { error: 'Unauthorized' });
+        return;
+      }
+
+      // Update stream status
+      liveStream.status = 'live';
+      liveStream.startedAt = new Date();
+      await liveStream.save();
+
+      // Get streamer info for notifications
+      const streamer = await User.findById(userId).select(
+        'firstName lastName username profilePicture avatar'
+      );
+
+      // Join broadcaster to their own stream room
+      socket.join(`stream:${streamId}`);
+
+      // Notify all followers that stream has started
+      const followers = await Followers.find({
+        following_id: userId,
+        status: 'accepted',
+      }).select('follower_id');
+
+      const followerIds = followers.map((f) => f.follower_id.toString());
+
+      // Create notifications for all followers (like Instagram)
+      const notificationPromises = followerIds.map(async (followerId) => {
         try {
-            const { streamId, title } = data;
+          // Create database notification
+          const notification = await Notification.create({
+            recipient_id: followerId,
+            sender_id: userId,
+            type: 'live_started',
+            reference_id: streamId,
+            reference_type: 'User',
+            title: 'Live Video',
+            message: `${streamer?.firstName || 'Someone'} ${streamer?.lastName || ''} started a live video`,
+            thumbnail: liveStream.thumbnail || streamer?.profilePicture,
+            action_url: `/live/watch/${streamId}`,
+          });
 
-            const liveStream = await LiveStream.findById(streamId);
+          // Populate sender details
+          await notification.populate(
+            'sender_id',
+            'firstName lastName username profilePicture avatar'
+          );
 
-            if (!liveStream) {
-                socket.emit('liveStreamError', { error: 'Live stream not found' });
-                return;
-            }
+          // Emit real-time notification to each follower
+          io.to(followerId).emit('liveStreamStarted', {
+            streamId,
+            streamerId: userId,
+            streamerName: `${streamer?.firstName || ''} ${streamer?.lastName || ''}`.trim(),
+            streamerUsername: streamer?.username,
+            streamerAvatar: streamer?.profilePicture || streamer?.avatar,
+            title: liveStream.title,
+            thumbnail: liveStream.thumbnail,
+          });
 
-            if (liveStream.streamerId.toString() !== userId.toString()) {
-                socket.emit('liveStreamError', { error: 'Unauthorized' });
-                return;
-            }
-
-            // Update stream status
-            liveStream.status = 'live';
-            liveStream.startedAt = new Date();
-            await liveStream.save();
-
-            // Get streamer info for notifications
-            const streamer = await User.findById(userId).select('firstName lastName username profilePicture avatar');
-
-            // Join broadcaster to their own stream room
-            socket.join(`stream:${streamId}`);
-
-            // Notify all followers that stream has started
-            const followers = await Followers.find({
-                following_id: userId,
-                status: 'accepted'
-            }).select('follower_id');
-
-            const followerIds = followers.map(f => f.follower_id.toString());
-
-            // Create notifications for all followers (like Instagram)
-            const notificationPromises = followerIds.map(async (followerId) => {
-                try {
-                    // Create database notification
-                    const notification = await Notification.create({
-                        recipient_id: followerId,
-                        sender_id: userId,
-                        type: 'live_started',
-                        reference_id: streamId,
-                        reference_type: 'User',
-                        title: 'Live Video',
-                        message: `${streamer?.firstName || 'Someone'} ${streamer?.lastName || ''} started a live video`,
-                        thumbnail: liveStream.thumbnail || streamer?.profilePicture,
-                        action_url: `/live/watch/${streamId}`,
-                    });
-
-                    // Populate sender details
-                    await notification.populate('sender_id', 'firstName lastName username profilePicture avatar');
-
-                    // Emit real-time notification to each follower
-                    io.to(followerId).emit('liveStreamStarted', {
-                        streamId,
-                        streamerId: userId,
-                        streamerName: `${streamer?.firstName || ''} ${streamer?.lastName || ''}`.trim(),
-                        streamerUsername: streamer?.username,
-                        streamerAvatar: streamer?.profilePicture || streamer?.avatar,
-                        title: liveStream.title,
-                        thumbnail: liveStream.thumbnail
-                    });
-
-                    // Also emit as regular notification
-                    io.to(followerId).emit('newNotification', {
-                        notification: notification.toObject(),
-                    });
-                } catch (err) {
-                    console.error(`Failed to create notification for follower ${followerId}:`, err);
-                }
-            });
-
-            await Promise.all(notificationPromises);
-
-            socket.emit('liveStreamStartSuccess', { streamId, status: 'live' });
-
-        } catch (error) {
-            console.error('Error starting live stream:', error);
-            socket.emit('liveStreamError', { error: 'Failed to start stream' });
+          // Also emit as regular notification
+          io.to(followerId).emit('newNotification', {
+            notification: notification.toObject(),
+          });
+        } catch (err) {
+          console.error(`Failed to create notification for follower ${followerId}:`, err);
         }
-    });
+      });
 
-    // End Live Stream
-    socket.on('endLiveStream', async (data) => {
-        try {
-            const { streamId } = data;
+      await Promise.all(notificationPromises);
 
-            const liveStream = await LiveStream.findById(streamId);
+      socket.emit('liveStreamStartSuccess', { streamId, status: 'live' });
+    } catch (error) {
+      console.error('Error starting live stream:', error);
+      socket.emit('liveStreamError', { error: 'Failed to start stream' });
+    }
+  });
 
-            if (!liveStream || liveStream.streamerId.toString() !== userId.toString()) {
-                socket.emit('liveStreamError', { error: 'Unauthorized' });
-                return;
-            }
+  // End Live Stream
+  socket.on('endLiveStream', async (data) => {
+    try {
+      const { streamId } = data;
 
-            // Update stream status
-            liveStream.status = 'ended';
-            liveStream.endedAt = new Date();
-            await liveStream.save();
+      const liveStream = await LiveStream.findById(streamId);
 
-            // Notify all viewers in the stream room
-            io.to(`stream:${streamId}`).emit('liveStreamEnded', {
-                streamId,
-                endedAt: liveStream.endedAt
-            });
+      if (!liveStream || liveStream.streamerId.toString() !== userId.toString()) {
+        socket.emit('liveStreamError', { error: 'Unauthorized' });
+        return;
+      }
 
-            // Mark all viewers as left
-            await LiveStreamViewer.updateMany(
-                { liveStreamId: streamId, leftAt: null },
-                { leftAt: new Date() }
-            );
+      // Update stream status
+      liveStream.status = 'ended';
+      liveStream.endedAt = new Date();
+      await liveStream.save();
 
-            // Leave the stream room
-            socket.leave(`stream:${streamId}`);
+      // Notify all viewers in the stream room
+      io.to(`stream:${streamId}`).emit('liveStreamEnded', {
+        streamId,
+        endedAt: liveStream.endedAt,
+      });
 
-            socket.emit('liveStreamEndSuccess', { streamId });
+      // Mark all viewers as left
+      await LiveStreamViewer.updateMany(
+        { liveStreamId: streamId, leftAt: null },
+        { leftAt: new Date() }
+      );
 
-        } catch (error) {
-            console.error('Error ending live stream:', error);
-            socket.emit('liveStreamError', { error: 'Failed to end stream' });
+      // Leave the stream room
+      socket.leave(`stream:${streamId}`);
+
+      socket.emit('liveStreamEndSuccess', { streamId });
+    } catch (error) {
+      console.error('Error ending live stream:', error);
+      socket.emit('liveStreamError', { error: 'Failed to end stream' });
+    }
+  });
+
+  // Join Live Stream
+  socket.on('joinLiveStream', async (data) => {
+    try {
+      const { streamId } = data;
+      console.log(`👤 User ${userId} joining stream ${streamId}`);
+
+      const liveStream = await LiveStream.findById(streamId);
+
+      if (!liveStream) {
+        console.log('  ❌ Stream not found');
+        socket.emit('liveStreamError', { error: 'Live stream not found' });
+        return;
+      }
+
+      if (liveStream.status !== 'live') {
+        console.log('  ❌ Stream not live, status:', liveStream.status);
+        socket.emit('liveStreamError', { error: 'Stream is not live' });
+        return;
+      }
+
+      console.log(`  ✅ Stream is live, broadcaster: ${liveStream.streamerId}`);
+
+      // Join the stream room
+      socket.join(`stream:${streamId}`);
+
+      // Check if viewer already exists
+      let viewer = await LiveStreamViewer.findOne({
+        liveStreamId: streamId,
+        userId: userId,
+      });
+
+      if (!viewer) {
+        // Create new viewer record
+        viewer = await LiveStreamViewer.create({
+          liveStreamId: streamId,
+          userId: userId,
+          joinedAt: new Date(),
+        });
+
+        // Increment viewer count
+        liveStream.viewerCount += 1;
+        await liveStream.save();
+      } else if (viewer.leftAt) {
+        // Viewer rejoining
+        viewer.leftAt = null;
+        viewer.joinedAt = new Date();
+        await viewer.save();
+
+        liveStream.viewerCount += 1;
+        await liveStream.save();
+      }
+
+      // Get viewer info
+      const viewerInfo = await User.findById(userId).select(
+        'firstName lastName username profilePicture avatar'
+      );
+
+      // Notify broadcaster and all viewers about new viewer
+      // Include viewerId (the userId) for WebRTC signaling
+      io.to(`stream:${streamId}`).emit('viewerJoined', {
+        streamId,
+        viewerId: userId.toString(), // Used for WebRTC peer connection
+        viewerSocketId: socket.id, // Socket ID for direct communication
+        viewerCount: liveStream.viewerCount,
+        viewer: {
+          _id: userId,
+          firstName: viewerInfo?.firstName,
+          lastName: viewerInfo?.lastName,
+          username: viewerInfo?.username,
+          profilePicture: viewerInfo?.profilePicture,
+          avatar: viewerInfo?.avatar,
+        },
+      });
+
+      // Also notify the broadcaster specifically so they can initiate WebRTC
+      io.to(liveStream.streamerId.toString()).emit('viewerJoined', {
+        streamId,
+        viewerId: userId.toString(),
+        viewerSocketId: socket.id,
+        viewerCount: liveStream.viewerCount,
+        viewer: {
+          _id: userId,
+          firstName: viewerInfo?.firstName,
+          lastName: viewerInfo?.lastName,
+          username: viewerInfo?.username,
+          profilePicture: viewerInfo?.profilePicture,
+          avatar: viewerInfo?.avatar,
+        },
+      });
+
+      socket.emit('liveStreamJoinSuccess', {
+        streamId,
+        viewerCount: liveStream.viewerCount,
+        broadcasterId: liveStream.streamerId.toString(),
+      });
+    } catch (error) {
+      console.error('Error joining live stream:', error);
+      socket.emit('liveStreamError', { error: 'Failed to join stream' });
+    }
+  });
+
+  // Leave Live Stream
+  socket.on('leaveLiveStream', async (data) => {
+    try {
+      const { streamId } = data;
+
+      const viewer = await LiveStreamViewer.findOne({
+        liveStreamId: streamId,
+        userId: userId,
+        leftAt: null,
+      });
+
+      if (viewer) {
+        viewer.leftAt = new Date();
+        await viewer.save();
+
+        // Decrement viewer count
+        const liveStream = await LiveStream.findById(streamId);
+        if (liveStream && liveStream.viewerCount > 0) {
+          liveStream.viewerCount -= 1;
+          await liveStream.save();
+
+          // Notify all viewers about updated count
+          io.to(`stream:${streamId}`).emit('viewerLeft', {
+            streamId,
+            viewerCount: liveStream.viewerCount,
+            userId: userId,
+          });
         }
-    });
+      }
 
-    // Join Live Stream
-    socket.on('joinLiveStream', async (data) => {
-        try {
-            const { streamId } = data;
+      // Leave the stream room
+      socket.leave(`stream:${streamId}`);
 
-            const liveStream = await LiveStream.findById(streamId);
+      socket.emit('liveStreamLeaveSuccess', { streamId });
+    } catch (error) {
+      console.error('Error leaving live stream:', error);
+      socket.emit('liveStreamError', { error: 'Failed to leave stream' });
+    }
+  });
 
-            if (!liveStream) {
-                socket.emit('liveStreamError', { error: 'Live stream not found' });
-                return;
-            }
+  // ==================== LIVE REACTIONS (Hearts) ====================
+  /**
+   * Handle live reactions (floating hearts like Instagram)
+   *
+   * These are ephemeral - we don't store them in the database,
+   * just broadcast to all viewers for visual effect.
+   */
+  socket.on('liveReaction', async (data) => {
+    try {
+      const { streamId, type = 'heart', color } = data;
 
-            if (liveStream.status !== 'live') {
-                socket.emit('liveStreamError', { error: 'Stream is not live' });
-                return;
-            }
+      const liveStream = await LiveStream.findById(streamId);
+      if (!liveStream || liveStream.status !== 'live') {
+        return; // Silently ignore reactions to non-live streams
+      }
 
-            // Join the stream room
-            socket.join(`stream:${streamId}`);
+      // Get user info for the reaction
+      const user = await User.findById(userId).select(
+        'firstName lastName username profilePicture avatar'
+      );
 
-            // Check if viewer already exists
-            let viewer = await LiveStreamViewer.findOne({
-                liveStreamId: streamId,
-                userId: userId
-            });
+      // Broadcast reaction to all viewers
+      io.to(`stream:${streamId}`).emit('liveReaction', {
+        streamId,
+        userId: userId.toString(),
+        user: {
+          _id: userId,
+          username: user?.username,
+          fullName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+          profilePicture: user?.profilePicture || user?.avatar,
+        },
+        type,
+        color: color || '#ef4444',
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      console.error('Error handling live reaction:', error);
+    }
+  });
 
-            if (!viewer) {
-                // Create new viewer record
-                viewer = await LiveStreamViewer.create({
-                    liveStreamId: streamId,
-                    userId: userId,
-                    joinedAt: new Date()
-                });
+  // ==================== PIN COMMENT ====================
+  /**
+   * Allow broadcaster to pin a comment for all viewers
+   */
+  socket.on('pinLiveComment', async (data) => {
+    try {
+      const { streamId, commentId } = data;
 
-                // Increment viewer count
-                liveStream.viewerCount += 1;
-                await liveStream.save();
-            } else if (viewer.leftAt) {
-                // Viewer rejoining
-                viewer.leftAt = null;
-                viewer.joinedAt = new Date();
-                await viewer.save();
+      const liveStream = await LiveStream.findById(streamId);
+      if (!liveStream) {
+        socket.emit('liveStreamError', { error: 'Stream not found' });
+        return;
+      }
 
-                liveStream.viewerCount += 1;
-                await liveStream.save();
-            }
+      // Only the broadcaster can pin comments
+      if (liveStream.streamerId.toString() !== userId.toString()) {
+        socket.emit('liveStreamError', { error: 'Only the broadcaster can pin comments' });
+        return;
+      }
 
-            // Get viewer info
-            const viewerInfo = await User.findById(userId).select('firstName lastName username profilePicture avatar');
+      // Get the comment
+      const comment = await LiveStreamComment.findById(commentId).populate(
+        'userId',
+        'firstName lastName username profilePicture avatar'
+      );
 
-            // Notify broadcaster and all viewers about new viewer
-            // Include viewerId (the userId) for WebRTC signaling
-            io.to(`stream:${streamId}`).emit('viewerJoined', {
-                streamId,
-                viewerId: userId.toString(), // Used for WebRTC peer connection
-                viewerSocketId: socket.id, // Socket ID for direct communication
-                viewerCount: liveStream.viewerCount,
-                viewer: {
-                    _id: userId,
-                    firstName: viewerInfo?.firstName,
-                    lastName: viewerInfo?.lastName,
-                    username: viewerInfo?.username,
-                    profilePicture: viewerInfo?.profilePicture,
-                    avatar: viewerInfo?.avatar
-                }
-            });
+      if (!comment) {
+        socket.emit('liveStreamError', { error: 'Comment not found' });
+        return;
+      }
 
-            // Also notify the broadcaster specifically so they can initiate WebRTC
-            io.to(liveStream.streamerId.toString()).emit('viewerJoined', {
-                streamId,
-                viewerId: userId.toString(),
-                viewerSocketId: socket.id,
-                viewerCount: liveStream.viewerCount,
-                viewer: {
-                    _id: userId,
-                    firstName: viewerInfo?.firstName,
-                    lastName: viewerInfo?.lastName,
-                    username: viewerInfo?.username,
-                    profilePicture: viewerInfo?.profilePicture,
-                    avatar: viewerInfo?.avatar
-                }
-            });
+      // Broadcast pinned comment to all viewers
+      io.to(`stream:${streamId}`).emit('commentPinned', {
+        streamId,
+        comment: {
+          _id: comment._id,
+          text: comment.text,
+          user: {
+            _id: comment.userId._id,
+            firstName: comment.userId.firstName,
+            lastName: comment.userId.lastName,
+            username: comment.userId.username,
+            profilePicture: comment.userId.profilePicture,
+            avatar: comment.userId.avatar,
+          },
+          createdAt: comment.createdAt,
+        },
+      });
+    } catch (error) {
+      console.error('Error pinning comment:', error);
+      socket.emit('liveStreamError', { error: 'Failed to pin comment' });
+    }
+  });
 
-            socket.emit('liveStreamJoinSuccess', {
-                streamId,
-                viewerCount: liveStream.viewerCount,
-                broadcasterId: liveStream.streamerId.toString()
-            });
+  // ==================== UNPIN COMMENT ====================
+  socket.on('unpinLiveComment', async (data) => {
+    try {
+      const { streamId } = data;
 
-        } catch (error) {
-            console.error('Error joining live stream:', error);
-            socket.emit('liveStreamError', { error: 'Failed to join stream' });
+      const liveStream = await LiveStream.findById(streamId);
+      if (!liveStream || liveStream.streamerId.toString() !== userId.toString()) {
+        socket.emit('liveStreamError', { error: 'Unauthorized' });
+        return;
+      }
+
+      // Broadcast unpin to all viewers
+      io.to(`stream:${streamId}`).emit('commentUnpinned', { streamId });
+    } catch (error) {
+      console.error('Error unpinning comment:', error);
+    }
+  });
+
+  // Live Comment
+  socket.on('liveComment', async (data) => {
+    try {
+      const { streamId, text } = data;
+
+      if (!text || text.trim().length === 0) {
+        socket.emit('liveStreamError', { error: 'Comment text is required' });
+        return;
+      }
+
+      const liveStream = await LiveStream.findById(streamId);
+
+      if (!liveStream || liveStream.status !== 'live') {
+        socket.emit('liveStreamError', { error: 'Stream is not live' });
+        return;
+      }
+
+      // Create comment
+      const comment = await LiveStreamComment.create({
+        liveStreamId: streamId,
+        userId: userId,
+        text: text.trim(),
+      });
+
+      // Populate user info
+      await comment.populate('userId', 'firstName lastName username profilePicture avatar');
+
+      // Broadcast comment to all viewers in the stream room
+      io.to(`stream:${streamId}`).emit('newLiveComment', {
+        streamId,
+        comment: {
+          _id: comment._id,
+          text: comment.text,
+          user: {
+            _id: comment.userId._id,
+            firstName: comment.userId.firstName,
+            lastName: comment.userId.lastName,
+            username: comment.userId.username,
+            profilePicture: comment.userId.profilePicture,
+            avatar: comment.userId.avatar,
+          },
+          createdAt: comment.createdAt,
+        },
+      });
+    } catch (error) {
+      console.error('Error sending live comment:', error);
+      socket.emit('liveStreamError', { error: 'Failed to send comment' });
+    }
+  });
+
+  // ==================== WEBRTC SIGNALING ====================
+
+  // Live Stream Offer (Broadcaster → Viewer)
+  socket.on('liveStreamOffer', async (data) => {
+    try {
+      const { streamId, viewerId, offer } = data;
+      console.log(`📤 Relaying offer from ${userId} to viewer ${viewerId}`);
+
+      // Send offer to specific viewer
+      io.to(viewerId).emit('liveStreamOffer', {
+        streamId,
+        broadcasterId: userId,
+        offer,
+      });
+      console.log(`  ✅ Offer sent to ${viewerId}`);
+    } catch (error) {
+      console.error('Error sending live stream offer:', error);
+      socket.emit('liveStreamError', { error: 'Failed to send offer' });
+    }
+  });
+
+  // Live Stream Answer (Viewer → Broadcaster)
+  socket.on('liveStreamAnswer', async (data) => {
+    try {
+      const { streamId, broadcasterId, answer } = data;
+      console.log(`📤 Relaying answer from ${userId} to broadcaster ${broadcasterId}`);
+
+      // Send answer back to broadcaster
+      io.to(broadcasterId).emit('liveStreamAnswer', {
+        streamId,
+        viewerId: userId,
+        answer,
+      });
+      console.log(`  ✅ Answer sent to ${broadcasterId}`);
+    } catch (error) {
+      console.error('Error sending live stream answer:', error);
+      socket.emit('liveStreamError', { error: 'Failed to send answer' });
+    }
+  });
+
+  // Live Stream ICE Candidate
+  socket.on('liveStreamIceCandidate', async (data) => {
+    try {
+      const { streamId, targetId, candidate } = data;
+
+      // Send ICE candidate to target peer
+      io.to(targetId).emit('liveStreamIceCandidate', {
+        streamId,
+        senderId: userId,
+        candidate,
+      });
+    } catch (error) {
+      console.error('Error sending ICE candidate:', error);
+      socket.emit('liveStreamError', { error: 'Failed to send ICE candidate' });
+    }
+  });
+
+  // Handle disconnect - clean up live stream if broadcaster disconnects
+  socket.on('disconnect', async () => {
+    try {
+      // Check if user was broadcasting
+      const activeStream = await LiveStream.findOne({
+        streamerId: userId,
+        status: 'live',
+      });
+
+      if (activeStream) {
+        // End the stream
+        activeStream.status = 'ended';
+        activeStream.endedAt = new Date();
+        await activeStream.save();
+
+        // Notify all viewers
+        io.to(`stream:${activeStream._id}`).emit('liveStreamEnded', {
+          streamId: activeStream._id,
+          endedAt: activeStream.endedAt,
+          reason: 'Broadcaster disconnected',
+        });
+
+        // Mark all viewers as left
+        await LiveStreamViewer.updateMany(
+          { liveStreamId: activeStream._id, leftAt: null },
+          { leftAt: new Date() }
+        );
+      }
+
+      // Check if user was viewing any streams
+      const viewingStreams = await LiveStreamViewer.find({
+        userId: userId,
+        leftAt: null,
+      });
+
+      for (const viewer of viewingStreams) {
+        viewer.leftAt = new Date();
+        await viewer.save();
+
+        // Decrement viewer count
+        const stream = await LiveStream.findById(viewer.liveStreamId);
+        if (stream && stream.viewerCount > 0) {
+          stream.viewerCount -= 1;
+          await stream.save();
+
+          // Notify remaining viewers
+          io.to(`stream:${viewer.liveStreamId}`).emit('viewerLeft', {
+            streamId: viewer.liveStreamId,
+            viewerCount: stream.viewerCount,
+            userId: userId,
+          });
         }
-    });
-
-    // Leave Live Stream
-    socket.on('leaveLiveStream', async (data) => {
-        try {
-            const { streamId } = data;
-
-            const viewer = await LiveStreamViewer.findOne({
-                liveStreamId: streamId,
-                userId: userId,
-                leftAt: null
-            });
-
-            if (viewer) {
-                viewer.leftAt = new Date();
-                await viewer.save();
-
-                // Decrement viewer count
-                const liveStream = await LiveStream.findById(streamId);
-                if (liveStream && liveStream.viewerCount > 0) {
-                    liveStream.viewerCount -= 1;
-                    await liveStream.save();
-
-                    // Notify all viewers about updated count
-                    io.to(`stream:${streamId}`).emit('viewerLeft', {
-                        streamId,
-                        viewerCount: liveStream.viewerCount,
-                        userId: userId
-                    });
-                }
-            }
-
-            // Leave the stream room
-            socket.leave(`stream:${streamId}`);
-
-            socket.emit('liveStreamLeaveSuccess', { streamId });
-
-        } catch (error) {
-            console.error('Error leaving live stream:', error);
-            socket.emit('liveStreamError', { error: 'Failed to leave stream' });
-        }
-    });
-
-    // Live Comment
-    socket.on('liveComment', async (data) => {
-        try {
-            const { streamId, text } = data;
-
-            if (!text || text.trim().length === 0) {
-                socket.emit('liveStreamError', { error: 'Comment text is required' });
-                return;
-            }
-
-            const liveStream = await LiveStream.findById(streamId);
-
-            if (!liveStream || liveStream.status !== 'live') {
-                socket.emit('liveStreamError', { error: 'Stream is not live' });
-                return;
-            }
-
-            // Create comment
-            const comment = await LiveStreamComment.create({
-                liveStreamId: streamId,
-                userId: userId,
-                text: text.trim()
-            });
-
-            // Populate user info
-            await comment.populate('userId', 'firstName lastName username profilePicture avatar');
-
-            // Broadcast comment to all viewers in the stream room
-            io.to(`stream:${streamId}`).emit('newLiveComment', {
-                streamId,
-                comment: {
-                    _id: comment._id,
-                    text: comment.text,
-                    user: {
-                        _id: comment.userId._id,
-                        firstName: comment.userId.firstName,
-                        lastName: comment.userId.lastName,
-                        username: comment.userId.username,
-                        profilePicture: comment.userId.profilePicture,
-                        avatar: comment.userId.avatar
-                    },
-                    createdAt: comment.createdAt
-                }
-            });
-
-        } catch (error) {
-            console.error('Error sending live comment:', error);
-            socket.emit('liveStreamError', { error: 'Failed to send comment' });
-        }
-    });
-
-    // ==================== WEBRTC SIGNALING ====================
-
-    // Live Stream Offer (Broadcaster → Viewer)
-    socket.on('liveStreamOffer', async (data) => {
-        try {
-            const { streamId, viewerId, offer } = data;
-
-            // Send offer to specific viewer
-            io.to(viewerId).emit('liveStreamOffer', {
-                streamId,
-                broadcasterId: userId,
-                offer
-            });
-
-        } catch (error) {
-            console.error('Error sending live stream offer:', error);
-            socket.emit('liveStreamError', { error: 'Failed to send offer' });
-        }
-    });
-
-    // Live Stream Answer (Viewer → Broadcaster)
-    socket.on('liveStreamAnswer', async (data) => {
-        try {
-            const { streamId, broadcasterId, answer } = data;
-
-            // Send answer back to broadcaster
-            io.to(broadcasterId).emit('liveStreamAnswer', {
-                streamId,
-                viewerId: userId,
-                answer
-            });
-
-        } catch (error) {
-            console.error('Error sending live stream answer:', error);
-            socket.emit('liveStreamError', { error: 'Failed to send answer' });
-        }
-    });
-
-    // Live Stream ICE Candidate
-    socket.on('liveStreamIceCandidate', async (data) => {
-        try {
-            const { streamId, targetId, candidate } = data;
-
-            // Send ICE candidate to target peer
-            io.to(targetId).emit('liveStreamIceCandidate', {
-                streamId,
-                senderId: userId,
-                candidate
-            });
-
-        } catch (error) {
-            console.error('Error sending ICE candidate:', error);
-            socket.emit('liveStreamError', { error: 'Failed to send ICE candidate' });
-        }
-    });
-
-    // Handle disconnect - clean up live stream if broadcaster disconnects
-    socket.on('disconnect', async () => {
-        try {
-            // Check if user was broadcasting
-            const activeStream = await LiveStream.findOne({
-                streamerId: userId,
-                status: 'live'
-            });
-
-            if (activeStream) {
-                // End the stream
-                activeStream.status = 'ended';
-                activeStream.endedAt = new Date();
-                await activeStream.save();
-
-                // Notify all viewers
-                io.to(`stream:${activeStream._id}`).emit('liveStreamEnded', {
-                    streamId: activeStream._id,
-                    endedAt: activeStream.endedAt,
-                    reason: 'Broadcaster disconnected'
-                });
-
-                // Mark all viewers as left
-                await LiveStreamViewer.updateMany(
-                    { liveStreamId: activeStream._id, leftAt: null },
-                    { leftAt: new Date() }
-                );
-            }
-
-            // Check if user was viewing any streams
-            const viewingStreams = await LiveStreamViewer.find({
-                userId: userId,
-                leftAt: null
-            });
-
-            for (const viewer of viewingStreams) {
-                viewer.leftAt = new Date();
-                await viewer.save();
-
-                // Decrement viewer count
-                const stream = await LiveStream.findById(viewer.liveStreamId);
-                if (stream && stream.viewerCount > 0) {
-                    stream.viewerCount -= 1;
-                    await stream.save();
-
-                    // Notify remaining viewers
-                    io.to(`stream:${viewer.liveStreamId}`).emit('viewerLeft', {
-                        streamId: viewer.liveStreamId,
-                        viewerCount: stream.viewerCount,
-                        userId: userId
-                    });
-                }
-            }
-
-        } catch (error) {
-            console.error('Error handling disconnect for live stream:', error);
-        }
-    });
+      }
+    } catch (error) {
+      console.error('Error handling disconnect for live stream:', error);
+    }
+  });
 };
 
 export default liveStreamSocket;
