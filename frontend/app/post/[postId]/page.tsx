@@ -121,7 +121,7 @@ export default function PostPage() {
 
     setLoadingComments(true);
     try {
-      const response = await commentService.getComments(postId, { limit: 50 });
+      const response = await postService.getPostComments(postId, { limit: 50 });
       if (response.success && response.data) {
         setComments(response.data.comments || response.data || []);
       }
@@ -211,7 +211,7 @@ export default function PostPage() {
 
     setIsSubmittingComment(true);
     try {
-      const response = await commentService.addComment(post._id, newComment.trim());
+      const response = await postService.commentOnPost(post._id, { text: newComment.trim() });
       if (response.success && response.data) {
         setComments((prev) => [response.data, ...prev]);
         setNewComment('');
@@ -229,7 +229,7 @@ export default function PostPage() {
     if (!replyText.trim() || !post) return;
 
     try {
-      const response = await commentService.replyToComment(post._id, commentId, replyText.trim());
+      const response = await commentService.replyToComment(commentId, { text: replyText.trim() });
       if (response.success && response.data) {
         // Update the comment with the new reply
         setComments((prev) =>
@@ -257,7 +257,7 @@ export default function PostPage() {
     if (!post) return;
 
     try {
-      await commentService.deleteComment(post._id, commentId);
+      await commentService.deleteComment(commentId);
       setComments((prev) => prev.filter((c) => c._id !== commentId));
       toasts.commentDeleted();
     } catch (error) {
@@ -616,14 +616,14 @@ export default function PostPage() {
         onClose={() => setShowShareModal(false)}
         contentType="post"
         contentId={post._id}
-        title={post.caption || 'Check out this post'}
       />
 
       {/* Report Modal */}
       <ReportPostModal
-        isOpen={showReportModal}
-        onClose={() => setShowReportModal(false)}
+        open={showReportModal}
+        onOpenChange={setShowReportModal}
         postId={post._id}
+        postAuthor={authorUsername}
       />
     </div>
   );

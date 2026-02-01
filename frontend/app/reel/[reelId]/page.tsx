@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { reelService } from '@/lib/api-services';
+import { commentService, reelService } from '@/lib/api-services';
 import { showToast, toasts } from '@/lib/toast';
 import {
   ArrowLeft,
@@ -94,7 +94,7 @@ export default function ReelPage() {
       setError(null);
 
       try {
-        const response = await reelService.getReelById(reelId);
+        const response = await reelService.getReelDetails(reelId);
 
         if (response.success && response.data) {
           setReel(response.data);
@@ -174,11 +174,8 @@ export default function ReelPage() {
     setLikeCount((prev) => (wasLiked ? prev - 1 : prev + 1));
 
     try {
-      if (wasLiked) {
-        await reelService.unlikeReel(reel._id);
-      } else {
-        await reelService.likeReel(reel._id);
-      }
+      // toggleLikeReel handles both like and unlike
+      await reelService.toggleLikeReel(reel._id);
     } catch (error) {
       // Revert on error
       setLiked(wasLiked);
@@ -248,7 +245,7 @@ export default function ReelPage() {
 
     setIsSubmittingComment(true);
     try {
-      const response = await reelService.addReelComment(reel._id, newComment.trim());
+      const response = await reelService.commentOnReel(reel._id, { text: newComment.trim() });
       if (response.success && response.data) {
         setComments((prev) => [response.data, ...prev]);
         setNewComment('');
@@ -266,7 +263,7 @@ export default function ReelPage() {
     if (!reel) return;
 
     try {
-      await reelService.deleteReelComment(reel._id, commentId);
+      await commentService.deleteComment(commentId);
       setComments((prev) => prev.filter((c) => c._id !== commentId));
       toasts.commentDeleted();
     } catch (error) {
@@ -577,14 +574,14 @@ export default function ReelPage() {
         onClose={() => setShowShareModal(false)}
         contentType="reel"
         contentId={reel._id}
-        title={reel.caption || 'Check out this reel'}
       />
 
       {/* Report Modal */}
       <ReportReelModal
-        isOpen={showReportModal}
-        onClose={() => setShowReportModal(false)}
+        open={showReportModal}
+        onOpenChange={setShowReportModal}
         reelId={reel._id}
+        reelAuthor={authorUsername}
       />
 
       {/* Confirm Dialog */}

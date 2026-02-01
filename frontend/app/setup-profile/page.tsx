@@ -343,7 +343,6 @@ export default function SetupProfilePage() {
       setEditorImageFile(file);
       setEditorType('profile');
       setShowImageEditor(true);
-      setShowProfileMenu(false);
     }
   };
 
@@ -358,7 +357,6 @@ export default function SetupProfilePage() {
       setEditorImageFile(file);
       setEditorType('cover');
       setShowImageEditor(true);
-      setShowCoverMenu(false);
     }
   };
 

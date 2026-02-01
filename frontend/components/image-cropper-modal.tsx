@@ -303,7 +303,7 @@ export function ImageCropperModal({
               min={minZoom}
               max={maxZoom}
               step={0.01}
-              onValueChange={([value]) => setZoom(value)}
+              onValueChange={([value]: number[]) => setZoom(value)}
               className="flex-1"
             />
             <Button
@@ -335,7 +335,7 @@ export function ImageCropperModal({
               min={-180}
               max={180}
               step={1}
-              onValueChange={([value]) => setRotation(value)}
+              onValueChange={([value]: number[]) => setRotation(value)}
               className="flex-1"
             />
             <Button
