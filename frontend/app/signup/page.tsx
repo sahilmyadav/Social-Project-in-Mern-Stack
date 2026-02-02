@@ -101,17 +101,15 @@ export default function SignupPage() {
     e.preventDefault();
     setLoading(true);
 
-    // Validation
+    // Validation - Only name, email, phone, and password are mandatory
     if (
       !formData.fullName ||
       !formData.email ||
       !formData.phone ||
       !formData.password ||
-      !formData.confirmPassword ||
-      !formData.gender ||
-      !formData.birthday
+      !formData.confirmPassword
     ) {
-      toast.error('Please fill in all fields');
+      toast.error('Please fill in all required fields');
       setLoading(false);
       return;
     }
@@ -157,12 +155,14 @@ export default function SignupPage() {
       return;
     }
 
-    // Age validation (16+)
-    const age = calculateAge(formData.birthday);
-    if (age < 16) {
-      toast.error('You must be at least 16 years old to create an account');
-      setLoading(false);
-      return;
+    // Age validation (16+) - only if birthday is provided
+    if (formData.birthday) {
+      const age = calculateAge(formData.birthday);
+      if (age < 16) {
+        toast.error('You must be at least 16 years old to create an account');
+        setLoading(false);
+        return;
+      }
     }
 
     try {
@@ -172,8 +172,8 @@ export default function SignupPage() {
         email: formData.email,
         phone: formData.phone,
         password: formData.password,
-        gender: formData.gender,
-        dob: formData.birthday,
+        ...(formData.gender && { gender: formData.gender }),
+        ...(formData.birthday && { dob: formData.birthday }),
       });
 
       if (response.success && response.data.otpSent) {
@@ -190,8 +190,8 @@ export default function SignupPage() {
               email: formData.email,
               phone: formData.phone,
               password: formData.password,
-              gender: formData.gender,
-              dob: formData.birthday,
+              ...(formData.gender && { gender: formData.gender }),
+              ...(formData.birthday && { dob: formData.birthday }),
             },
           })
         );
@@ -441,11 +441,11 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Gender & Birthday Row */}
+            {/* Gender & Birthday Row (Optional) */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
-                  Gender
+                  Gender <span className="text-gray-400 font-normal">(Optional)</span>
                 </label>
                 <div className="relative" ref={genderDropdownRef}>
                   <button
@@ -495,7 +495,7 @@ export default function SignupPage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                  Birthday
+                  Birthday <span className="text-gray-400 font-normal">(Optional)</span>
                 </label>
                 <Input
                   type="date"
@@ -504,13 +504,12 @@ export default function SignupPage() {
                   onChange={handleChange}
                   max={getMaxDate()}
                   disabled={loading}
-                  required
                   className="h-10 lg:h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
                 />
               </div>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 -mt-1 lg:-mt-2">
-              You must be at least 16 years old
+              If provided, you must be at least 16 years old
             </p>
 
             {/* Password */}

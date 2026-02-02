@@ -1,35 +1,41 @@
-"use client";
+'use client';
 
-import { useState, useRef } from "react";
+import MusicPickerModal from '@/components/music-picker-modal';
+import { Button } from '@/components/ui/button';
+import { storyService } from '@/lib/api-services';
+import '@/styles/filters.css';
 import {
-  X,
-  Upload,
-  Image as ImageIcon,
-  Video,
-  Music,
-  Sparkles,
-  Sun,
-  Moon,
-  Sunset,
-  Sunrise,
-  CloudRain,
-  Flame,
-  Snowflake,
-  Zap,
-  Heart,
-  Star,
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Aperture,
+  Bold,
   Camera,
-  Palette,
+  CloudRain,
+  Coffee,
   Contrast,
   Droplet,
+  Flame,
+  Heart,
+  Image as ImageIcon,
+  Italic,
+  Moon,
+  Music,
+  Palette,
+  Snowflake,
+  Sparkles,
+  Star,
+  Sun,
+  Sunrise,
+  Sunset,
+  Type,
+  Upload,
+  Video,
   Wind,
-  Coffee,
-  Aperture
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { storyService } from "@/lib/api-services";
-import MusicPickerModal from "@/components/music-picker-modal";
-import "@/styles/filters.css";
+  X,
+  Zap,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface AddStoryModalProps {
   isOpen: boolean;
@@ -37,46 +43,84 @@ interface AddStoryModalProps {
   onSuccess?: () => void;
 }
 
-// Instagram-style filters with icons
-const FILTERS = [
-  { name: "Normal", value: "normal", icon: Camera },
-  { name: "Clarendon", value: "clarendon", icon: Sun },
-  { name: "Gingham", value: "gingham", icon: Sparkles },
-  { name: "Juno", value: "juno", icon: Sunset },
-  { name: "Lark", value: "lark", icon: Sunrise },
-  { name: "Ludwig", value: "ludwig", icon: Palette },
-  { name: "Valencia", value: "valencia", icon: Heart },
-  { name: "X-Pro II", value: "xpro2", icon: Zap },
-  { name: "Aden", value: "aden", icon: CloudRain },
-  { name: "Brooklyn", value: "brooklyn", icon: Coffee },
-  { name: "Earlybird", value: "earlybird", icon: Sunrise },
-  { name: "Inkwell", value: "inkwell", icon: Moon },
-  { name: "Nashville", value: "nashville", icon: Star },
-  { name: "Perpetua", value: "perpetua", icon: Contrast },
-  { name: "Reyes", value: "reyes", icon: Droplet },
-  { name: "Rise", value: "rise", icon: Sunrise },
-  { name: "Slumber", value: "slumber", icon: Moon },
-  { name: "Toaster", value: "toaster", icon: Flame },
-  { name: "Walden", value: "walden", icon: Wind },
-  { name: "Willow", value: "willow", icon: Snowflake },
-  { name: "Vintage", value: "vintage", icon: Camera },
-  { name: "Cool", value: "cool", icon: Snowflake },
-  { name: "Warm", value: "warm", icon: Flame },
-  { name: "Dramatic", value: "dramatic", icon: Zap },
-  { name: "Vivid", value: "vivid", icon: Aperture },
+// Text overlay type
+interface TextOverlay {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+  fontWeight: 'normal' | 'bold';
+  fontStyle: 'normal' | 'italic';
+  textAlign: 'left' | 'center' | 'right';
+  backgroundColor: string;
+}
+
+// Text colors
+const TEXT_COLORS = [
+  '#FFFFFF',
+  '#000000',
+  '#FF0000',
+  '#00FF00',
+  '#0000FF',
+  '#FFFF00',
+  '#FF00FF',
+  '#00FFFF',
+  '#FF6B6B',
+  '#4ECDC4',
+  '#45B7D1',
+  '#96CEB4',
+  '#FFEAA7',
+  '#DDA0DD',
 ];
 
-export default function AddStoryModal({
-  isOpen,
-  onClose,
-  onSuccess,
-}: AddStoryModalProps) {
+// Background colors for text
+const BG_COLORS = [
+  'transparent',
+  'rgba(0,0,0,0.7)',
+  'rgba(255,255,255,0.7)',
+  'rgba(255,0,0,0.5)',
+  'rgba(0,0,255,0.5)',
+  'rgba(255,255,0,0.5)',
+];
+
+// Instagram-style filters with icons
+const FILTERS = [
+  { name: 'Normal', value: 'normal', icon: Camera },
+  { name: 'Clarendon', value: 'clarendon', icon: Sun },
+  { name: 'Gingham', value: 'gingham', icon: Sparkles },
+  { name: 'Juno', value: 'juno', icon: Sunset },
+  { name: 'Lark', value: 'lark', icon: Sunrise },
+  { name: 'Ludwig', value: 'ludwig', icon: Palette },
+  { name: 'Valencia', value: 'valencia', icon: Heart },
+  { name: 'X-Pro II', value: 'xpro2', icon: Zap },
+  { name: 'Aden', value: 'aden', icon: CloudRain },
+  { name: 'Brooklyn', value: 'brooklyn', icon: Coffee },
+  { name: 'Earlybird', value: 'earlybird', icon: Sunrise },
+  { name: 'Inkwell', value: 'inkwell', icon: Moon },
+  { name: 'Nashville', value: 'nashville', icon: Star },
+  { name: 'Perpetua', value: 'perpetua', icon: Contrast },
+  { name: 'Reyes', value: 'reyes', icon: Droplet },
+  { name: 'Rise', value: 'rise', icon: Sunrise },
+  { name: 'Slumber', value: 'slumber', icon: Moon },
+  { name: 'Toaster', value: 'toaster', icon: Flame },
+  { name: 'Walden', value: 'walden', icon: Wind },
+  { name: 'Willow', value: 'willow', icon: Snowflake },
+  { name: 'Vintage', value: 'vintage', icon: Camera },
+  { name: 'Cool', value: 'cool', icon: Snowflake },
+  { name: 'Warm', value: 'warm', icon: Flame },
+  { name: 'Dramatic', value: 'dramatic', icon: Zap },
+  { name: 'Vivid', value: 'vivid', icon: Aperture },
+];
+
+export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [fileType, setFileType] = useState<"image" | "video" | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [fileType, setFileType] = useState<'image' | 'video' | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState("");
-  const [selectedFilter, setSelectedFilter] = useState("normal");
+  const [error, setError] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('normal');
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState<{
     trackId: string;
@@ -87,26 +131,250 @@ export default function AddStoryModal({
     startTime: number;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
+
+  // Text overlay state
+  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
+  const [showTextEditor, setShowTextEditor] = useState(false);
+  const [activeTextId, setActiveTextId] = useState<string | null>(null);
+  const [newText, setNewText] = useState('');
+  const [textColor, setTextColor] = useState('#FFFFFF');
+  const [textBgColor, setTextBgColor] = useState('transparent');
+  const [fontSize, setFontSize] = useState(24);
+  const [fontWeight, setFontWeight] = useState<'normal' | 'bold'>('normal');
+  const [fontStyle, setFontStyle] = useState<'normal' | 'italic'>('normal');
+  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('center');
+
+  // Dragging state
+  const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+  // Text overlay functions
+  const addTextOverlay = () => {
+    if (!newText.trim()) return;
+
+    const newOverlay: TextOverlay = {
+      id: Date.now().toString(),
+      text: newText,
+      x: 50,
+      y: 50,
+      fontSize,
+      color: textColor,
+      fontWeight,
+      fontStyle,
+      textAlign,
+      backgroundColor: textBgColor,
+    };
+
+    setTextOverlays([...textOverlays, newOverlay]);
+    setNewText('');
+    setShowTextEditor(false);
+  };
+
+  const updateTextOverlay = (id: string, updates: Partial<TextOverlay>) => {
+    setTextOverlays(
+      textOverlays.map((overlay) => (overlay.id === id ? { ...overlay, ...updates } : overlay))
+    );
+  };
+
+  const deleteTextOverlay = (id: string) => {
+    setTextOverlays(textOverlays.filter((overlay) => overlay.id !== id));
+    if (activeTextId === id) setActiveTextId(null);
+  };
+
+  // Drag handlers
+  const handleTextDragStart = (e: React.MouseEvent | React.TouchEvent, id: string) => {
+    e.preventDefault();
+    const overlay = textOverlays.find((t) => t.id === id);
+    if (!overlay || !imageContainerRef.current) return;
+
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    setDraggingTextId(id);
+    setDragOffset({
+      x: clientX - (rect.left + (overlay.x / 100) * rect.width),
+      y: clientY - (rect.top + (overlay.y / 100) * rect.height),
+    });
+    setActiveTextId(id);
+  };
+
+  const handleTextDrag = useCallback(
+    (e: MouseEvent | TouchEvent) => {
+      if (!draggingTextId || !imageContainerRef.current) return;
+
+      const rect = imageContainerRef.current.getBoundingClientRect();
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+      const x = ((clientX - dragOffset.x - rect.left) / rect.width) * 100;
+      const y = ((clientY - dragOffset.y - rect.top) / rect.height) * 100;
+
+      updateTextOverlay(draggingTextId, {
+        x: Math.max(5, Math.min(95, x)),
+        y: Math.max(5, Math.min(95, y)),
+      });
+    },
+    [draggingTextId, dragOffset]
+  );
+
+  const handleTextDragEnd = useCallback(() => {
+    setDraggingTextId(null);
+  }, []);
+
+  useEffect(() => {
+    if (draggingTextId) {
+      window.addEventListener('mousemove', handleTextDrag);
+      window.addEventListener('mouseup', handleTextDragEnd);
+      window.addEventListener('touchmove', handleTextDrag);
+      window.addEventListener('touchend', handleTextDragEnd);
+      return () => {
+        window.removeEventListener('mousemove', handleTextDrag);
+        window.removeEventListener('mouseup', handleTextDragEnd);
+        window.removeEventListener('touchmove', handleTextDrag);
+        window.removeEventListener('touchend', handleTextDragEnd);
+      };
+    }
+  }, [draggingTextId, handleTextDrag, handleTextDragEnd]);
+
+  // Process image with filter and text overlays
+  const processImageWithEdits = async (): Promise<File | null> => {
+    if (!selectedFile || fileType !== 'image') return selectedFile;
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      // Set timeout for image loading
+      const timeout = setTimeout(() => {
+        reject(new Error('Image loading timed out'));
+      }, 10000);
+
+      img.onerror = () => {
+        clearTimeout(timeout);
+        reject(new Error('Failed to load image'));
+      };
+
+      img.onload = () => {
+        clearTimeout(timeout);
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(selectedFile);
+            return;
+          }
+
+          canvas.width = img.width;
+          canvas.height = img.height;
+
+          // Apply filter
+          const filterStyles: Record<string, string> = {
+            normal: 'none',
+            clarendon: 'contrast(1.2) saturate(1.35) brightness(1.1)',
+            gingham: 'brightness(1.05) hue-rotate(-10deg)',
+            juno: 'contrast(1.2) saturate(1.4) brightness(1.1) sepia(0.2)',
+            lark: 'contrast(0.9) saturate(0.85) brightness(1.08)',
+            ludwig: 'contrast(1.05) brightness(1.05) saturate(2)',
+            valencia: 'contrast(1.08) brightness(1.08) sepia(0.08)',
+            xpro2: 'sepia(0.3) contrast(1.3) brightness(0.95) saturate(1.2)',
+            aden: 'contrast(0.9) brightness(1.2) saturate(0.85) hue-rotate(-20deg)',
+            brooklyn: 'contrast(0.9) brightness(1.1) sepia(0.1)',
+            earlybird: 'contrast(0.9) sepia(0.2) brightness(1.1)',
+            inkwell: 'grayscale(100%) contrast(1.1) brightness(1.1)',
+            nashville: 'sepia(0.2) contrast(1.2) brightness(1.05) saturate(1.2)',
+            perpetua: 'contrast(1.1) saturate(1.2)',
+            reyes: 'sepia(0.22) brightness(1.1) contrast(0.85) saturate(0.75)',
+            rise: 'brightness(1.05) sepia(0.2) contrast(0.9) saturate(0.9)',
+            slumber: 'saturate(0.66) brightness(1.05)',
+            toaster: 'contrast(1.5) brightness(0.9) sepia(0.1)',
+            walden: 'brightness(1.1) hue-rotate(-10deg) sepia(0.3) saturate(1.6)',
+            willow: 'grayscale(50%) contrast(0.95) brightness(0.9)',
+            vintage: 'sepia(0.5) contrast(1.2) brightness(0.9)',
+            cool: 'saturate(1.4) brightness(1.05) hue-rotate(-15deg)',
+            warm: 'saturate(1.2) brightness(1.1) hue-rotate(10deg) sepia(0.15)',
+            dramatic: 'contrast(1.5) saturate(0.8) brightness(0.95)',
+            vivid: 'saturate(2) contrast(1.2) brightness(1.05)',
+          };
+
+          ctx.filter = filterStyles[selectedFilter] || 'none';
+          ctx.drawImage(img, 0, 0);
+          ctx.filter = 'none';
+
+          // Draw text overlays
+          textOverlays.forEach((overlay) => {
+            const x = (overlay.x / 100) * canvas.width;
+            const y = (overlay.y / 100) * canvas.height;
+            const scaledFontSize = (overlay.fontSize / 300) * canvas.width;
+
+            ctx.font = `${overlay.fontStyle} ${overlay.fontWeight} ${scaledFontSize}px sans-serif`;
+            ctx.textAlign = overlay.textAlign;
+            ctx.textBaseline = 'middle';
+
+            if (overlay.backgroundColor !== 'transparent') {
+              const metrics = ctx.measureText(overlay.text);
+              const padding = scaledFontSize * 0.3;
+              const bgWidth = metrics.width + padding * 2;
+              const bgHeight = scaledFontSize + padding;
+
+              ctx.fillStyle = overlay.backgroundColor;
+              let bgX = x - padding;
+              if (overlay.textAlign === 'center') bgX = x - bgWidth / 2;
+              else if (overlay.textAlign === 'right') bgX = x - bgWidth + padding;
+
+              ctx.fillRect(bgX, y - bgHeight / 2, bgWidth, bgHeight);
+            }
+
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = scaledFontSize * 0.1;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            ctx.fillStyle = overlay.color;
+            ctx.fillText(overlay.text, x, y);
+            ctx.shadowColor = 'transparent';
+          });
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const processedFile = new File([blob], selectedFile.name, { type: 'image/jpeg' });
+                resolve(processedFile);
+              } else {
+                resolve(selectedFile);
+              }
+            },
+            'image/jpeg',
+            0.9
+          );
+        } catch (error) {
+          console.error('Error processing image:', error);
+          resolve(selectedFile);
+        }
+      };
+      img.src = previewUrl;
+    });
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Validate file type
-    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
-      setError("Please select an image or video file");
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+      setError('Please select an image or video file');
       return;
     }
 
     // Validate file size (max 50MB)
     if (file.size > 50 * 1024 * 1024) {
-      setError("File size must be less than 50MB");
+      setError('File size must be less than 50MB');
       return;
     }
 
-    setError("");
+    setError('');
     setSelectedFile(file);
-    const type = file.type.startsWith("image/") ? "image" : "video";
+    const type = file.type.startsWith('image/') ? 'image' : 'video';
     setFileType(type);
 
     // Create preview URL
@@ -118,14 +386,27 @@ export default function AddStoryModal({
     if (!selectedFile) return;
 
     setIsUploading(true);
-    setError("");
+    setError('');
 
     try {
+      let fileToUpload = selectedFile;
+
+      // Only process image files with filters/text overlays
+      if (fileType === 'image' && (selectedFilter !== 'normal' || textOverlays.length > 0)) {
+        try {
+          const processedFile = await processImageWithEdits();
+          if (processedFile) {
+            fileToUpload = processedFile;
+          }
+        } catch (processError) {
+          console.warn('Image processing failed, using original file:', processError);
+          // Continue with original file if processing fails
+        }
+      }
+
       const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("filter", selectedFilter);
-
-
+      formData.append('file', fileToUpload);
+      formData.append('filter', selectedFilter);
 
       // Add music data if selected
       if (selectedMusic) {
@@ -135,9 +416,9 @@ export default function AddStoryModal({
           artistName: selectedMusic.artistName,
           albumArt: selectedMusic.albumArt,
           previewUrl: selectedMusic.previewUrl,
-          startTime: selectedMusic.startTime, // ← CRITICAL: Include start time
+          startTime: selectedMusic.startTime,
         };
-        formData.append("music", JSON.stringify(musicData));
+        formData.append('music', JSON.stringify(musicData));
       }
 
       const response = await storyService.uploadStory(formData);
@@ -146,11 +427,11 @@ export default function AddStoryModal({
         onSuccess?.();
         handleClose();
       } else {
-        setError(response.message || "Failed to upload story");
+        setError(response.message || 'Failed to upload story');
       }
     } catch (err: any) {
-      console.error("❌ Error uploading story:", err);
-      setError(err.message || "Failed to upload story. Please try again.");
+      console.error('❌ Error uploading story:', err);
+      setError(err.message || 'Failed to upload story. Please try again.');
     } finally {
       setIsUploading(false);
     }
@@ -158,10 +439,14 @@ export default function AddStoryModal({
 
   const handleClose = () => {
     setSelectedFile(null);
-    setPreviewUrl("");
+    setPreviewUrl('');
     setFileType(null);
-    setError("");
-    setSelectedFilter("normal");
+    setError('');
+    setSelectedFilter('normal');
+    setTextOverlays([]);
+    setShowTextEditor(false);
+    setActiveTextId(null);
+    setSelectedMusic(null);
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
@@ -198,9 +483,7 @@ export default function AddStoryModal({
                   <Upload className="w-8 h-8 text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold mb-2">
-                    Upload a Photo or Video
-                  </h3>
+                  <h3 className="text-lg font-semibold mb-2">Upload a Photo or Video</h3>
                   <p className="text-sm text-muted-foreground mb-4">
                     Share a moment with your followers
                   </p>
@@ -223,8 +506,11 @@ export default function AddStoryModal({
           ) : (
             // Preview area
             <div className="space-y-3">
-              <div className="relative rounded-2xl overflow-hidden bg-black aspect-[9/16] max-h-[400px] flex items-center justify-center">
-                {fileType === "image" ? (
+              <div
+                ref={imageContainerRef}
+                className="relative rounded-2xl overflow-hidden bg-black aspect-[9/16] max-h-[400px] flex items-center justify-center"
+              >
+                {fileType === 'image' ? (
                   <img
                     src={previewUrl}
                     alt="Story preview"
@@ -238,6 +524,54 @@ export default function AddStoryModal({
                   />
                 )}
 
+                {/* Text Overlays */}
+                {textOverlays.map((overlay) => (
+                  <div
+                    key={overlay.id}
+                    className={`absolute cursor-move select-none ${activeTextId === overlay.id ? 'ring-2 ring-primary ring-offset-2' : ''}`}
+                    style={{
+                      left: `${overlay.x}%`,
+                      top: `${overlay.y}%`,
+                      transform: 'translate(-50%, -50%)',
+                      fontSize: `${overlay.fontSize}px`,
+                      color: overlay.color,
+                      fontWeight: overlay.fontWeight,
+                      fontStyle: overlay.fontStyle,
+                      textAlign: overlay.textAlign,
+                      backgroundColor: overlay.backgroundColor,
+                      padding: overlay.backgroundColor !== 'transparent' ? '4px 8px' : '0',
+                      borderRadius: '4px',
+                      textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseDown={(e) => handleTextDragStart(e, overlay.id)}
+                    onTouchStart={(e) => handleTextDragStart(e, overlay.id)}
+                    onClick={() => setActiveTextId(overlay.id)}
+                  >
+                    {overlay.text}
+                    {activeTextId === overlay.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteTextOverlay(overlay.id);
+                        }}
+                        className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 text-xs"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Add text button */}
+                <button
+                  onClick={() => setShowTextEditor(true)}
+                  className="absolute top-3 left-3 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition"
+                  disabled={isUploading}
+                >
+                  <Type className="w-5 h-5" />
+                </button>
+
                 {/* Music indicator overlay */}
                 {selectedMusic && (
                   <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-sm rounded-xl p-3 flex items-center gap-3">
@@ -248,9 +582,7 @@ export default function AddStoryModal({
                       <p className="text-white font-semibold text-sm truncate">
                         {selectedMusic.trackName}
                       </p>
-                      <p className="text-white/70 text-xs truncate">
-                        {selectedMusic.artistName}
-                      </p>
+                      <p className="text-white/70 text-xs truncate">{selectedMusic.artistName}</p>
                     </div>
                     <button
                       onClick={() => setSelectedMusic(null)}
@@ -274,14 +606,18 @@ export default function AddStoryModal({
                       <button
                         key={filter.value}
                         onClick={() => setSelectedFilter(filter.value)}
-                        className={`flex-shrink-0 flex flex-col items-center gap-1.5 transition ${selectedFilter === filter.value ? "opacity-100" : "opacity-60 hover:opacity-80"
-                          }`}
+                        className={`flex-shrink-0 flex flex-col items-center gap-1.5 transition ${
+                          selectedFilter === filter.value
+                            ? 'opacity-100'
+                            : 'opacity-60 hover:opacity-80'
+                        }`}
                       >
                         <div
-                          className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition relative ${selectedFilter === filter.value
-                            ? "border-primary shadow-lg shadow-primary/20 scale-105"
-                            : "border-border"
-                            }`}
+                          className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition relative ${
+                            selectedFilter === filter.value
+                              ? 'border-primary shadow-lg shadow-primary/20 scale-105'
+                              : 'border-border'
+                          }`}
                         >
                           {/* Gradient background with filter applied */}
                           <div
@@ -300,6 +636,118 @@ export default function AddStoryModal({
                   })}
                 </div>
               </div>
+
+              {/* Text Editor Panel */}
+              {showTextEditor && (
+                <div className="p-3 bg-muted rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold">Add Text</h4>
+                    <button
+                      onClick={() => setShowTextEditor(false)}
+                      className="p-1 hover:bg-background rounded"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={newText}
+                    onChange={(e) => setNewText(e.target.value)}
+                    placeholder="Enter your text..."
+                    className="w-full p-2 border border-border rounded-lg bg-background text-sm"
+                    maxLength={100}
+                  />
+
+                  {/* Font Size */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-12">Size:</span>
+                    <input
+                      type="range"
+                      min="12"
+                      max="48"
+                      value={fontSize}
+                      onChange={(e) => setFontSize(Number(e.target.value))}
+                      className="flex-1"
+                    />
+                    <span className="text-xs w-8">{fontSize}px</span>
+                  </div>
+
+                  {/* Text Style Buttons */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setFontWeight(fontWeight === 'bold' ? 'normal' : 'bold')}
+                      className={`p-2 rounded ${fontWeight === 'bold' ? 'bg-primary text-primary-foreground' : 'bg-background border border-border'}`}
+                    >
+                      <Bold className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setFontStyle(fontStyle === 'italic' ? 'normal' : 'italic')}
+                      className={`p-2 rounded ${fontStyle === 'italic' ? 'bg-primary text-primary-foreground' : 'bg-background border border-border'}`}
+                    >
+                      <Italic className="w-4 h-4" />
+                    </button>
+                    <div className="h-6 w-px bg-border mx-1" />
+                    <button
+                      onClick={() => setTextAlign('left')}
+                      className={`p-2 rounded ${textAlign === 'left' ? 'bg-primary text-primary-foreground' : 'bg-background border border-border'}`}
+                    >
+                      <AlignLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setTextAlign('center')}
+                      className={`p-2 rounded ${textAlign === 'center' ? 'bg-primary text-primary-foreground' : 'bg-background border border-border'}`}
+                    >
+                      <AlignCenter className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setTextAlign('right')}
+                      className={`p-2 rounded ${textAlign === 'right' ? 'bg-primary text-primary-foreground' : 'bg-background border border-border'}`}
+                    >
+                      <AlignRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Text Colors */}
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground">Text Color:</span>
+                    <div className="flex gap-1 flex-wrap">
+                      {TEXT_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => setTextColor(color)}
+                          className={`w-6 h-6 rounded-full border-2 ${textColor === color ? 'border-primary scale-110' : 'border-border'}`}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Background Colors */}
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground">Background:</span>
+                    <div className="flex gap-1 flex-wrap">
+                      {BG_COLORS.map((color, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setTextBgColor(color)}
+                          className={`w-6 h-6 rounded border-2 ${textBgColor === color ? 'border-primary scale-110' : 'border-border'} ${color === 'transparent' ? 'bg-[url("data:image/svg+xml,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 8 8%27%3e%3cpath fill=%27%23ccc%27 d=%27M0 0h4v4H0V0zm4 4h4v4H4V4z%27/%3e%3c/svg%3e")] bg-[length:8px_8px]' : ''}`}
+                          style={{ backgroundColor: color !== 'transparent' ? color : undefined }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <Button
+                    onClick={addTextOverlay}
+                    disabled={!newText.trim()}
+                    size="sm"
+                    className="w-full"
+                  >
+                    Add Text to Story
+                  </Button>
+                </div>
+              )}
 
               {/* Add Music Button */}
               {!selectedMusic && (
@@ -338,23 +786,22 @@ export default function AddStoryModal({
               variant="outline"
               onClick={() => {
                 setSelectedFile(null);
-                setPreviewUrl("");
+                setPreviewUrl('');
                 setFileType(null);
-                setError("");
+                setError('');
                 setSelectedMusic(null);
-                setSelectedFilter("normal");
+                setSelectedFilter('normal');
+                setTextOverlays([]);
+                setShowTextEditor(false);
+                setActiveTextId(null);
               }}
               disabled={isUploading}
               className="flex-1"
             >
               Change File
             </Button>
-            <Button
-              onClick={handleUpload}
-              disabled={isUploading}
-              className="flex-1"
-            >
-              {isUploading ? "Uploading..." : "Share to Story"}
+            <Button onClick={handleUpload} disabled={isUploading} className="flex-1">
+              {isUploading ? 'Uploading...' : 'Share to Story'}
             </Button>
           </div>
         )}

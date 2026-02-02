@@ -8,6 +8,7 @@ import { getMediaUrl } from '@/lib/media-utils';
 import {
   ChevronDown,
   ChevronUp,
+  Eye,
   Heart,
   MessageCircle,
   Play,
@@ -57,6 +58,7 @@ export default function ReelsPage() {
   const [showComments, setShowComments] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reelContainerRef = useRef<HTMLDivElement>(null);
+  const viewedReelsRef = useRef<Set<string>>(new Set());
   const router = useRouter();
 
   useEffect(() => {
@@ -106,6 +108,40 @@ export default function ReelsPage() {
       }
     }
   }, [isPlaying, currentReelIndex]);
+
+  // Track reel view when current reel changes
+  useEffect(() => {
+    const currentReel = reels[currentReelIndex];
+    if (!currentReel || !user) return;
+
+    // Only track view once per reel per session
+    if (viewedReelsRef.current.has(currentReel._id)) return;
+
+    const trackView = async () => {
+      try {
+        viewedReelsRef.current.add(currentReel._id);
+        const response = await reelService.viewReel(currentReel._id);
+        if (response.success && response.data) {
+          // Update view count in state
+          setReels((prevReels) =>
+            prevReels.map((reel) =>
+              reel._id === currentReel._id
+                ? { ...reel, views_count: response.data.views_count }
+                : reel
+            )
+          );
+        }
+      } catch (error) {
+        console.error('Error tracking reel view:', error);
+        // Remove from viewed set so it can be retried
+        viewedReelsRef.current.delete(currentReel._id);
+      }
+    };
+
+    // Small delay to avoid tracking if user is just scrolling through
+    const timeoutId = setTimeout(trackView, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [currentReelIndex, reels, user]);
 
   // Scroll snap functionality
   useEffect(() => {
@@ -390,6 +426,13 @@ export default function ReelsPage() {
                         </div>
                         <span className="text-white text-xs">{reel.shares_count}</span>
                       </button>
+
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="p-2.5 rounded-full bg-black/40">
+                          <Eye size={22} className="text-white" />
+                        </div>
+                        <span className="text-white text-xs">{reel.views_count}</span>
+                      </div>
                     </div>
                   </div>
                 </div>

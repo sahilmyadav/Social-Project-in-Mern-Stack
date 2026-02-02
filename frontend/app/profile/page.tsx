@@ -706,9 +706,20 @@ export default function ProfilePage() {
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowSettingsMenu(false);
-                      document.getElementById('profilePictureInput')?.click();
+                      router.push('/account-settings');
                     }}
                     className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base rounded-t-xl"
+                  >
+                    <Edit2 size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                    <span>Edit Profile</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      document.getElementById('profilePictureInput')?.click();
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base"
                   >
                     <Camera size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
                     <span>Change Profile</span>
@@ -845,10 +856,18 @@ export default function ProfilePage() {
                       .replace(/\s+/g, '')}
                 </p>
 
-                <div className="flex justify-center mt-4">
+                <div className="flex justify-center gap-3 mt-4">
+                  <Button
+                    onClick={() => router.push('/account-settings')}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 cursor-pointer text-sm md:text-base"
+                  >
+                    <Edit2 size={16} className="md:w-[18px] md:h-[18px]" />
+                    Edit Profile
+                  </Button>
                   <Button
                     onClick={() => setShowEditModal(true)}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 cursor-pointer text-sm md:text-base"
+                    variant="outline"
+                    className="gap-2 cursor-pointer text-sm md:text-base"
                   >
                     <Edit2 size={16} className="md:w-[18px] md:h-[18px]" />
                     Edit Bio

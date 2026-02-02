@@ -51,8 +51,19 @@ export const initSocket = (token: string) => {
   });
 
   socket.on('connect_error', (error) => {
-    console.error('🔌 Socket connection error:', error.message);
+    // Only log in development and avoid noisy errors during reconnection
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('🔌 Socket connection error:', error.message);
+    }
     isConnecting = false;
+  });
+
+  // Handle general socket errors silently (websocket errors during reconnection)
+  socket.on('error', (error) => {
+    // Suppress noisy websocket errors that occur during reconnection
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('🔌 Socket error (suppressed):', error);
+    }
   });
 
   socket.on('reconnect', () => {

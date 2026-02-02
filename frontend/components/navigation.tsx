@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { followService, notificationService } from '@/lib/api-services';
+import { chatService, followService, notificationService } from '@/lib/api-services';
 import {
   Bell,
   Heart,
@@ -26,15 +26,20 @@ interface NavigationProps {
 
 export default function Navigation({ user, onLogout, isMobile }: NavigationProps) {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [notificationApiAvailable, setNotificationApiAvailable] = useState(true);
 
   useEffect(() => {
     // Only load if API is available and user exists
     if (notificationApiAvailable && user) {
       loadUnreadCount();
+      loadChatUnreadCount();
 
       // Poll for new notifications every 30 seconds
-      const interval = setInterval(loadUnreadCount, 30000);
+      const interval = setInterval(() => {
+        loadUnreadCount();
+        loadChatUnreadCount();
+      }, 30000);
       return () => clearInterval(interval);
     }
   }, [user, notificationApiAvailable]);
@@ -75,13 +80,29 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
     }
   };
 
+  const loadChatUnreadCount = async () => {
+    try {
+      const response = await chatService.getUnreadCount();
+      if (response.success && response.data) {
+        setChatUnreadCount(response.data.unreadCount || 0);
+      }
+    } catch (error) {
+      // Silently fail
+    }
+  };
+
   // Mobile navigation items (5 essential items) - only show badge if count > 0
   const mobileNavItems = [
     { icon: Home, label: 'Home', href: '/home' },
     { icon: Search, label: 'Explore', href: '/explore' },
     { icon: Radio, label: 'Live', href: '/live' },
     { icon: Plus, label: 'Create', href: '/create', isSpecial: true }, // Special styling for create
-    { icon: MessageCircle, label: 'Chat', href: '/chat' },
+    {
+      icon: MessageCircle,
+      label: 'Chat',
+      href: '/chat',
+      badge: chatUnreadCount > 0 ? chatUnreadCount : undefined,
+    },
     {
       icon: Bell,
       label: 'Notifications',
@@ -98,7 +119,12 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
     { icon: Search, label: 'Explore', href: '/explore' },
     { icon: Radio, label: 'Live', href: '/live' },
     { icon: Video, label: 'Reels', href: '/reels' },
-    { icon: MessageCircle, label: 'Chat', href: '/chat' },
+    {
+      icon: MessageCircle,
+      label: 'Chat',
+      href: '/chat',
+      badge: chatUnreadCount > 0 ? chatUnreadCount : undefined,
+    },
     {
       icon: Bell,
       label: 'Notifications',
@@ -187,7 +213,11 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
           </p>
         </div>
         <Button
-          onClick={onLogout}
+          type="button"
+          onClick={() => {
+            console.log('Logout button clicked');
+            onLogout();
+          }}
           variant="outline"
           className="w-full gap-2 bg-transparent hover:bg-red-500/10 hover:text-red-500 hover:border-red-500 transition-colors cursor-pointer"
         >

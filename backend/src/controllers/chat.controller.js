@@ -8,13 +8,13 @@ import { getIO } from '../socket/socket.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { uploadOnCloudinary } from '../utils/cloudinary.js';
 import {
   decryptMessage,
   encryptMediaUrl,
   encryptMessage,
   generateSessionKey,
 } from '../utils/encryption.js';
+import { uploadOnCloudinary } from '../utils/localStorage.js';
 
 // 1.5. Get all threads for current user (NEW)
 export const getAllThreads = asyncHandler(async (req, res) => {
@@ -876,6 +876,31 @@ export const deleteThread = asyncHandler(async (req, res) => {
   );
 });
 
+// Get total unread count across all threads
+export const getUnreadCount = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const userIdStr = userId.toString();
+
+  // Find all threads where user is a participant
+  const threads = await ChatThread.find({
+    participants: userId,
+    isDeleted: false,
+  }).lean();
+
+  // Sum up unread counts across all threads
+  let totalUnread = 0;
+  threads.forEach((thread) => {
+    if (thread.unreadCount) {
+      const count = thread.unreadCount[userIdStr] || 0;
+      totalUnread += count;
+    }
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { unreadCount: totalUnread }, 'Unread count fetched successfully'));
+});
+
 export default {
   getAllThreads,
   createOrGetThread,
@@ -888,4 +913,5 @@ export default {
   requestCall,
   endCall,
   deleteThread,
+  getUnreadCount,
 };

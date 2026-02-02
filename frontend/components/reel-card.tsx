@@ -16,6 +16,7 @@ import { showToast } from '@/lib/toast';
 import {
   Bookmark,
   Download,
+  Eye,
   Heart,
   MessageCircle,
   MoreHorizontal,
@@ -31,13 +32,21 @@ interface ReelCardProps {
   reel: any;
   currentUserId?: string;
   onCommentClick?: () => void;
+  onViewUpdate?: (reelId: string, viewCount: number) => void;
 }
 
-export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCardProps) {
+export default function ReelCard({
+  reel,
+  currentUserId,
+  onCommentClick,
+  onViewUpdate,
+}: ReelCardProps) {
   const router = useRouter();
   const [liked, setLiked] = useState(reel.isLiked || false);
   const [likeCount, setLikeCount] = useState(reel.likes_count || 0);
   const [saved, setSaved] = useState(reel.isSaved || false);
+  const [viewCount, setViewCount] = useState(reel.views_count || 0);
+  const [isViewed, setIsViewed] = useState(reel.isViewed || false);
   const [isLiking, setIsLiking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -49,6 +58,7 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
   const [userPaused, setUserPaused] = useState(false); // Track if user manually paused
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hasTrackedView = useRef(reel.isViewed || false);
   const { confirm, dialogProps } = useConfirmDialog();
 
   // Check if this is the user's own reel
@@ -90,6 +100,32 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
       videoRef.current.pause();
     }
   }, [isInView, userPaused]);
+
+  // Track reel view when in view
+  useEffect(() => {
+    if (!isInView || hasTrackedView.current || !reel._id) return;
+
+    const trackView = async () => {
+      try {
+        hasTrackedView.current = true;
+        setIsViewed(true);
+        const response = await reelService.viewReel(reel._id);
+        if (response.success && response.data) {
+          setViewCount(response.data.views_count);
+          // Notify parent of the view update
+          onViewUpdate?.(reel._id, response.data.views_count);
+        }
+      } catch (error) {
+        console.error('Error tracking reel view:', error);
+        hasTrackedView.current = false; // Allow retry
+        setIsViewed(false);
+      }
+    };
+
+    // Small delay to avoid tracking if user is just scrolling through
+    const timeoutId = setTimeout(trackView, 1500);
+    return () => clearTimeout(timeoutId);
+  }, [isInView, reel._id, onViewUpdate]);
 
   // If reel is hidden (reported), don't render it
   // IMPORTANT: This must come AFTER all hooks to follow React's Rules of Hooks
@@ -288,6 +324,11 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             </h3>
             <div className="flex items-center gap-2">
               <p className="text-sm text-muted-foreground">Reel</p>
+              {isViewed && (
+                <span className="text-[10px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full font-medium">
+                  Viewed
+                </span>
+              )}
               {reel.isSuggested && (
                 <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
                   Suggested
@@ -471,6 +512,12 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
               <Share2 size={20} />
               <span className="text-sm">{reel.shares_count || 0}</span>
             </button>
+          </div>
+
+          {/* View count */}
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Eye size={16} />
+            <span className="text-sm">{viewCount}</span>
           </div>
         </div>
       </div>

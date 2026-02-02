@@ -148,6 +148,13 @@ export default function AccountSettingsPage() {
   const router = useRouter();
   const { confirm, dialogProps } = useConfirmDialog();
 
+  const handleLogout = () => {
+    localStorage.removeItem('user');
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    router.push('/login');
+  };
+
   useEffect(() => {
     const loadUserData = async () => {
       const userData = localStorage.getItem('user');
@@ -859,7 +866,7 @@ export default function AccountSettingsPage() {
       <ConfirmDialog {...dialogProps} />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto cursor-pointer">
-          <Navigation user={user} onLogout={() => {}} />
+          <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
         <section className="lg:col-span-3">
@@ -1537,7 +1544,7 @@ export default function AccountSettingsPage() {
         </section>
       </div>
 
-      <Navigation user={user} onLogout={() => {}} isMobile={true} />
+      <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   );
 }

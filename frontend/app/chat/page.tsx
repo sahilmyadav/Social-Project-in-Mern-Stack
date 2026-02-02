@@ -49,6 +49,7 @@ import {
   onUserOffline,
   onUserOnline,
 } from '@/lib/socket';
+import { showToast } from '@/lib/toast';
 import {
   Ban,
   Camera,
@@ -78,6 +79,7 @@ interface Conversation {
   lastMessage: string;
   timestamp: string;
   unread: boolean;
+  unreadCount: number;
   online: boolean;
   participantId: string; // The other user's ID for matching online/offline events
   isGroup?: boolean;
@@ -265,6 +267,7 @@ function ChatPageContent() {
                   })
                 : 'Just now',
               unread: (thread.unreadCount || 0) > 0,
+              unreadCount: thread.unreadCount || 0,
               online: otherParticipant?.isOnline || false, // Use actual online status
               threadId: thread._id,
               hasStory: otherParticipant?.hasActiveStory || false, // Check if user has active story
@@ -388,6 +391,7 @@ function ChatPageContent() {
                 lastMessage: data.message.text,
                 timestamp: 'Now',
                 unread: true,
+                unreadCount: 1,
                 online: true,
                 threadId: threadId,
               };
@@ -593,6 +597,7 @@ function ChatPageContent() {
               lastMessage: 'New conversation started',
               timestamp: 'Now',
               unread: true,
+              unreadCount: 1,
               online: data.participant.isOnline || false, // Use actual online status
               threadId: data.threadId,
             };
@@ -856,6 +861,7 @@ function ChatPageContent() {
           lastMessage: 'Start a conversation',
           timestamp: 'Now',
           unread: false,
+          unreadCount: 0,
           online: false, // We don't know yet
           threadId: undefined,
         };
@@ -1111,8 +1117,14 @@ function ChatPageContent() {
       // Remove message from UI immediately for both cases
       // Socket event will also update other user's UI for "everyone"
       setMessages((prev) => prev.filter((msg) => msg.id.toString() !== messageId));
-    } catch (error) {
+
+      showToast.success(
+        'Message deleted',
+        deleteFor === 'everyone' ? 'Message deleted for everyone' : 'Message deleted for you'
+      );
+    } catch (error: any) {
       console.error('Error deleting message:', error);
+      showToast.error('Delete failed', error?.message || 'Failed to delete message');
     }
   };
 
@@ -1144,11 +1156,11 @@ function ChatPageContent() {
   const markThreadAsRead = async (threadId: string, userId: string) => {
     try {
       await chatService.markThreadAsRead(threadId);
-      // Update conversation to mark as read
+      // Update conversation to mark as read and reset unread count
       setConversations((prev) =>
         prev.map((conv) =>
-          conv.id === threadId // Match by conversation id (which is threadId)
-            ? { ...conv, unread: false }
+          conv.id === threadId || conv.threadId === threadId
+            ? { ...conv, unread: false, unreadCount: 0 }
             : conv
         )
       );
@@ -1440,9 +1452,9 @@ function ChatPageContent() {
 
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <div className="text-xs text-muted-foreground">{conversation.timestamp}</div>
-                    {conversation.unread && (
-                      <div className="w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold animate-pulse">
-                        !
+                    {conversation.unreadCount > 0 && (
+                      <div className="min-w-5 h-5 px-1.5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold">
+                        {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
                       </div>
                     )}
                   </div>
@@ -2133,6 +2145,7 @@ function ChatPageContent() {
                           })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: false,
                       isGroup: true,
                       members: thread.participants?.length || 0,
@@ -2155,6 +2168,7 @@ function ChatPageContent() {
                           })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: otherParticipant?.isOnline || false,
                       threadId: thread._id,
                     };
@@ -2197,6 +2211,7 @@ function ChatPageContent() {
                           })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: false,
                       isGroup: true,
                       members: thread.participants?.length || 0,
@@ -2219,6 +2234,7 @@ function ChatPageContent() {
                           })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: otherParticipant?.isOnline || false,
                       threadId: thread._id,
                     };
@@ -2262,6 +2278,7 @@ function ChatPageContent() {
                           })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: false,
                       isGroup: true,
                       members: thread.participants?.length || 0,
@@ -2284,6 +2301,7 @@ function ChatPageContent() {
                           })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: otherParticipant?.isOnline || false,
                       threadId: thread._id,
                     };

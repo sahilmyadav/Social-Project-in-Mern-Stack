@@ -828,7 +828,41 @@ function PostCard({
                   {isDeleting ? 'Deleting...' : 'Delete Post'}
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={(e) => e.stopPropagation()}>Copy Link</DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  const postUrl = `${window.location.origin}/post/${post._id || post.id}`;
+
+                  // Use a timeout to ensure the dropdown closes first
+                  setTimeout(() => {
+                    navigator.clipboard
+                      .writeText(postUrl)
+                      .then(() => {
+                        showToast.success('Copied!', 'Post link copied to clipboard');
+                      })
+                      .catch(() => {
+                        // Fallback for older browsers
+                        const textArea = document.createElement('textarea');
+                        textArea.value = postUrl;
+                        textArea.style.position = 'fixed';
+                        textArea.style.left = '-999999px';
+                        textArea.style.top = '-999999px';
+                        document.body.appendChild(textArea);
+                        textArea.focus();
+                        textArea.select();
+                        try {
+                          document.execCommand('copy');
+                          showToast.success('Copied!', 'Post link copied to clipboard');
+                        } catch (err) {
+                          showToast.error('Failed', 'Could not copy link to clipboard');
+                        }
+                        document.body.removeChild(textArea);
+                      });
+                  }, 100);
+                }}
+              >
+                Copy Link
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

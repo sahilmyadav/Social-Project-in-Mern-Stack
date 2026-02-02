@@ -7,6 +7,7 @@ import { Post } from '../models/post.model.js';
 import { Report } from '../models/report.model.js';
 import { Save } from '../models/save.model.js';
 import { User } from '../models/user.model.js';
+import { notifyNewPost } from '../services/notification.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
@@ -135,6 +136,11 @@ export const uploadPost = asyncHandler(async (req, res) => {
     'user_id',
     'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
   );
+
+  // Notify all followers about the new post (async, don't block response)
+  notifyNewPost(post._id, userId, post.media?.[0]?.url || null).catch((err) => {
+    console.error('Error sending new post notifications:', err);
+  });
 
   return res.status(201).json(new ApiResponse(201, post, 'Post created successfully'));
 });

@@ -1,14 +1,14 @@
-import mongoose from "mongoose";
-import { Comment } from "../models/comment.model.js";
-import { Followers } from "../models/followers.model.js";
-import { Like } from "../models/like.model.js";
-import { Post } from "../models/post.model.js";
-import { Reel } from "../models/reel.model.js";
-import { Story } from "../models/story.model.js";
-import { User } from "../models/user.model.js";
-import ApiError from "../utils/ApiError.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import asyncHandler from "../utils/asyncHandler.js";
+import mongoose from 'mongoose';
+import { Comment } from '../models/comment.model.js';
+import { Followers } from '../models/followers.model.js';
+import { Like } from '../models/like.model.js';
+import { Post } from '../models/post.model.js';
+import { Reel } from '../models/reel.model.js';
+import { Story } from '../models/story.model.js';
+import { User } from '../models/user.model.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
 
 // Get home feed
 export const getHomeFeed = asyncHandler(async (req, res) => {
@@ -18,10 +18,10 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
   // STEP 1: Get following list
   const following = await Followers.find({
     follower_id: userId,
-    status: 'accepted'
+    status: 'accepted',
   }).select('following_id');
 
-  const followingIds = following.map(f => f.following_id);
+  const followingIds = following.map((f) => f.following_id);
 
   let posts = [];
   const limitNum = parseInt(limit);
@@ -36,7 +36,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
   // Sorted by creation time
   const pipeline = [
     { $match: { is_deleted: false } }, // Base match
-    { $sort: { createdAt: -1 } }       // Sort by newest
+    { $sort: { createdAt: -1 } }, // Sort by newest
   ];
 
   // Pagination
@@ -52,8 +52,8 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         from: 'users',
         localField: 'user_id',
         foreignField: '_id',
-        as: 'userInfo'
-      }
+        as: 'userInfo',
+      },
     },
     { $unwind: '$userInfo' },
     {
@@ -65,10 +65,10 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
           {
             'userInfo.isPrivate': false,
             'userInfo.status': 'active',
-            'userInfo._id': { $nin: validUserIds } // Avoid duplicates
-          }
-        ]
-      }
+            'userInfo._id': { $nin: validUserIds }, // Avoid duplicates
+          },
+        ],
+      },
     },
     { $limit: limitNum }, // Final limit
     {
@@ -90,9 +90,9 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
           username: '$userInfo.username',
           profileImage: '$userInfo.profileImage',
           profilePicture: '$userInfo.profilePicture',
-          avatar: '$userInfo.avatar'
-        }
-      }
+          avatar: '$userInfo.avatar',
+        },
+      },
     }
   );
 
@@ -105,13 +105,13 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         Like.exists({
           target_id: post._id,
           target_type: 'post',
-          user_id: userId
+          user_id: userId,
         }),
         Comment.countDocuments({
           target_id: post._id,
           target_type: 'post',
-          is_deleted: false
-        })
+          is_deleted: false,
+        }),
       ]);
 
       return {
@@ -121,18 +121,14 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         comments_count: commentsCount,
         shares_count: post.shares_count || 0,
         // Mark as suggested if NOT in validUserIds
-        isSuggested: !validUserIds.map(id => id.toString()).includes(post.user_id._id.toString())
+        isSuggested: !validUserIds.map((id) => id.toString()).includes(post.user_id._id.toString()),
       };
     })
   );
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { posts: postsWithData },
-      'Home feed fetched successfully'
-    )
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { posts: postsWithData }, 'Home feed fetched successfully'));
 });
 
 // Get reels feed
@@ -145,10 +141,10 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
   // Get following list for tracking purposes
   const following = await Followers.find({
     follower_id: userId,
-    status: 'accepted'
+    status: 'accepted',
   }).select('following_id');
 
-  const followingIds = following.map(f => f.following_id);
+  const followingIds = following.map((f) => f.following_id);
 
   // --- PUBLIC REELS FEED ---
   // Show all reels from all users (public discovery for everyone)
@@ -163,14 +159,14 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
         from: 'users',
         localField: 'user_id',
         foreignField: '_id',
-        as: 'userInfo'
-      }
+        as: 'userInfo',
+      },
     },
     { $unwind: '$userInfo' },
     {
       $match: {
-        'userInfo.status': 'active'
-      }
+        'userInfo.status': 'active',
+      },
     },
     { $limit: limitNum },
     {
@@ -193,10 +189,10 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
           username: '$userInfo.username',
           profileImage: '$userInfo.profileImage',
           profilePicture: '$userInfo.profilePicture',
-          avatar: '$userInfo.avatar'
-        }
-      }
-    }
+          avatar: '$userInfo.avatar',
+        },
+      },
+    },
   ];
 
   const reels = await Reel.aggregate(pipeline);
@@ -207,11 +203,11 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
       const [isLiked, likesCount, commentsCount] = await Promise.all([
         Like.exists({ target_type: 'reel', target_id: reel._id, user_id: userId }),
         Like.countDocuments({ target_type: 'reel', target_id: reel._id }),
-        Comment.countDocuments({ target_type: 'reel', target_id: reel._id })
+        Comment.countDocuments({ target_type: 'reel', target_id: reel._id }),
       ]);
 
       // Check if user is following the reel creator
-      const isFollowing = followingIds.some(id => id.toString() === reel.user_id._id.toString());
+      const isFollowing = followingIds.some((id) => id.toString() === reel.user_id._id.toString());
 
       return {
         ...reel,
@@ -219,18 +215,14 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
         likes_count: likesCount,
         comments_count: commentsCount,
         isFollowing: isFollowing,
-        isSuggested: !isFollowing && reel.user_id._id.toString() !== userId.toString()
+        isSuggested: !isFollowing && reel.user_id._id.toString() !== userId.toString(),
       };
     })
   );
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { reels: reelsWithData },
-      'Reels feed fetched successfully'
-    )
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { reels: reelsWithData }, 'Reels feed fetched successfully'));
 });
 
 // Get stories feed (aggregated from following)
@@ -240,8 +232,8 @@ export const getStoriesFeed = asyncHandler(async (req, res) => {
   // Get list of users the current user follows
   const following = await Followers.find({
     follower_id: userId,
-    status: "accepted",
-  }).select("following_id");
+    status: 'accepted',
+  }).select('following_id');
 
   const followingIds = following.map((f) => f.following_id);
   followingIds.push(userId);
@@ -260,34 +252,34 @@ export const getStoriesFeed = asyncHandler(async (req, res) => {
     },
     {
       $group: {
-        _id: "$user_id",
-        stories: { $push: "$$ROOT" },
-        latestStory: { $first: "$$ROOT" },
+        _id: '$user_id',
+        stories: { $push: '$$ROOT' },
+        latestStory: { $first: '$$ROOT' },
       },
     },
     {
       $lookup: {
-        from: "users",
-        localField: "_id",
-        foreignField: "_id",
-        as: "user",
+        from: 'users',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'user',
       },
     },
     {
-      $unwind: "$user",
+      $unwind: '$user',
     },
     {
       $project: {
-        user_id: "$_id",
+        user_id: '$_id',
         user: {
-          _id: "$user._id",
-          firstName: "$user.firstName",
-          lastName: "$user.lastName",
-          username: "$user.username",
-          profilePicture: "$user.profilePicture",
+          _id: '$user._id',
+          firstName: '$user.firstName',
+          lastName: '$user.lastName',
+          username: '$user.username',
+          profilePicture: '$user.profilePicture',
         },
         stories: 1,
-        latestStoryTime: "$latestStory.createdAt",
+        latestStoryTime: '$latestStory.createdAt',
       },
     },
     {
@@ -295,9 +287,7 @@ export const getStoriesFeed = asyncHandler(async (req, res) => {
     },
   ]);
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, stories, "Stories feed fetched successfully"));
+  return res.status(200).json(new ApiResponse(200, stories, 'Stories feed fetched successfully'));
 });
 
 // Get posts by specific user
@@ -306,21 +296,32 @@ export const getUserPosts = asyncHandler(async (req, res) => {
   const currentUserId = req.user?._id;
   const { cursor, limit = 20 } = req.query;
 
+  // Check if userId is a valid MongoDB ObjectId or a username
+  const isValidObjectId = mongoose.Types.ObjectId.isValid(userId);
+
   // Get target user to check privacy settings
-  const targetUser = await User.findById(userId);
+  let targetUser;
+  if (isValidObjectId) {
+    targetUser = await User.findById(userId);
+  }
   if (!targetUser) {
-    throw new ApiError(404, "User not found");
+    targetUser = await User.findOne({ username: userId });
+  }
+  if (!targetUser) {
+    throw new ApiError(404, 'User not found');
   }
 
+  const targetUserId = targetUser._id.toString();
+
   // Check if account is private and user is not following
-  const isOwnProfile = currentUserId && currentUserId.toString() === userId;
+  const isOwnProfile = currentUserId && currentUserId.toString() === targetUserId;
 
   if (targetUser.isPrivate && !isOwnProfile) {
     // Check if current user is following
     const isFollowing = await Followers.findOne({
       follower_id: currentUserId,
-      following_id: userId,
-      status: 'accepted'
+      following_id: targetUserId,
+      status: 'accepted',
     });
 
     if (!isFollowing) {
@@ -333,9 +334,9 @@ export const getUserPosts = asyncHandler(async (req, res) => {
             nextCursor: null,
             hasMore: false,
             isPrivate: true,
-            message: 'This account is private'
+            message: 'This account is private',
           },
-          "This account is private"
+          'This account is private'
         )
       );
     }
@@ -343,7 +344,7 @@ export const getUserPosts = asyncHandler(async (req, res) => {
 
   // User is allowed to see posts
   const query = {
-    user_id: userId,
+    user_id: targetUserId,
     is_deleted: false,
   };
 
@@ -352,8 +353,8 @@ export const getUserPosts = asyncHandler(async (req, res) => {
   }
 
   const posts = await Post.find(query)
-    .populate("user_id", "firstName lastName username profilePicture profileImage avatar isPrivate")
-    .populate("tags", "firstName lastName username")
+    .populate('user_id', 'firstName lastName username profilePicture profileImage avatar isPrivate')
+    .populate('tags', 'firstName lastName username')
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
     .lean();
@@ -367,12 +368,13 @@ export const getUserPosts = asyncHandler(async (req, res) => {
 
       return {
         ...post,
-        isLiked: !!isLiked
+        isLiked: !!isLiked,
       };
     })
   );
 
-  const nextCursor = postsWithLikeStatus.length > 0 ? postsWithLikeStatus[postsWithLikeStatus.length - 1]._id : null;
+  const nextCursor =
+    postsWithLikeStatus.length > 0 ? postsWithLikeStatus[postsWithLikeStatus.length - 1]._id : null;
 
   return res.status(200).json(
     new ApiResponse(
@@ -381,9 +383,9 @@ export const getUserPosts = asyncHandler(async (req, res) => {
         posts: postsWithLikeStatus,
         nextCursor,
         hasMore: postsWithLikeStatus.length === parseInt(limit),
-        isPrivate: false
+        isPrivate: false,
       },
-      "User posts fetched successfully"
+      'User posts fetched successfully'
     )
   );
 });

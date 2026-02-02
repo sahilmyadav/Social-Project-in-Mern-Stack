@@ -1,9 +1,9 @@
-import { Story } from "../models/story.model.js";
-import { Followers } from "../models/followers.model.js";
-import ApiError from "../utils/ApiError.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import asyncHandler from "../utils/asyncHandler.js";
-import { uploadOnCloudinary, delteOnCloudinray } from "../utils/cloudinary.js";
+import { Followers } from '../models/followers.model.js';
+import { Story } from '../models/story.model.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import { delteOnCloudinray, uploadOnCloudinary } from '../utils/localStorage.js';
 
 // Upload a story
 export const uploadStory = asyncHandler(async (req, res) => {
@@ -11,18 +11,18 @@ export const uploadStory = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   if (!req.file) {
-    throw new ApiError(400, "Media file (image/video) is required");
+    throw new ApiError(400, 'Media file (image/video) is required');
   }
 
-  // Upload media to Cloudinary
-  const mediaUpload = await uploadOnCloudinary(req.file.path);
+  // Upload media to Cloudinary (now uses local storage)
+  const mediaUpload = await uploadOnCloudinary(req.file.path, 'story');
 
   if (!mediaUpload) {
-    throw new ApiError(500, "Failed to upload media to Cloudinary");
+    throw new ApiError(500, 'Failed to upload media to Cloudinary');
   }
 
   // Determine media type
-  const mediaType = mediaUpload.resource_type === "video" ? "video" : "image";
+  const mediaType = mediaUpload.resource_type === 'video' ? 'video' : 'image';
 
   // Prepare media object with cloudinary public_id for deletion
   const media = {
@@ -54,14 +54,12 @@ export const uploadStory = asyncHandler(async (req, res) => {
     media,
     music: musicData, // Add music data
     filter: filter || 'normal', // Add filter data
-    reply_settings: reply_settings || "everyone",
-    privacy: privacy || "followers",
+    reply_settings: reply_settings || 'everyone',
+    privacy: privacy || 'followers',
     expires_at: expiresAt,
   });
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, story, "Story uploaded successfully"));
+  return res.status(201).json(new ApiResponse(201, story, 'Story uploaded successfully'));
 });
 
 // Delete a story
@@ -72,12 +70,12 @@ export const deleteStory = asyncHandler(async (req, res) => {
   const story = await Story.findById(storyId);
 
   if (!story || story.is_deleted) {
-    throw new ApiError(404, "Story not found");
+    throw new ApiError(404, 'Story not found');
   }
 
   // Check if user is owner
   if (story.user_id.toString() !== userId.toString()) {
-    throw new ApiError(403, "You are not authorized to delete this story");
+    throw new ApiError(403, 'You are not authorized to delete this story');
   }
 
   // Delete media from Cloudinary
@@ -85,7 +83,7 @@ export const deleteStory = asyncHandler(async (req, res) => {
     try {
       await delteOnCloudinray(story.media.public_id);
     } catch (error) {
-      console.error("Error deleting from Cloudinary:", error);
+      console.error('Error deleting from Cloudinary:', error);
       // Continue with story deletion even if Cloudinary fails
     }
   }
@@ -93,9 +91,7 @@ export const deleteStory = asyncHandler(async (req, res) => {
   story.is_deleted = true;
   await story.save();
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Story deleted successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Story deleted successfully'));
 });
 
 // Track story view
@@ -106,20 +102,18 @@ export const viewStory = asyncHandler(async (req, res) => {
   const story = await Story.findById(storyId);
 
   if (!story || story.is_deleted) {
-    throw new ApiError(404, "Story not found");
+    throw new ApiError(404, 'Story not found');
   }
 
   // Don't track view if user is viewing their own story
   if (story.user_id.toString() === userId.toString()) {
     return res
       .status(200)
-      .json(new ApiResponse(200, { viewCount: story.viewCount }, "Own story - view not tracked"));
+      .json(new ApiResponse(200, { viewCount: story.viewCount }, 'Own story - view not tracked'));
   }
 
   // Check if user already viewed this story
-  const alreadyViewed = story.views.some(
-    (view) => view.user.toString() === userId.toString()
-  );
+  const alreadyViewed = story.views.some((view) => view.user.toString() === userId.toString());
 
   if (!alreadyViewed) {
     // Add view
@@ -129,18 +123,11 @@ export const viewStory = asyncHandler(async (req, res) => {
     });
     story.viewCount = story.views.length;
     await story.save();
-
   }
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { viewCount: story.viewCount },
-        "Story view tracked"
-      )
-    );
+    .json(new ApiResponse(200, { viewCount: story.viewCount }, 'Story view tracked'));
 });
 
 // Get story viewers (only for story owner)
@@ -149,17 +136,17 @@ export const getStoryViewers = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   const story = await Story.findById(storyId).populate({
-    path: "views.user",
-    select: "firstName lastName username profilePicture profileImage avatar",
+    path: 'views.user',
+    select: 'firstName lastName username profilePicture profileImage avatar',
   });
 
   if (!story || story.is_deleted) {
-    throw new ApiError(404, "Story not found");
+    throw new ApiError(404, 'Story not found');
   }
 
   // Only story owner can see viewers
   if (story.user_id.toString() !== userId.toString()) {
-    throw new ApiError(403, "You can only view your own story viewers");
+    throw new ApiError(403, 'You can only view your own story viewers');
   }
 
   // Format viewers data
@@ -181,7 +168,7 @@ export const getStoryViewers = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         { viewers, viewCount: viewers.length },
-        "Story viewers fetched successfully"
+        'Story viewers fetched successfully'
       )
     );
 });
@@ -196,27 +183,27 @@ export const getUserStories = asyncHandler(async (req, res) => {
     is_deleted: false,
     expires_at: { $gt: new Date() },
   })
-    .populate("user_id", "firstName lastName username profilePicture profileImage avatar")
+    .populate('user_id', 'firstName lastName username profilePicture profileImage avatar')
     .sort({ createdAt: -1 });
-
 
   // Check privacy settings and transform data
   const filteredStories = stories
     .filter((story) => {
-      if (story.privacy === "public") return true;
+      if (story.privacy === 'public') return true;
       if (!currentUserId) return false;
       if (story.user_id._id.toString() === currentUserId.toString()) return true;
       // For now, allow followers privacy stories when viewing user's stories (TODO: Implement proper follow check)
-      if (story.privacy === "followers") return true;
+      if (story.privacy === 'followers') return true;
       return false;
     })
     .map((story) => ({
       _id: story._id,
       user: {
         _id: story.user_id._id,
-        fullName: `${story.user_id.firstName || ""} ${story.user_id.lastName || ""}`.trim(),
+        fullName: `${story.user_id.firstName || ''} ${story.user_id.lastName || ''}`.trim(),
         username: story.user_id.username,
-        profilePicture: story.user_id.profilePicture || story.user_id.profileImage || story.user_id.avatar,
+        profilePicture:
+          story.user_id.profilePicture || story.user_id.profileImage || story.user_id.avatar,
       },
       media: story.media,
       music: story.music, // Include music data
@@ -228,10 +215,9 @@ export const getUserStories = asyncHandler(async (req, res) => {
       privacy: story.privacy,
     }));
 
-
   return res
     .status(200)
-    .json(new ApiResponse(200, { stories: filteredStories }, "Stories fetched successfully"));
+    .json(new ApiResponse(200, { stories: filteredStories }, 'Stories fetched successfully'));
 });
 
 // Get all active stories (feed)
@@ -241,12 +227,11 @@ export const getAllStories = asyncHandler(async (req, res) => {
   // STEP 1: Get following list
   const following = await Followers.find({
     follower_id: userId,
-    status: 'accepted'
+    status: 'accepted',
   }).select('following_id');
 
-  const followingIds = following.map(f => f.following_id);
+  const followingIds = following.map((f) => f.following_id);
   const userIdsToShow = [...followingIds, userId];
-
 
   // STEP 2: Get stories ONLY from followed users (active stories)
   const now = new Date();
@@ -254,7 +239,7 @@ export const getAllStories = asyncHandler(async (req, res) => {
   const stories = await Story.find({
     user_id: { $in: userIdsToShow },
     is_deleted: false,
-    expires_at: { $gt: now }
+    expires_at: { $gt: now },
   })
     .populate('user_id', 'firstName lastName username profilePicture profileImage avatar')
     .sort({ createdAt: -1 })
@@ -270,9 +255,10 @@ export const getAllStories = asyncHandler(async (req, res) => {
           firstName: story.user_id.firstName,
           lastName: story.user_id.lastName,
           username: story.user_id.username,
-          profilePicture: story.user_id.profilePicture || story.user_id.profileImage || story.user_id.avatar
+          profilePicture:
+            story.user_id.profilePicture || story.user_id.profileImage || story.user_id.avatar,
         },
-        stories: []
+        stories: [],
       };
     }
     acc[authorId].stories.push(story);
@@ -281,13 +267,9 @@ export const getAllStories = asyncHandler(async (req, res) => {
 
   const groupedStories = Object.values(storiesByUser);
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { stories: groupedStories },
-      'Stories feed fetched successfully'
-    )
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { stories: groupedStories }, 'Stories feed fetched successfully'));
 });
 
 // Cleanup expired stories (to be called by cron job)
@@ -298,7 +280,6 @@ export const cleanupExpiredStories = asyncHandler(async (req, res) => {
       expires_at: { $lt: new Date() },
       is_deleted: false,
     });
-
 
     let deletedCount = 0;
     let cloudinaryDeletedCount = 0;
@@ -323,12 +304,14 @@ export const cleanupExpiredStories = asyncHandler(async (req, res) => {
     const message = `Cleaned up ${deletedCount} expired stories (${cloudinaryDeletedCount} from Cloudinary)`;
 
     return res
-      ? res.status(200).json(new ApiResponse(200, { deletedCount, cloudinaryDeletedCount }, message))
+      ? res
+          .status(200)
+          .json(new ApiResponse(200, { deletedCount, cloudinaryDeletedCount }, message))
       : { deletedCount, cloudinaryDeletedCount };
   } catch (error) {
-    console.error("Error cleaning up expired stories:", error);
+    console.error('Error cleaning up expired stories:', error);
     if (res) {
-      throw new ApiError(500, "Failed to cleanup expired stories");
+      throw new ApiError(500, 'Failed to cleanup expired stories');
     }
   }
 });
@@ -336,20 +319,23 @@ export const cleanupExpiredStories = asyncHandler(async (req, res) => {
 // Auto-cleanup function that runs periodically (call this from index.js)
 export const startStoryCleanupJob = () => {
   // Run cleanup every hour
-  setInterval(async () => {
-    try {
-      await cleanupExpiredStories();
-    } catch (error) {
-      console.error("Story cleanup job failed:", error);
-    }
-  }, 60 * 60 * 1000); // Every 1 hour
+  setInterval(
+    async () => {
+      try {
+        await cleanupExpiredStories();
+      } catch (error) {
+        console.error('Story cleanup job failed:', error);
+      }
+    },
+    60 * 60 * 1000
+  ); // Every 1 hour
 
   // Run immediately on startup
   setTimeout(async () => {
     try {
       await cleanupExpiredStories();
     } catch (error) {
-      console.error("Initial story cleanup failed:", error);
+      console.error('Initial story cleanup failed:', error);
     }
   }, 5000); // 5 seconds after startup
 };

@@ -1,5 +1,6 @@
 'use client';
 
+import EmojiPicker, { CommentReactions } from '@/components/emoji-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -559,6 +560,26 @@ export default function PostDetailsModal({
                               {comment.likes_count > 0 && <span>{comment.likes_count}</span>}
                               <span>Like</span>
                             </button>
+                            <CommentReactions
+                              commentId={comment._id || comment.id}
+                              onReact={(commentId, emoji) => {
+                                // Add emoji reaction as a reply comment
+                                commentService
+                                  .replyToComment(commentId, { text: emoji })
+                                  .then(() => {
+                                    toasts.commentAdded();
+                                    // Refresh comments
+                                    postService.getPostDetails(post._id).then((response) => {
+                                      if (response.success && response.data) {
+                                        setComments(response.data.comments || []);
+                                      }
+                                    });
+                                  })
+                                  .catch((error) => {
+                                    console.error('Error adding emoji reaction:', error);
+                                  });
+                              }}
+                            />
                             <button
                               onClick={() => {
                                 // TODO: Implement reply functionality
@@ -609,20 +630,28 @@ export default function PostDetailsModal({
                     );
                   })()}
                 </div>
-                <div className="flex-1 flex gap-2">
-                  <Input
-                    placeholder="Write a comment..."
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmitComment();
-                      }
-                    }}
-                    className="bg-muted border-0 rounded-full"
-                    disabled={isSubmittingComment}
-                  />
+                <div className="flex-1 flex gap-2 items-center">
+                  <div className="flex-1 relative flex items-center">
+                    <Input
+                      placeholder="Write a comment..."
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSubmitComment();
+                        }
+                      }}
+                      className="bg-muted border-0 rounded-full pr-10"
+                      disabled={isSubmittingComment}
+                    />
+                    <div className="absolute right-1">
+                      <EmojiPicker
+                        onEmojiSelect={(emoji) => setNewComment((prev) => prev + emoji)}
+                        triggerClassName="!p-1.5"
+                      />
+                    </div>
+                  </div>
                   <Button
                     onClick={handleSubmitComment}
                     disabled={!newComment.trim() || isSubmittingComment}

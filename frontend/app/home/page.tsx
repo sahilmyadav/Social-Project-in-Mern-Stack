@@ -136,10 +136,18 @@ export default function HomePage() {
   }, [user]);
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    router.push('/login');
+    console.log('handleLogout called');
+    try {
+      localStorage.removeItem('user');
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      console.log('localStorage cleared, redirecting to /login');
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Force redirect even if there's an error
+      window.location.href = '/login';
+    }
   };
 
   const handleOpenPostDetails = useCallback((post: any) => {
@@ -193,6 +201,21 @@ export default function HomePage() {
     },
     []
   );
+
+  const handleReelViewUpdate = useCallback((reelId: string, viewCount: number) => {
+    setFeed((prevFeed) =>
+      prevFeed.map((item) => {
+        if (item.type === 'reel' && (item._id === reelId || item.id === reelId)) {
+          return {
+            ...item,
+            views_count: viewCount,
+            isViewed: true,
+          };
+        }
+        return item;
+      })
+    );
+  }, []);
 
   if (!user) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
@@ -279,6 +302,7 @@ export default function HomePage() {
                     reel={item}
                     currentUserId={user?._id}
                     onCommentClick={() => handleOpenReelComments(item)}
+                    onViewUpdate={handleReelViewUpdate}
                   />
                 )
               )

@@ -938,8 +938,35 @@ export default function BroadcastPage() {
   // INITIALIZE COMPONENT
   // ========================================================================
   useEffect(() => {
+    // Fetch stream details first
     fetchStreamDetails();
-    initializeMedia();
+
+    // Request camera/microphone permissions immediately
+    const requestMediaPermissions = async () => {
+      try {
+        // Check if permissions API is available
+        if (navigator.permissions) {
+          const cameraPermission = await navigator.permissions.query({
+            name: 'camera' as PermissionName,
+          });
+          const micPermission = await navigator.permissions.query({
+            name: 'microphone' as PermissionName,
+          });
+
+          console.log('Camera permission:', cameraPermission.state);
+          console.log('Microphone permission:', micPermission.state);
+        }
+
+        // Initialize media (this will trigger the permission prompt)
+        await initializeMedia();
+      } catch (error) {
+        console.error('Error requesting media permissions:', error);
+        // Still try to initialize media even if permissions query fails
+        initializeMedia();
+      }
+    };
+
+    requestMediaPermissions();
 
     return () => {
       // Cleanup on unmount

@@ -1,9 +1,13 @@
-import { Followers } from "../models/followers.model.js";
-import { User } from "../models/user.model.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import ApiError from "../utils/ApiError.js";
-import asyncHandler from "../utils/asyncHandler.js";
-import { notifyFollowRequestAccepted } from "../services/notification.service.js";
+import { Followers } from '../models/followers.model.js';
+import { User } from '../models/user.model.js';
+import {
+  notifyFollow,
+  notifyFollowRequest,
+  notifyFollowRequestAccepted,
+} from '../services/notification.service.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
 
 // POST /follow/request/:targetUserId - Send follow request
 const sendFollowRequest = asyncHandler(async (req, res) => {
@@ -12,23 +16,23 @@ const sendFollowRequest = asyncHandler(async (req, res) => {
 
   // Validate target user ID
   if (!targetUserId) {
-    throw new ApiError(400, "Target user ID is required");
+    throw new ApiError(400, 'Target user ID is required');
   }
 
   // Check if trying to follow self
   if (currentUserId.toString() === targetUserId) {
-    throw new ApiError(400, "You cannot follow yourself");
+    throw new ApiError(400, 'You cannot follow yourself');
   }
 
   // Check if target user exists
   const targetUser = await User.findById(targetUserId);
   if (!targetUser) {
-    throw new ApiError(404, "Target user not found");
+    throw new ApiError(404, 'Target user not found');
   }
 
   // Check if target user is active
-  if (targetUser.status !== "active") {
-    throw new ApiError(403, "Cannot follow this user");
+  if (targetUser.status !== 'active') {
+    throw new ApiError(403, 'Cannot follow this user');
   }
 
   // Check if already following or request exists
@@ -39,17 +43,17 @@ const sendFollowRequest = asyncHandler(async (req, res) => {
 
   if (existingFollow) {
     // Instead of throwing error, return the existing request status
-    if (existingFollow.status === "accepted") {
+    if (existingFollow.status === 'accepted') {
       return res.status(200).json(
         new ApiResponse(
           200,
           {
             followRequest: existingFollow,
             alreadyExists: true,
-            status: "accepted",
+            status: 'accepted',
             autoApproved: true,
           },
-          "You are already following this user"
+          'You are already following this user'
         )
       );
     } else {
@@ -60,17 +64,17 @@ const sendFollowRequest = asyncHandler(async (req, res) => {
           {
             followRequest: existingFollow,
             alreadyExists: true,
-            status: "requested",
+            status: 'requested',
             autoApproved: false,
           },
-          "Follow request already sent"
+          'Follow request already sent'
         )
       );
     }
   }
 
   // Determine status based on account privacy
-  const status = targetUser.isPrivate ? "requested" : "accepted";
+  const status = targetUser.isPrivate ? 'requested' : 'accepted';
 
   // Create follow relationship
   const followRequest = await Followers.create({
@@ -78,7 +82,14 @@ const sendFollowRequest = asyncHandler(async (req, res) => {
     following_id: targetUserId,
     status,
   });
-
+  // Send notification to the target user
+  if (status === 'accepted') {
+    // Public account - send follow notification
+    await notifyFollow(targetUserId, currentUserId);
+  } else {
+    // Private account - send follow request notification
+    await notifyFollowRequest(targetUserId, currentUserId);
+  }
   return res.status(201).json(
     new ApiResponse(
       201,
@@ -88,9 +99,7 @@ const sendFollowRequest = asyncHandler(async (req, res) => {
         status,
         alreadyExists: false,
       },
-      targetUser.isPrivate
-        ? "Follow request sent successfully"
-        : "Now following user"
+      targetUser.isPrivate ? 'Follow request sent successfully' : 'Now following user'
     )
   );
 });
@@ -104,38 +113,29 @@ const acceptFollowRequest = asyncHandler(async (req, res) => {
   const followRequest = await Followers.findById(requestId);
 
   if (!followRequest) {
-    throw new ApiError(404, "Follow request not found");
+    throw new ApiError(404, 'Follow request not found');
   }
 
   // Verify the current user is the target of the request
   if (followRequest.following_id.toString() !== currentUserId.toString()) {
-    throw new ApiError(403, "You can only accept requests sent to you");
+    throw new ApiError(403, 'You can only accept requests sent to you');
   }
 
   // Check if already accepted
-  if (followRequest.status === "accepted") {
-    throw new ApiError(400, "Follow request already accepted");
+  if (followRequest.status === 'accepted') {
+    throw new ApiError(400, 'Follow request already accepted');
   }
 
   // Update status to accepted
-  followRequest.status = "accepted";
+  followRequest.status = 'accepted';
   await followRequest.save();
 
   // Send notification to the requester
-  await notifyFollowRequestAccepted(
-    followRequest.follower_id,
-    currentUserId
-  );
+  await notifyFollowRequestAccepted(followRequest.follower_id, currentUserId);
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { followRequest },
-        "Follow request accepted successfully"
-      )
-    );
+    .json(new ApiResponse(200, { followRequest }, 'Follow request accepted successfully'));
 });
 
 // remove follow request if pending request exists
@@ -147,7 +147,7 @@ const removeFollowRequest = asyncHandler(async (req, res) => {
   const followRequest = await Followers.findById(requestId);
 
   if (!followRequest) {
-    throw new ApiError(404, "Follow request not found");
+    throw new ApiError(404, 'Follow request not found');
   }
 
   // Allow both sender (to cancel) and recipient (to reject) to remove the request
@@ -155,22 +155,20 @@ const removeFollowRequest = asyncHandler(async (req, res) => {
   const isRecipient = followRequest.following_id.toString() === currentUserId.toString();
 
   if (!isSender && !isRecipient) {
-    throw new ApiError(403, "You can only remove requests you sent or received");
+    throw new ApiError(403, 'You can only remove requests you sent or received');
   }
 
   // If already accepted, only allow unfollowing (not removing)
-  if (followRequest.status === "accepted") {
-    throw new ApiError(400, "Cannot remove an accepted follow relationship. Use unfollow instead.");
+  if (followRequest.status === 'accepted') {
+    throw new ApiError(400, 'Cannot remove an accepted follow relationship. Use unfollow instead.');
   }
 
   // Delete the follow request
   await Followers.findByIdAndDelete(requestId);
 
-  const action = isSender ? "cancelled" : "rejected";
+  const action = isSender ? 'cancelled' : 'rejected';
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, `Follow request ${action} successfully`));
+  return res.status(200).json(new ApiResponse(200, null, `Follow request ${action} successfully`));
 });
 
 // Cancel follow request by userId (for frontend convenience)
@@ -182,19 +180,17 @@ const cancelFollowRequestByUserId = asyncHandler(async (req, res) => {
   const followRequest = await Followers.findOne({
     follower_id: currentUserId,
     following_id: userId,
-    status: 'requested'
+    status: 'requested',
   });
 
   if (!followRequest) {
-    throw new ApiError(404, "Follow request not found");
+    throw new ApiError(404, 'Follow request not found');
   }
 
   // Delete the follow request
   await Followers.findByIdAndDelete(followRequest._id);
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Follow request cancelled successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Follow request cancelled successfully'));
 });
 
 // GET /follow/pending-requests - Get all pending follow requests
@@ -205,7 +201,7 @@ const getPendingRequests = asyncHandler(async (req, res) => {
   // Find all pending follow requests where current user is being followed
   const requests = await Followers.find({
     following_id: userId,
-    status: 'requested'
+    status: 'requested',
   })
     .populate('follower_id', 'firstName lastName username profilePicture profileImage avatar')
     .sort({ created_at: -1 })
@@ -214,7 +210,7 @@ const getPendingRequests = asyncHandler(async (req, res) => {
     .lean();
 
   // Format response
-  const formattedRequests = requests.map(req => ({
+  const formattedRequests = requests.map((req) => ({
     _id: req._id,
     follower_id: req.follower_id._id,
     following_id: req.following_id,
@@ -224,14 +220,15 @@ const getPendingRequests = asyncHandler(async (req, res) => {
       firstName: req.follower_id.firstName,
       lastName: req.follower_id.lastName,
       username: req.follower_id.username,
-      profilePicture: req.follower_id.profilePicture || req.follower_id.profileImage || req.follower_id.avatar
+      profilePicture:
+        req.follower_id.profilePicture || req.follower_id.profileImage || req.follower_id.avatar,
     },
-    createdAt: req.created_at
+    createdAt: req.created_at,
   }));
 
-  return res.status(200).json(
-    new ApiResponse(200, formattedRequests, 'Pending requests retrieved successfully')
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, formattedRequests, 'Pending requests retrieved successfully'));
 });
 
 // POST /follow/reject/:requestId - Reject follow request
@@ -243,17 +240,17 @@ const rejectFollowRequest = asyncHandler(async (req, res) => {
   const followRequest = await Followers.findById(requestId);
 
   if (!followRequest) {
-    throw new ApiError(404, "Follow request not found");
+    throw new ApiError(404, 'Follow request not found');
   }
 
   // Verify the current user is the target of the request
   if (followRequest.following_id.toString() !== currentUserId.toString()) {
-    throw new ApiError(403, "You can only reject requests sent to you");
+    throw new ApiError(403, 'You can only reject requests sent to you');
   }
 
   // Check if already accepted
-  if (followRequest.status === "accepted") {
-    throw new ApiError(400, "Cannot reject an accepted follow request");
+  if (followRequest.status === 'accepted') {
+    throw new ApiError(400, 'Cannot reject an accepted follow request');
   }
 
   // Delete the follow request
@@ -261,7 +258,13 @@ const rejectFollowRequest = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, { followRequest: { _id: requestId, status: 'rejected' } }, "Follow request rejected successfully"));
+    .json(
+      new ApiResponse(
+        200,
+        { followRequest: { _id: requestId, status: 'rejected' } },
+        'Follow request rejected successfully'
+      )
+    );
 });
 
 // DELETE /follow/remove/:targetUserId - Unfollow or remove follower
@@ -271,19 +274,16 @@ const removeFollow = asyncHandler(async (req, res) => {
   const currentUserId = req.user._id;
 
   if (!targetUserId) {
-    throw new ApiError(400, "Target user ID is required");
+    throw new ApiError(400, 'Target user ID is required');
   }
 
-  if (!action || !["unfollow", "remove-follower"].includes(action)) {
-    throw new ApiError(
-      400,
-      "Valid action is required: 'unfollow' or 'remove-follower'"
-    );
+  if (!action || !['unfollow', 'remove-follower'].includes(action)) {
+    throw new ApiError(400, "Valid action is required: 'unfollow' or 'remove-follower'");
   }
 
   let followRecord;
 
-  if (action === "unfollow") {
+  if (action === 'unfollow') {
     // Current user wants to unfollow target user
     followRecord = await Followers.findOneAndDelete({
       follower_id: currentUserId,
@@ -291,19 +291,13 @@ const removeFollow = asyncHandler(async (req, res) => {
     });
 
     if (!followRecord) {
-      throw new ApiError(404, "You are not following this user");
+      throw new ApiError(404, 'You are not following this user');
     }
 
     return res
       .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          { unfollowed: targetUserId },
-          "Successfully unfollowed user"
-        )
-      );
-  } else if (action === "remove-follower") {
+      .json(new ApiResponse(200, { unfollowed: targetUserId }, 'Successfully unfollowed user'));
+  } else if (action === 'remove-follower') {
     // Current user wants to remove target user as a follower
     followRecord = await Followers.findOneAndDelete({
       follower_id: targetUserId,
@@ -311,18 +305,12 @@ const removeFollow = asyncHandler(async (req, res) => {
     });
 
     if (!followRecord) {
-      throw new ApiError(404, "This user is not following you");
+      throw new ApiError(404, 'This user is not following you');
     }
 
     return res
       .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          { removed: targetUserId },
-          "Successfully removed follower"
-        )
-      );
+      .json(new ApiResponse(200, { removed: targetUserId }, 'Successfully removed follower'));
   }
 });
 
@@ -332,12 +320,12 @@ const unfollowUser = asyncHandler(async (req, res) => {
   const currentUserId = req.user._id;
 
   if (!targetUserId) {
-    throw new ApiError(400, "Target user ID is required");
+    throw new ApiError(400, 'Target user ID is required');
   }
 
   // Check if trying to unfollow self
   if (currentUserId.toString() === targetUserId) {
-    throw new ApiError(400, "Invalid operation");
+    throw new ApiError(400, 'Invalid operation');
   }
 
   // Current user wants to unfollow target user
@@ -347,18 +335,12 @@ const unfollowUser = asyncHandler(async (req, res) => {
   });
 
   if (!followRecord) {
-    throw new ApiError(404, "You are not following this user");
+    throw new ApiError(404, 'You are not following this user');
   }
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { unfollowed: targetUserId },
-        "Successfully unfollowed user"
-      )
-    );
+    .json(new ApiResponse(200, { unfollowed: targetUserId }, 'Successfully unfollowed user'));
 });
 
 // GET /follow/status/:targetUserId - Get follow relationship status
@@ -367,7 +349,7 @@ const getFollowStatus = asyncHandler(async (req, res) => {
   const currentUserId = req.user._id;
 
   if (!targetUserId) {
-    throw new ApiError(400, "Target user ID is required");
+    throw new ApiError(400, 'Target user ID is required');
   }
 
   // Check if current user follows target
@@ -382,21 +364,16 @@ const getFollowStatus = asyncHandler(async (req, res) => {
     following_id: currentUserId,
   });
 
-  let status = "not-following";
+  let status = 'not-following';
 
-  if (
-    following &&
-    following.status === "accepted" &&
-    follower &&
-    follower.status === "accepted"
-  ) {
-    status = "follow-back"; // Both follow each other
-  } else if (following && following.status === "accepted") {
-    status = "following"; // Current user follows target
-  } else if (following && following.status === "requested") {
-    status = "requested"; // Current user requested to follow target
-  } else if (follower && follower.status === "accepted") {
-    status = "follower"; // Target follows current user
+  if (following && following.status === 'accepted' && follower && follower.status === 'accepted') {
+    status = 'follow-back'; // Both follow each other
+  } else if (following && following.status === 'accepted') {
+    status = 'following'; // Current user follows target
+  } else if (following && following.status === 'requested') {
+    status = 'requested'; // Current user requested to follow target
+  } else if (follower && follower.status === 'accepted') {
+    status = 'follower'; // Target follows current user
   }
 
   return res.status(200).json(
@@ -404,14 +381,10 @@ const getFollowStatus = asyncHandler(async (req, res) => {
       200,
       {
         status,
-        following: following
-          ? { id: following._id, status: following.status }
-          : null,
-        follower: follower
-          ? { id: follower._id, status: follower.status }
-          : null,
+        following: following ? { id: following._id, status: following.status } : null,
+        follower: follower ? { id: follower._id, status: follower.status } : null,
       },
-      "Follow status retrieved successfully"
+      'Follow status retrieved successfully'
     )
   );
 });
@@ -422,24 +395,24 @@ const followBack = asyncHandler(async (req, res) => {
   const currentUserId = req.user._id;
 
   if (!targetUserId) {
-    throw new ApiError(400, "Target user ID is required");
+    throw new ApiError(400, 'Target user ID is required');
   }
 
   // Check if target user exists
   const targetUser = await User.findById(targetUserId);
   if (!targetUser) {
-    throw new ApiError(404, "Target user not found");
+    throw new ApiError(404, 'Target user not found');
   }
 
   // Verify that target user follows current user
   const isFollower = await Followers.findOne({
     follower_id: targetUserId,
     following_id: currentUserId,
-    status: "accepted",
+    status: 'accepted',
   });
 
   if (!isFollower) {
-    throw new ApiError(400, "This user is not following you");
+    throw new ApiError(400, 'This user is not following you');
   }
 
   // Check if already following back
@@ -449,15 +422,15 @@ const followBack = asyncHandler(async (req, res) => {
   });
 
   if (alreadyFollowing) {
-    if (alreadyFollowing.status === "accepted") {
-      throw new ApiError(400, "You are already following this user");
+    if (alreadyFollowing.status === 'accepted') {
+      throw new ApiError(400, 'You are already following this user');
     } else {
-      throw new ApiError(400, "Follow request already sent");
+      throw new ApiError(400, 'Follow request already sent');
     }
   }
 
   // Create follow back relationship (auto-approve since they follow us)
-  const status = targetUser.isPrivate ? "requested" : "accepted";
+  const status = targetUser.isPrivate ? 'requested' : 'accepted';
 
   const followBack = await Followers.create({
     follower_id: currentUserId,
@@ -472,9 +445,7 @@ const followBack = asyncHandler(async (req, res) => {
         followBack,
         autoApproved: !targetUser.isPrivate,
       },
-      targetUser.isPrivate
-        ? "Follow request sent successfully"
-        : "Successfully followed back"
+      targetUser.isPrivate ? 'Follow request sent successfully' : 'Successfully followed back'
     )
   );
 });
@@ -487,8 +458,8 @@ const getFollowSuggestions = asyncHandler(async (req, res) => {
   // Get users current user is already following
   const following = await Followers.find({
     follower_id: currentUserId,
-    status: "accepted",
-  }).select("following_id");
+    status: 'accepted',
+  }).select('following_id');
 
   const followingIds = following.map((f) => f.following_id);
   followingIds.push(currentUserId); // Exclude self
@@ -496,7 +467,7 @@ const getFollowSuggestions = asyncHandler(async (req, res) => {
   // Build query
   const query = {
     _id: { $nin: followingIds },
-    status: "active",
+    status: 'active',
   };
 
   if (cursor) {
@@ -508,12 +479,12 @@ const getFollowSuggestions = asyncHandler(async (req, res) => {
     {
       $match: {
         following_id: { $in: followingIds.slice(0, -1) }, // Exclude self from followingIds
-        status: "accepted",
+        status: 'accepted',
       },
     },
     {
       $group: {
-        _id: "$follower_id",
+        _id: '$follower_id',
         mutualCount: { $sum: 1 },
       },
     },
@@ -532,7 +503,7 @@ const getFollowSuggestions = asyncHandler(async (req, res) => {
   let suggestions = await User.find({
     _id: { $in: mutualFollowerIds },
   })
-    .select("firstName lastName email phone avatar profileImage bio isPrivate")
+    .select('firstName lastName email phone avatar profileImage bio isPrivate')
     .limit(parseInt(limit));
 
   // If not enough mutual followers, add random active users
@@ -542,9 +513,7 @@ const getFollowSuggestions = asyncHandler(async (req, res) => {
       ...query,
       _id: { $nin: [...followingIds, ...mutualFollowerIds] },
     })
-      .select(
-        "firstName lastName email phone avatar profileImage bio isPrivate"
-      )
+      .select('firstName lastName email phone avatar profileImage bio isPrivate')
       .limit(remaining)
       .sort({ createdAt: -1 });
 
@@ -553,17 +522,14 @@ const getFollowSuggestions = asyncHandler(async (req, res) => {
 
   // Add mutual connection count
   suggestions = suggestions.map((user) => {
-    const mutual = mutualFollowers.find(
-      (m) => m._id.toString() === user._id.toString()
-    );
+    const mutual = mutualFollowers.find((m) => m._id.toString() === user._id.toString());
     return {
       ...user.toObject(),
       mutualConnectionsCount: mutual ? mutual.mutualCount : 0,
     };
   });
 
-  const nextCursor =
-    suggestions.length > 0 ? suggestions[suggestions.length - 1]._id : null;
+  const nextCursor = suggestions.length > 0 ? suggestions[suggestions.length - 1]._id : null;
 
   return res.status(200).json(
     new ApiResponse(
@@ -573,28 +539,25 @@ const getFollowSuggestions = asyncHandler(async (req, res) => {
         nextCursor,
         hasMore: suggestions.length === parseInt(limit),
       },
-      "Follow suggestions retrieved successfully"
+      'Follow suggestions retrieved successfully'
     )
   );
 });
 
-
 const totalFollowers = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   if (!userId) {
-    throw new ApiError(400, "User ID is required");
+    throw new ApiError(400, 'User ID is required');
   }
 
   const count = await Followers.countDocuments({
     following_id: userId,
-    status: "accepted",
+    status: 'accepted',
   });
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(200, { count }, "Total followers fetched successfully")
-    );
+    .json(new ApiResponse(200, { count }, 'Total followers fetched successfully'));
 });
 // const totalFollowers = asyncHandler(async (req, res) => {
 //   const userId = req.user?.Id;
@@ -616,19 +579,17 @@ const totalFollowing = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   if (!userId) {
-    throw new ApiError(400, "User ID is required");
+    throw new ApiError(400, 'User ID is required');
   }
 
   const count = await Followers.countDocuments({
     follower_id: userId,
-    status: "accepted",
+    status: 'accepted',
   });
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(200, { count }, "Total following fetched successfully")
-    );
+    .json(new ApiResponse(200, { count }, 'Total following fetched successfully'));
 });
 
 // GET /follow/followers/:userId - Get list of followers
@@ -638,7 +599,7 @@ const getFollowers = asyncHandler(async (req, res) => {
   const currentUserId = req.user._id;
 
   if (!userId) {
-    throw new ApiError(400, "User ID is required");
+    throw new ApiError(400, 'User ID is required');
   }
 
   const pageNum = parseInt(page);
@@ -648,18 +609,21 @@ const getFollowers = asyncHandler(async (req, res) => {
   // Get total count
   const total = await Followers.countDocuments({
     following_id: userId,
-    status: "accepted",
+    status: 'accepted',
   });
 
   // Get followers with user details
   const followerRecords = await Followers.find({
     following_id: userId,
-    status: "accepted",
+    status: 'accepted',
   })
-    .populate("follower_id", "firstName lastName username avatar profileImage bio isVerified isPrivate")
+    .populate(
+      'follower_id',
+      'firstName lastName username avatar profileImage bio isVerified isPrivate'
+    )
     .skip(skip)
     .limit(limitNum)
-    .sort("-created_at")
+    .sort('-created_at')
     .lean();
 
   // Map followers and check if current user follows them back
@@ -673,8 +637,8 @@ const getFollowers = asyncHandler(async (req, res) => {
         following_id: follower._id,
       });
 
-      const isFollowingBack = followRelationship?.status === "accepted";
-      const isPending = followRelationship?.status === "requested";
+      const isFollowingBack = followRelationship?.status === 'accepted';
+      const isPending = followRelationship?.status === 'requested';
 
       return {
         _id: follower._id,
@@ -705,7 +669,7 @@ const getFollowers = asyncHandler(async (req, res) => {
           hasMore: skip + followers.length < total,
         },
       },
-      "Followers retrieved successfully"
+      'Followers retrieved successfully'
     )
   );
 });
@@ -717,7 +681,7 @@ const getFollowing = asyncHandler(async (req, res) => {
   const currentUserId = req.user._id;
 
   if (!userId) {
-    throw new ApiError(400, "User ID is required");
+    throw new ApiError(400, 'User ID is required');
   }
 
   const pageNum = parseInt(page);
@@ -727,18 +691,21 @@ const getFollowing = asyncHandler(async (req, res) => {
   // Get total count
   const total = await Followers.countDocuments({
     follower_id: userId,
-    status: "accepted",
+    status: 'accepted',
   });
 
   // Get following with user details
   const followingRecords = await Followers.find({
     follower_id: userId,
-    status: "accepted",
+    status: 'accepted',
   })
-    .populate("following_id", "firstName lastName username avatar profileImage bio isVerified isPrivate")
+    .populate(
+      'following_id',
+      'firstName lastName username avatar profileImage bio isVerified isPrivate'
+    )
     .skip(skip)
     .limit(limitNum)
-    .sort("-created_at")
+    .sort('-created_at')
     .lean();
 
   // Map following users and check if current user follows them
@@ -752,8 +719,8 @@ const getFollowing = asyncHandler(async (req, res) => {
         following_id: followedUser._id,
       });
 
-      const isFollowing = followRelationship?.status === "accepted";
-      const isPending = followRelationship?.status === "requested";
+      const isFollowing = followRelationship?.status === 'accepted';
+      const isPending = followRelationship?.status === 'requested';
 
       return {
         _id: followedUser._id,
@@ -784,25 +751,25 @@ const getFollowing = asyncHandler(async (req, res) => {
           hasMore: skip + following.length < total,
         },
       },
-      "Following list retrieved successfully"
+      'Following list retrieved successfully'
     )
   );
 });
 
 export {
-  sendFollowRequest,
   acceptFollowRequest,
-  rejectFollowRequest,
-  removeFollow,
-  unfollowUser,
-  removeFollowRequest,
   cancelFollowRequestByUserId,
-  getPendingRequests,
-  getFollowStatus,
   followBack,
-  getFollowSuggestions,
-  totalFollowers,
-  totalFollowing,
   getFollowers,
   getFollowing,
+  getFollowStatus,
+  getFollowSuggestions,
+  getPendingRequests,
+  rejectFollowRequest,
+  removeFollow,
+  removeFollowRequest,
+  sendFollowRequest,
+  totalFollowers,
+  totalFollowing,
+  unfollowUser,
 };

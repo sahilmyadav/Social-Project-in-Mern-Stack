@@ -64,7 +64,12 @@ export default function CreatePage() {
   };
 
   const handleFileSelect = (file: File | null) => {
-    if (!file) return;
+    if (!file) {
+      console.log('No file selected');
+      return;
+    }
+
+    console.log('File selected:', file.name, file.type, file.size);
 
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
@@ -79,9 +84,9 @@ export default function CreatePage() {
       return;
     }
 
-    const maxSize = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
-    if (file.size > maxSize) {
-      setError(`File size must be less than ${isVideo ? '100MB' : '10MB'}`);
+    // Only check image size limit (10MB), videos have no limit
+    if (!isVideo && file.size > 10 * 1024 * 1024) {
+      setError('Image size must be less than 10MB');
       return;
     }
 
@@ -89,8 +94,11 @@ export default function CreatePage() {
       URL.revokeObjectURL(previewUrl);
     }
 
+    const newPreviewUrl = URL.createObjectURL(file);
+    console.log('Preview URL created:', newPreviewUrl);
+
     setUploadedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewUrl(newPreviewUrl);
     setError('');
   };
 
@@ -263,16 +271,22 @@ export default function CreatePage() {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {contentType === 'post'
-                          ? 'Images (10MB) / Videos (100MB)'
-                          : 'Videos only (100MB)'}
+                          ? 'Images (10MB) / Videos (no limit)'
+                          : 'Videos (no size limit)'}
                       </p>
                     </div>
                   )}
                 </div>
                 <input
+                  key={contentType}
                   type="file"
                   className="hidden"
-                  onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    handleFileSelect(file);
+                    // Reset input value to allow selecting the same file again
+                    e.target.value = '';
+                  }}
                   accept={contentType === 'post' ? 'image/*,video/*' : 'video/*'}
                   disabled={loading}
                 />

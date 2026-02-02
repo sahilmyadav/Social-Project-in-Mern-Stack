@@ -1,11 +1,13 @@
-"use client";
+'use client';
 
-import { liveStreamService, storyService } from "@/lib/api-services";
-import { Plus, Video } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import AddStoryModal from "./add-story-modal";
-import StoryViewer from "./story-viewer";
+import { liveStreamService, storyService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
+import { showToast } from '@/lib/toast';
+import { Plus, Video } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import AddStoryModal from './add-story-modal';
+import StoryViewer from './story-viewer';
 
 interface Story {
   _id: string;
@@ -18,7 +20,7 @@ interface Story {
   };
   media: {
     url: string;
-    type: "image" | "video";
+    type: 'image' | 'video';
   };
   filter?: string;
   music?: {
@@ -68,14 +70,17 @@ export default function StoriesBar({
   const [loading, setLoading] = useState(true);
 
   // Group stories by user
-  const groupedStories = stories.reduce((acc, story) => {
-    const userId = story.user._id;
-    if (!acc[userId]) {
-      acc[userId] = [];
-    }
-    acc[userId].push(story);
-    return acc;
-  }, {} as Record<string, Story[]>);
+  const groupedStories = stories.reduce(
+    (acc, story) => {
+      const userId = story.user._id;
+      if (!acc[userId]) {
+        acc[userId] = [];
+      }
+      acc[userId].push(story);
+      return acc;
+    },
+    {} as Record<string, Story[]>
+  );
 
   const uniqueUsers = Object.values(groupedStories);
 
@@ -87,7 +92,7 @@ export default function StoriesBar({
       const [myStoriesResponse, feedStoriesResponse, liveResponse] = await Promise.all([
         storyService.getUserStories(currentUserId),
         storyService.getAllStories({ page: 1, limit: 50 }),
-        liveStreamService.getActiveLiveStreams({ limit: 10 })
+        liveStreamService.getActiveLiveStreams({ limit: 10 }),
       ]);
 
       // 1. Handle My Stories
@@ -98,10 +103,12 @@ export default function StoriesBar({
           if (myStoriesResponse.data.stories[0]?.stories) {
             myStoriesResponse.data.stories.forEach((userStoryGroup: any) => {
               if (userStoryGroup.stories && Array.isArray(userStoryGroup.stories)) {
-                userStories.push(...userStoryGroup.stories.map((story: any) => ({
-                  ...story,
-                  user: story.user || userStoryGroup.user
-                })));
+                userStories.push(
+                  ...userStoryGroup.stories.map((story: any) => ({
+                    ...story,
+                    user: story.user || userStoryGroup.user,
+                  }))
+                );
               }
             });
           } else {
@@ -121,10 +128,12 @@ export default function StoriesBar({
         if (feedStoriesResponse.data.stories && Array.isArray(feedStoriesResponse.data.stories)) {
           feedStoriesResponse.data.stories.forEach((userStoryGroup: any) => {
             if (userStoryGroup.stories && Array.isArray(userStoryGroup.stories)) {
-              feedStories.push(...userStoryGroup.stories.map((story: any) => ({
-                ...story,
-                user: story.user || userStoryGroup.user
-              })));
+              feedStories.push(
+                ...userStoryGroup.stories.map((story: any) => ({
+                  ...story,
+                  user: story.user || userStoryGroup.user,
+                }))
+              );
             }
           });
         } else {
@@ -138,9 +147,8 @@ export default function StoriesBar({
         // Filter out streams where streamer might be null (e.g. deleted user)
         setLiveStreams(liveResponse.data.filter((s: any) => s.streamer));
       }
-
     } catch (error) {
-      console.error("Error loading stories/live:", error);
+      console.error('Error loading stories/live:', error);
     } finally {
       setLoading(false);
     }
@@ -163,7 +171,7 @@ export default function StoriesBar({
       }
       return story;
     });
-  }
+  };
 
   useEffect(() => {
     loadData();
@@ -181,14 +189,39 @@ export default function StoriesBar({
     router.push(`/live/watch/${streamId}`);
   };
 
+  const deletingStoryRef = useRef<string | null>(null);
+
   const handleDeleteStory = async (storyId: string) => {
+    // Prevent double delete
+    if (deletingStoryRef.current === storyId) {
+      return;
+    }
+    deletingStoryRef.current = storyId;
+
     try {
       const response = await storyService.deleteStory(storyId);
       if (response.success) {
+        // Immediately update selectedUserStories to remove deleted story
+        setSelectedUserStories((prev) => {
+          const updated = prev.filter((s) => s._id !== storyId);
+          // Close viewer if no stories left
+          if (updated.length === 0) {
+            setIsViewerOpen(false);
+          }
+          return updated;
+        });
+
+        // Show success toast
+        showToast.success('Deleted', 'Story deleted successfully');
+
+        // Also refresh from server
         await loadData();
       }
     } catch (error) {
-      console.error("Error deleting story:", error);
+      console.error('Error deleting story:', error);
+      showToast.error('Error', 'Failed to delete story');
+    } finally {
+      deletingStoryRef.current = null;
     }
   };
 
@@ -208,7 +241,7 @@ export default function StoriesBar({
                 <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-border">
                   {currentUserAvatar ? (
                     <img
-                      src={currentUserAvatar}
+                      src={getMediaUrl(currentUserAvatar)}
                       alt={currentUserName}
                       className="w-full h-full object-cover"
                     />
@@ -223,7 +256,7 @@ export default function StoriesBar({
                 </div>
               </div>
               <span className="text-xs font-medium text-foreground">
-                {hasMyStory ? "Add" : "Your Story"}
+                {hasMyStory ? 'Add' : 'Your Story'}
               </span>
             </button>
           </div>
@@ -242,7 +275,9 @@ export default function StoriesBar({
                     <div className="w-full h-full rounded-full border-2 border-background overflow-hidden relative">
                       {stream.streamer?.profilePicture || stream.streamer?.avatar ? (
                         <img
-                          src={stream.streamer?.profilePicture || stream.streamer?.avatar}
+                          src={getMediaUrl(
+                            stream.streamer?.profilePicture || stream.streamer?.avatar
+                          )}
                           alt={stream.streamer?.username}
                           className="w-full h-full object-cover"
                         />
@@ -273,15 +308,15 @@ export default function StoriesBar({
               >
                 <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500">
                   <div className="w-full h-full rounded-full border-2 border-background overflow-hidden">
-                    {myStories[0]?.media?.type === "image" ? (
+                    {myStories[0]?.media?.type === 'image' ? (
                       <img
-                        src={myStories[0]?.media?.url}
+                        src={getMediaUrl(myStories[0]?.media?.url)}
                         alt="My story"
                         className="w-full h-full object-cover"
                       />
                     ) : (
                       <video
-                        src={myStories[0]?.media?.url}
+                        src={getMediaUrl(myStories[0]?.media?.url)}
                         className="w-full h-full object-cover"
                       />
                     )}
@@ -307,7 +342,7 @@ export default function StoriesBar({
                       <div className="w-full h-full rounded-full border-2 border-background overflow-hidden">
                         {user.profilePicture || user.avatar ? (
                           <img
-                            src={user.profilePicture || user.avatar}
+                            src={getMediaUrl(user.profilePicture || user.avatar)}
                             alt={user.firstName}
                             className="w-full h-full object-cover"
                           />

@@ -78,6 +78,7 @@ export const API_ENDPOINTS = {
     UNSAVE: (reelId: string) => `/reel/unsave/${reelId}`,
     GET_SAVED: '/reel/saved',
     REPORT: (reelId: string) => `/reel/report/${reelId}`,
+    VIEW: (reelId: string) => `/reel/view/${reelId}`,
   },
 
   // Stories
@@ -125,6 +126,7 @@ export const API_ENDPOINTS = {
     EDIT_MESSAGE: (messageId: string) => `/chat/message/edit/${messageId}`,
     DELETE_THREAD: (threadId: string) => `/chat/thread/delete/${threadId}`,
     UPLOAD_MEDIA: '/chat/media/upload',
+    GET_UNREAD_COUNT: '/chat/unread-count',
 
     // Group Chat Endpoints
     CREATE_GROUP: '/chat/group/create',

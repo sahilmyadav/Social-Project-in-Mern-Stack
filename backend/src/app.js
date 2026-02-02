@@ -77,6 +77,11 @@ app.use(
 
 // app.use('/api', apiLimiter);
 
+// Redirect legacy storys path to stories (for old URLs in database)
+app.use('/uploads/storys', (req, res) => {
+  res.redirect(301, `/uploads/stories${req.url}`);
+});
+
 const uploadsPath = path.join(__dirname, '../uploads');
 app.use(
   '/uploads',

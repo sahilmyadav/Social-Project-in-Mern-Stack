@@ -12,6 +12,7 @@ const REELS_DIR = path.join(UPLOADS_DIR, 'reels');
 const STORIES_DIR = path.join(UPLOADS_DIR, 'stories');
 const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
 const COVERS_DIR = path.join(UPLOADS_DIR, 'covers');
+const GENERALS_DIR = path.join(UPLOADS_DIR, 'generals');
 
 const MAX_FILE_SIZE = {
   image: 10 * 1024 * 1024,
@@ -30,7 +31,9 @@ const ensureDirectoryExists = (dir) => {
   }
 };
 
-[POSTS_DIR, REELS_DIR, STORIES_DIR, AVATARS_DIR, COVERS_DIR].forEach(ensureDirectoryExists);
+[POSTS_DIR, REELS_DIR, STORIES_DIR, AVATARS_DIR, COVERS_DIR, GENERALS_DIR].forEach(
+  ensureDirectoryExists
+);
 
 const generateUniqueFileName = (userId, originalName, type) => {
   const timestamp = Date.now();
@@ -80,8 +83,9 @@ const getTargetDirectory = (contentType) => {
     avatars: AVATARS_DIR,
     cover: COVERS_DIR,
     covers: COVERS_DIR,
+    general: GENERALS_DIR,
   };
-  return dirs[contentType] || UPLOADS_DIR;
+  return dirs[contentType] || GENERALS_DIR;
 };
 
 const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
@@ -128,7 +132,16 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
       console.warn('[Storage] Could not delete temp file:', unlinkErr.message);
     }
 
-    const folderName = contentType === 'avatar' ? 'avatars' : `${contentType}s`;
+    // Map content type to correct folder name
+    const folderNameMap = {
+      avatar: 'avatars',
+      post: 'posts',
+      reel: 'reels',
+      story: 'stories',
+      cover: 'covers',
+      general: 'generals',
+    };
+    const folderName = folderNameMap[contentType] || `${contentType}s`;
     const relativePath = `/uploads/${folderName}/${fileName}`;
 
     return {
@@ -259,10 +272,47 @@ const getStorageStats = async () => {
   return stats;
 };
 
+// Backwards-compatible aliases for Cloudinary functions
+const uploadOnCloudinary = async (localFilePath, category = 'general') => {
+  // Determine category from file path if possible
+  let contentType = category;
+  if (localFilePath && typeof localFilePath === 'string') {
+    if (localFilePath.includes('avatar') || localFilePath.includes('profile')) {
+      contentType = 'avatar';
+    } else if (localFilePath.includes('cover')) {
+      contentType = 'cover';
+    } else if (localFilePath.includes('story') || localFilePath.includes('stories')) {
+      contentType = 'story';
+    } else if (localFilePath.includes('reel')) {
+      contentType = 'reel';
+    } else if (localFilePath.includes('post')) {
+      contentType = 'post';
+    }
+  }
+
+  const result = await saveFileLocally(localFilePath, 'user', contentType);
+  if (result) {
+    // Add resource_type for compatibility
+    const ext = localFilePath ? localFilePath.toLowerCase() : '';
+    result.resource_type = ['.mp4', '.mov', '.avi', '.mkv', '.webm'].some((e) => ext.endsWith(e))
+      ? 'video'
+      : 'image';
+  }
+  return result;
+};
+
+const delteOnCloudinray = async (publicId) => {
+  if (!publicId) return null;
+  // Extract file path from public_id
+  const result = await deleteLocalFile(publicId);
+  return result ? { result: 'ok' } : null;
+};
+
 export {
   AVATARS_DIR,
   deleteLocalFile,
   deleteMultipleFiles,
+  delteOnCloudinray,
   generateUniqueFileName,
   getFileType,
   getStorageStats,
@@ -271,6 +321,7 @@ export {
   saveFileLocally,
   saveMultipleFilesLocally,
   STORIES_DIR,
+  uploadOnCloudinary,
   UPLOADS_DIR,
   validateFile,
 };

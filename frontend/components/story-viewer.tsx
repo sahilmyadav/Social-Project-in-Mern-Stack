@@ -2,6 +2,7 @@
 
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { storyService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import '@/styles/filters.css';
 import { ChevronLeft, ChevronRight, Eye, Music, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -72,11 +73,12 @@ export default function StoryViewer({
 
   const currentStory = stories[currentIndex];
   const isOwner = currentUserId === currentStory?.user._id;
-  const mediaUrl =
+  const rawMediaUrl =
     typeof currentStory?.media === 'string' ? currentStory.media : currentStory?.media?.url || '';
+  const mediaUrl = getMediaUrl(rawMediaUrl);
   const isImage =
     currentStory?.media?.type === 'image' ||
-    (!currentStory?.media?.type && mediaUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i));
+    (!currentStory?.media?.type && rawMediaUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i));
 
   // Calculate time ago
   const getTimeAgo = (date: string) => {
@@ -86,6 +88,17 @@ export default function StoryViewer({
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
     return `${Math.floor(seconds / 86400)}d ago`;
   };
+
+  // Track if we should advance to next story
+  const shouldAdvanceRef = useRef(false);
+
+  // Handle auto-advance when progress completes
+  useEffect(() => {
+    if (shouldAdvanceRef.current) {
+      shouldAdvanceRef.current = false;
+      handleNext();
+    }
+  }, [progress]);
 
   // Auto-advance story
   useEffect(() => {
@@ -109,8 +122,9 @@ export default function StoryViewer({
       setProgress((prev) => {
         const newProgress = prev + (interval / duration) * 100;
         if (newProgress >= 100) {
-          handleNext();
-          return 0;
+          // Use ref to trigger navigation in next render cycle
+          shouldAdvanceRef.current = true;
+          return 100; // Set to 100 to trigger the useEffect
         }
         return newProgress;
       });
@@ -243,7 +257,10 @@ export default function StoryViewer({
       setCurrentIndex(currentIndex + 1);
       setProgress(0);
     } else {
-      onClose();
+      // Use setTimeout to defer state update and avoid updating parent during render
+      setTimeout(() => {
+        onClose();
+      }, 0);
     }
   };
 
@@ -271,7 +288,10 @@ export default function StoryViewer({
             setCurrentIndex(Math.max(0, currentIndex - 1));
           }
         } else {
-          onClose();
+          // Use setTimeout to defer state update and avoid updating parent during render
+          setTimeout(() => {
+            onClose();
+          }, 0);
         }
       },
     });
@@ -313,7 +333,7 @@ export default function StoryViewer({
           <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
             {currentStory.user.profilePicture || currentStory.user.avatar ? (
               <img
-                src={currentStory.user.profilePicture || currentStory.user.avatar}
+                src={getMediaUrl(currentStory.user.profilePicture || currentStory.user.avatar)}
                 alt={currentStory.user.firstName}
                 className="w-full h-full object-cover"
               />
@@ -494,7 +514,7 @@ export default function StoryViewer({
                       <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-500 to-pink-500 flex-shrink-0">
                         {viewer.profilePicture ? (
                           <img
-                            src={viewer.profilePicture}
+                            src={getMediaUrl(viewer.profilePicture)}
                             alt={viewer.firstName}
                             className="w-full h-full object-cover"
                           />

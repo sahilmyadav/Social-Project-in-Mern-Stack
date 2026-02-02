@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Comment } from '../models/comment.model.js';
 import { Followers } from '../models/followers.model.js';
 import { Like } from '../models/like.model.js';
@@ -6,13 +7,13 @@ import { Reel } from '../models/reel.model.js';
 import { Report } from '../models/report.model.js';
 import { Save } from '../models/save.model.js';
 import { User } from '../models/user.model.js';
+import { notifyNewReel } from '../services/notification.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { deleteLocalFile, saveFileLocally } from '../utils/localStorage.js';
 
 const MAX_CAPTION_LENGTH = 2000;
-const MAX_REEL_SIZE = 100 * 1024 * 1024;
 
 export const uploadReel = asyncHandler(async (req, res) => {
   const { caption, music_id, tags, thumbnail, duration, width, height } = req.body;
@@ -28,10 +29,6 @@ export const uploadReel = asyncHandler(async (req, res) => {
 
   if (!req.file.mimetype.startsWith('video/')) {
     throw new ApiError(400, 'Only video files are allowed for reels');
-  }
-
-  if (req.file.size > MAX_REEL_SIZE) {
-    throw new ApiError(400, 'Video file must be less than 100MB');
   }
 
   if (caption && caption.length > MAX_CAPTION_LENGTH) {
@@ -114,6 +111,11 @@ export const uploadReel = asyncHandler(async (req, res) => {
     await deleteLocalFile(savedFile.url);
     throw new ApiError(500, 'Failed to create reel. Please try again.');
   }
+
+  // Notify all followers about the new reel (async, don't block response)
+  notifyNewReel(reel._id, userId, reel.media?.thumbnail || reel.media?.url || null).catch((err) => {
+    console.error('Error sending new reel notifications:', err);
+  });
 
   return res.status(201).json(new ApiResponse(201, reel, 'Reel created successfully'));
 });
@@ -498,20 +500,32 @@ export const getUserReels = asyncHandler(async (req, res) => {
   const currentUserId = req.user?._id;
   const { page = 1, limit = 20 } = req.query;
 
+  // Check if userId is a valid MongoDB ObjectId or a username
+  const isValidObjectId = mongoose.Types.ObjectId.isValid(userId);
+
   // Validate user exists and get privacy settings
-  const targetUser = await User.findById(userId);
+  let targetUser;
+  if (isValidObjectId) {
+    targetUser = await User.findById(userId);
+  }
+  if (!targetUser) {
+    targetUser = await User.findOne({ username: userId });
+  }
   if (!targetUser) {
     throw new ApiError(404, 'User not found');
   }
 
+  const targetUserObjectId = targetUser._id;
+  const targetUserId = targetUser._id.toString();
+
   // Check if account is private and user is not following
-  const isOwnProfile = currentUserId && currentUserId.toString() === userId;
+  const isOwnProfile = currentUserId && currentUserId.toString() === targetUserId;
 
   if (targetUser.isPrivate && !isOwnProfile) {
     // Check if current user is following
     const isFollowing = await Followers.findOne({
       follower_id: currentUserId,
-      following_id: userId,
+      following_id: targetUserId,
       status: 'accepted',
     });
 
@@ -539,7 +553,7 @@ export const getUserReels = asyncHandler(async (req, res) => {
 
   // User is allowed to see reels
   const reels = await Reel.find({
-    user_id: userId,
+    user_id: targetUserObjectId,
     is_deleted: false,
   })
     .populate(
@@ -568,7 +582,7 @@ export const getUserReels = asyncHandler(async (req, res) => {
 
   // Get total count for pagination
   const total = await Reel.countDocuments({
-    user_id: userId,
+    user_id: targetUserObjectId,
     is_deleted: false,
   });
 
@@ -733,4 +747,33 @@ export const reportReel = asyncHandler(async (req, res) => {
   });
 
   return res.status(201).json(new ApiResponse(201, report, 'Reel reported successfully'));
+});
+
+// View a reel (increment view count)
+export const viewReel = asyncHandler(async (req, res) => {
+  const { reelId } = req.params;
+  const userId = req.user?._id;
+
+  if (!mongoose.Types.ObjectId.isValid(reelId)) {
+    throw new ApiError(400, 'Invalid reel ID');
+  }
+
+  const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
+
+  if (!reel) {
+    throw new ApiError(404, 'Reel not found');
+  }
+
+  // Increment view count
+  await Reel.findByIdAndUpdate(reelId, { $inc: { views_count: 1 } });
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { viewed: true, views_count: reel.views_count + 1 },
+        'Reel view recorded'
+      )
+    );
 });

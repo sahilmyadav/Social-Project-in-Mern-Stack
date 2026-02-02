@@ -429,6 +429,11 @@ export const reelService = {
   reportReel: async (reelId: string, data: { reason: string; additionalInfo?: string }) => {
     return api.post(API_ENDPOINTS.REELS.REPORT(reelId), data);
   },
+
+  // View Reel (track view)
+  viewReel: async (reelId: string) => {
+    return api.post(API_ENDPOINTS.REELS.VIEW(reelId));
+  },
 };
 
 // Story Service
@@ -621,6 +626,11 @@ export const chatService = {
   // Get All Threads
   getThreads: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.CHAT.GET_THREADS, params);
+  },
+
+  // Get Unread Count
+  getUnreadCount: async () => {
+    return api.get(API_ENDPOINTS.CHAT.GET_UNREAD_COUNT);
   },
 
   // Get Messages in Thread

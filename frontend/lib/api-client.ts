@@ -152,7 +152,7 @@ class ApiClient {
     const url = new URL(`${this.baseURL}${endpoint}`);
 
     if (params) {
-      Object.keys(params).forEach(key => {
+      Object.keys(params).forEach((key) => {
         if (params[key] !== undefined && params[key] !== null) {
           url.searchParams.append(key, params[key]);
         }
@@ -183,12 +183,26 @@ class ApiClient {
           errors: [],
         } as ApiError;
       }
+      // Handle network errors (Failed to fetch, connection refused, etc.)
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw {
+          success: false,
+          statusCode: 0,
+          message: 'Network error - please check your connection',
+          error: 'Network error',
+          errors: [],
+        } as ApiError;
+      }
       throw error;
     }
   }
 
   // POST request
-  async post<T = any>(endpoint: string, data?: any, isMultipart: boolean = false): Promise<ApiResponse<T>> {
+  async post<T = any>(
+    endpoint: string,
+    data?: any,
+    isMultipart: boolean = false
+  ): Promise<ApiResponse<T>> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -216,12 +230,26 @@ class ApiClient {
           errors: [],
         } as ApiError;
       }
+      // Handle network errors (Failed to fetch, connection refused, etc.)
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw {
+          success: false,
+          statusCode: 0,
+          message: 'Network error - please check your connection',
+          error: 'Network error',
+          errors: [],
+        } as ApiError;
+      }
       throw error;
     }
   }
 
   // PUT request
-  async put<T = any>(endpoint: string, data?: any, isMultipart: boolean = false): Promise<ApiResponse<T>> {
+  async put<T = any>(
+    endpoint: string,
+    data?: any,
+    isMultipart: boolean = false
+  ): Promise<ApiResponse<T>> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -246,6 +274,16 @@ class ApiClient {
           statusCode: 408,
           message: 'Request timeout',
           error: 'Request timeout',
+          errors: [],
+        } as ApiError;
+      }
+      // Handle network errors (Failed to fetch, connection refused, etc.)
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw {
+          success: false,
+          statusCode: 0,
+          message: 'Network error - please check your connection',
+          error: 'Network error',
           errors: [],
         } as ApiError;
       }
@@ -277,6 +315,16 @@ class ApiClient {
           statusCode: 408,
           message: 'Request timeout',
           error: 'Request timeout',
+          errors: [],
+        } as ApiError;
+      }
+      // Handle network errors (Failed to fetch, connection refused, etc.)
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw {
+          success: false,
+          statusCode: 0,
+          message: 'Network error - please check your connection',
+          error: 'Network error',
           errors: [],
         } as ApiError;
       }
@@ -318,6 +366,16 @@ class ApiClient {
           errors: [],
         } as ApiError;
       }
+      // Handle network errors (Failed to fetch, connection refused, etc.)
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw {
+          success: false,
+          statusCode: 0,
+          message: 'Network error - please check your connection',
+          error: 'Network error',
+          errors: [],
+        } as ApiError;
+      }
       throw error;
     }
   }
@@ -331,14 +389,12 @@ export const api = {
   get: <T = any>(endpoint: string, params?: Record<string, any>) =>
     apiClient.get<T>(endpoint, params),
 
-  post: <T = any>(endpoint: string, data?: any) =>
-    apiClient.post<T>(endpoint, data),
+  post: <T = any>(endpoint: string, data?: any) => apiClient.post<T>(endpoint, data),
 
   put: <T = any>(endpoint: string, data?: any, isMultipart?: boolean) =>
     apiClient.put<T>(endpoint, data, isMultipart),
 
-  delete: <T = any>(endpoint: string, data?: any) =>
-    apiClient.delete<T>(endpoint, data),
+  delete: <T = any>(endpoint: string, data?: any) => apiClient.delete<T>(endpoint, data),
 
   upload: <T = any>(endpoint: string, formData: FormData) =>
     apiClient.upload<T>(endpoint, formData),

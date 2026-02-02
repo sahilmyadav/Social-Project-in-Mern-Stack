@@ -11,8 +11,7 @@ import smsService from '../services/sms.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { uploadOnCloudinary } from '../utils/cloudinary.js';
-import { saveFileLocally } from '../utils/localStorage.js';
+import { saveFileLocally, uploadOnCloudinary } from '../utils/localStorage.js';
 import redis from '../utils/redis.config.js';
 // import crypto from "crypto";
 
@@ -1140,14 +1139,31 @@ const getUserProfile = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'User ID is required');
   }
 
-  // Find user by userId
-  const user = await User.findById(userId).select(
-    'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status'
-  );
+  // Check if userId is a valid MongoDB ObjectId or a username
+  const mongoose = await import('mongoose');
+  const isValidObjectId = mongoose.default.Types.ObjectId.isValid(userId);
+
+  // Find user by userId (ObjectId) or username
+  let user;
+  if (isValidObjectId) {
+    user = await User.findById(userId).select(
+      'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status'
+    );
+  }
+
+  // If not found by ObjectId, try to find by username
+  if (!user) {
+    user = await User.findOne({ username: userId }).select(
+      'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status'
+    );
+  }
 
   if (!user) {
     throw new ApiError(404, 'User not found');
   }
+
+  // Use the actual user's _id for subsequent operations
+  const profileUserId = user._id.toString();
 
   if (user.status !== 'active') {
     throw new ApiError(403, 'This account is not available');
@@ -1157,16 +1173,16 @@ const getUserProfile = asyncHandler(async (req, res) => {
   const currentUserId = req.user?._id;
 
   // ✅ INSTAGRAM-LIKE BLOCKING: Check bidirectional blocking BEFORE showing profile
-  if (currentUserId && currentUserId.toString() !== userId.toString()) {
+  if (currentUserId && currentUserId.toString() !== profileUserId) {
     // Check if current user has blocked this profile user
     const currentUser = await User.findById(currentUserId).select('blockedUsers');
     const hasBlockedThem = currentUser?.blockedUsers?.some(
-      (blockedId) => blockedId.toString() === userId.toString()
+      (blockedId) => blockedId.toString() === profileUserId
     );
 
     // Check if this profile user has blocked the current user
-    const profileUser = await User.findById(userId).select('blockedUsers');
-    const theyBlockedYou = profileUser?.blockedUsers?.some(
+    const profileUserBlocks = await User.findById(profileUserId).select('blockedUsers');
+    const theyBlockedYou = profileUserBlocks?.blockedUsers?.some(
       (blockedId) => blockedId.toString() === currentUserId.toString()
     );
 
@@ -1686,29 +1702,49 @@ const completeProfile = asyncHandler(async (req, res) => {
   }
 
   // Handle profile picture upload
+  console.log('📷 Profile setup - req.files:', req.files ? Object.keys(req.files) : 'none');
   if (req.files?.profilePicture && req.files.profilePicture[0]) {
+    console.log('📷 Uploading profile picture:', req.files.profilePicture[0].path);
     const profilePictureUpload = await uploadOnCloudinary(req.files.profilePicture[0].path);
     if (profilePictureUpload) {
       user.profileImage = profilePictureUpload.secure_url;
       user.avatar = profilePictureUpload.secure_url;
+      console.log('✅ Profile image URL set:', user.profileImage);
+    } else {
+      console.log('⚠️ Profile picture upload returned null');
     }
+  } else {
+    console.log('📷 No profile picture file received');
   }
 
   // Handle cover photo upload
   if (req.files?.coverPhoto && req.files.coverPhoto[0]) {
+    console.log('🖼️ Uploading cover photo:', req.files.coverPhoto[0].path);
     const coverPhotoUpload = await uploadOnCloudinary(req.files.coverPhoto[0].path);
     if (coverPhotoUpload) {
       user.coverPhoto = coverPhotoUpload.secure_url;
+      console.log('✅ Cover photo URL set:', user.coverPhoto);
+    } else {
+      console.log('⚠️ Cover photo upload returned null');
     }
+  } else {
+    console.log('🖼️ No cover photo file received');
   }
 
   // Mark profile as completed
   user.profileCompleted = true;
 
   await user.save();
+  console.log('✅ User saved. profileImage:', user.profileImage, 'coverPhoto:', user.coverPhoto);
 
   // Return updated user without sensitive fields
   const updatedUser = await User.findById(userId).select('-password -refreshToken -otp');
+  console.log(
+    '📤 Returning user with profileImage:',
+    updatedUser.profileImage,
+    'coverPhoto:',
+    updatedUser.coverPhoto
+  );
 
   return res
     .status(200)

@@ -420,10 +420,16 @@ export default function SetupProfilePage() {
       });
 
       if (response.success && response.data) {
-        // Store tokens and user data
-        localStorage.setItem('accessToken', response.data.accessToken);
-        localStorage.setItem('refreshToken', response.data.refreshToken);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
+        // Update user data in localStorage (keep existing tokens)
+        if (response.data.accessToken) {
+          localStorage.setItem('accessToken', response.data.accessToken);
+        }
+        if (response.data.refreshToken) {
+          localStorage.setItem('refreshToken', response.data.refreshToken);
+        }
+        if (response.data.user) {
+          localStorage.setItem('user', JSON.stringify(response.data.user));
+        }
         toast.success('Profile completed successfully!');
         router.push('/home');
       } else {
