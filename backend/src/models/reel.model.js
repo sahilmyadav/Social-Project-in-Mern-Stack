@@ -59,5 +59,7 @@ const reelSchema = new mongoose.Schema(
 reelSchema.index({ user_id: 1, createdAt: -1 });
 reelSchema.index({ createdAt: -1 });
 reelSchema.index({ views_count: -1 });
+reelSchema.index({ is_deleted: 1, createdAt: -1 }); // Feed queries
+reelSchema.index({ user_id: 1, is_deleted: 1 }); // User reel count
 
 export const Reel = mongoose.model("Reel", reelSchema);

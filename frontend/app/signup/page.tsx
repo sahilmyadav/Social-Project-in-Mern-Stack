@@ -432,7 +432,7 @@ export default function SignupPage() {
               <Input
                 type="tel"
                 name="phone"
-                placeholder="+91 9876543210"
+                placeholder=" "
                 value={formData.phone}
                 onChange={handleChange}
                 disabled={loading}

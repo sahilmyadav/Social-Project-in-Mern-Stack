@@ -3,16 +3,16 @@
 import { Button } from '@/components/ui/button';
 import { chatService, followService, notificationService } from '@/lib/api-services';
 import {
-  Bell,
-  Heart,
-  Home,
-  LogOut,
-  MessageCircle,
-  Plus,
-  Radio,
-  Search,
-  User,
-  Video,
+    Bell,
+    Heart,
+    Home,
+    LogOut,
+    MessageCircle,
+    Plus,
+    Radio,
+    Search,
+    User,
+    Video,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -31,18 +31,19 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
 
   useEffect(() => {
     // Only load if API is available and user exists
-    if (notificationApiAvailable && user) {
+    // Only poll from desktop navigation to avoid duplicate API calls
+    if (notificationApiAvailable && user && !isMobile) {
       loadUnreadCount();
       loadChatUnreadCount();
 
-      // Poll for new notifications every 30 seconds
+      // Poll for new notifications every 60 seconds (reduced from 30s)
       const interval = setInterval(() => {
         loadUnreadCount();
         loadChatUnreadCount();
-      }, 30000);
+      }, 60000);
       return () => clearInterval(interval);
     }
-  }, [user, notificationApiAvailable]);
+  }, [user, notificationApiAvailable, isMobile]);
 
   const loadUnreadCount = async () => {
     // Don't call if we know the API isn't available

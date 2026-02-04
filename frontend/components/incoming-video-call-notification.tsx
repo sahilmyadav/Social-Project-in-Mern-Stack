@@ -29,7 +29,7 @@ export default function IncomingVideoCallNotification({
               style={{ animationDelay: '0.5s' }}
             />
             <div className="relative w-24 h-24 rounded-full overflow-hidden border-4 border-white/20 bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500">
-              {callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') ? (
+              {callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') || callerAvatar?.startsWith('uploads') ? (
                 <img
                   src={getMediaUrl(callerAvatar)}
                   alt={callerName}

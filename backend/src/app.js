@@ -2,6 +2,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import fs from 'fs';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
@@ -83,6 +84,63 @@ app.use('/uploads/storys', (req, res) => {
 });
 
 const uploadsPath = path.join(__dirname, '../uploads');
+
+// Video streaming with range request support (progressive loading like Instagram)
+app.get('/uploads/:folder/:filename', (req, res, next) => {
+  const { folder, filename } = req.params;
+  const filePath = path.join(uploadsPath, folder, filename);
+  const ext = path.extname(filePath).toLowerCase();
+
+  // Only handle video files with range requests
+  if (!['.mp4', '.webm', '.mov', '.avi', '.mkv'].includes(ext)) {
+    return next();
+  }
+
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  // Set content type
+  const contentType = ext === '.mp4' ? 'video/mp4' :
+                      ext === '.webm' ? 'video/webm' :
+                      ext === '.mov' ? 'video/quicktime' : 'video/mp4';
+
+  if (range) {
+    // Parse range header
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunkSize = (end - start) + 1;
+
+    // Create read stream for the requested range
+    const file = fs.createReadStream(filePath, { start, end });
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunkSize,
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=604800, immutable',
+    });
+
+    file.pipe(res);
+  } else {
+    // No range requested, send full file with accept-ranges header
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'public, max-age=604800, immutable',
+    });
+
+    fs.createReadStream(filePath).pipe(res);
+  }
+});
 app.use(
   '/uploads',
   express.static(uploadsPath, {

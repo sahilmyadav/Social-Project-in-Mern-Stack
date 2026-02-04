@@ -5,9 +5,16 @@ import PostCard from "@/components/post-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { followService, postService, searchService } from "@/lib/api-services"
+import { getMediaUrl } from "@/lib/media-utils"
 import { Clock, Search, UserCheck, UserPlus, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
+
+// Helper to check if a string is a valid image URL path
+const isValidImageUrl = (url: string | undefined | null): boolean => {
+  if (!url) return false;
+  return url.startsWith('http') || url.startsWith('/uploads') || url.startsWith('uploads');
+};
 
 interface Creator {
   id: string
@@ -309,9 +316,9 @@ export default function ExplorePage() {
                           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/50 transition-colors border-b border-border last:border-0"
                         >
                           <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
-                            {creator.avatar && creator.avatar.startsWith('http') ? (
+                            {isValidImageUrl(creator.avatar) ? (
                               <img
-                                src={creator.avatar}
+                                src={getMediaUrl(creator.avatar)}
                                 alt={creator.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -326,7 +333,7 @@ export default function ExplorePage() {
                             ) : null}
                             <span
                               className="w-full h-full flex items-center justify-center"
-                              style={{ display: creator.avatar && creator.avatar.startsWith('http') ? 'none' : 'flex' }}
+                              style={{ display: isValidImageUrl(creator.avatar) ? 'none' : 'flex' }}
                             >
                               {(creator.name || 'U').split(' ').map(n => (n || 'U').charAt(0).toUpperCase()).join('').slice(0, 2) || 'U'}
                             </span>
@@ -436,15 +443,15 @@ export default function ExplorePage() {
                       >
                         <div className="flex justify-center mb-4">
                           <div className="relative">
-                            {creator.avatar.startsWith('http') ? (
+                            {isValidImageUrl(creator.avatar) ? (
                               <img
-                                src={creator.avatar}
+                                src={getMediaUrl(creator.avatar)}
                                 alt={creator.name}
                                 className="w-24 h-24 rounded-full object-cover border-4 border-primary/20 group-hover:border-primary/40 transition"
                               />
                             ) : (
-                              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-4xl border-4 border-primary/20 group-hover:border-primary/40 transition">
-                                {creator.avatar}
+                              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-2xl font-bold text-white border-4 border-primary/20 group-hover:border-primary/40 transition">
+                                {(creator.name || 'U').split(' ').map(n => (n || 'U').charAt(0).toUpperCase()).join('').slice(0, 2) || 'U'}
                               </div>
                             )}
                             {creator.verified && (

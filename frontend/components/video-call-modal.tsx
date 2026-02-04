@@ -3,22 +3,22 @@
 import { Button } from '@/components/ui/button';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-  emitAcceptCall,
-  emitAnswer,
-  emitEndCall,
-  emitIceCandidate,
-  emitOffer,
-  emitRejectCall,
-  offAnswer,
-  offCallAccepted,
-  offCallEnded,
-  offIceCandidate,
-  offOffer,
-  onAnswer,
-  onCallAccepted,
-  onCallEnded,
-  onIceCandidate,
-  onOffer,
+    emitAcceptCall,
+    emitAnswer,
+    emitEndCall,
+    emitIceCandidate,
+    emitOffer,
+    emitRejectCall,
+    offAnswer,
+    offCallAccepted,
+    offCallEnded,
+    offIceCandidate,
+    offOffer,
+    onAnswer,
+    onCallAccepted,
+    onCallEnded,
+    onIceCandidate,
+    onOffer,
 } from '@/lib/socket';
 import { Mic, MicOff, PhoneOff, User, Video, VideoOff, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -553,7 +553,7 @@ export default function VideoCallModal({
                 </>
               )}
               <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white/20 bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500">
-                {recipientAvatar?.startsWith('http') || recipientAvatar?.startsWith('/') ? (
+                {recipientAvatar?.startsWith('http') || recipientAvatar?.startsWith('/') || recipientAvatar?.startsWith('uploads') ? (
                   <img
                     src={getMediaUrl(recipientAvatar)}
                     alt={recipientName}

@@ -4,6 +4,7 @@ import { Followers } from '../models/followers.model.js';
 import { Like } from '../models/like.model.js';
 import { Notification } from '../models/notification.model.js';
 import { Reel } from '../models/reel.model.js';
+import { ReelView } from '../models/reelView.model.js';
 import { Report } from '../models/report.model.js';
 import { Save } from '../models/save.model.js';
 import { User } from '../models/user.model.js';
@@ -749,7 +750,7 @@ export const reportReel = asyncHandler(async (req, res) => {
   return res.status(201).json(new ApiResponse(201, report, 'Reel reported successfully'));
 });
 
-// View a reel (increment view count)
+// View a reel (increment view count - unique per user)
 export const viewReel = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
   const userId = req.user?._id;
@@ -764,16 +765,47 @@ export const viewReel = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Reel not found');
   }
 
-  // Increment view count
-  await Reel.findByIdAndUpdate(reelId, { $inc: { views_count: 1 } });
+  // Don't track view if user is viewing their own reel
+  if (reel.user_id.toString() === userId.toString()) {
+    return res
+      .status(200)
+      .json(new ApiResponse(200, { viewed: false, views_count: reel.views_count }, 'Own reel - view not tracked'));
+  }
 
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { viewed: true, views_count: reel.views_count + 1 },
-        'Reel view recorded'
-      )
+  // Try to insert a unique view record
+  // If user already viewed, this will fail due to unique index and we catch it
+  try {
+    await ReelView.create({ reel_id: reelId, user_id: userId });
+
+    // Successfully inserted, so increment view count
+    const updatedReel = await Reel.findByIdAndUpdate(
+      reelId,
+      { $inc: { views_count: 1 } },
+      { new: true }
     );
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          { viewed: true, views_count: updatedReel.views_count },
+          'Reel view recorded'
+        )
+      );
+  } catch (error) {
+    // Duplicate key error means user already viewed this reel
+    if (error.code === 11000) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            { viewed: false, views_count: reel.views_count },
+            'Already viewed'
+          )
+        );
+    }
+    throw error;
+  }
 });

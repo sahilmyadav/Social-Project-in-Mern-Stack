@@ -7,10 +7,10 @@ import SharedContentPreview from '@/components/shared-content-preview';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import VideoCallModal from '@/components/video-call-modal';
@@ -18,56 +18,56 @@ import VoiceCallModal from '@/components/voice-call-modal';
 import { authService, chatService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-  disconnectSocket,
-  emitInitiateCall,
-  emitMessageDelivered,
-  emitStopTyping,
-  emitTyping,
-  emitUserOffline,
-  emitUserOnline,
-  getSocket,
-  initSocket,
-  joinThread,
-  offCallEnded,
-  offCallRejected,
-  offIncomingCall,
-  offMessageStatus,
-  offNewMessage,
-  offNewThread,
-  offStopTyping,
-  offTyping,
-  offUserOffline,
-  offUserOnline,
-  onCallEnded,
-  onCallRejected,
-  onIncomingCall,
-  onMessageStatus,
-  onNewMessage,
-  onNewThread,
-  onStopTyping,
-  onTyping,
-  onUserOffline,
-  onUserOnline,
+    disconnectSocket,
+    emitInitiateCall,
+    emitMessageDelivered,
+    emitStopTyping,
+    emitTyping,
+    emitUserOffline,
+    emitUserOnline,
+    getSocket,
+    initSocket,
+    joinThread,
+    offCallEnded,
+    offCallRejected,
+    offIncomingCall,
+    offMessageStatus,
+    offNewMessage,
+    offNewThread,
+    offStopTyping,
+    offTyping,
+    offUserOffline,
+    offUserOnline,
+    onCallEnded,
+    onCallRejected,
+    onIncomingCall,
+    onMessageStatus,
+    onNewMessage,
+    onNewThread,
+    onStopTyping,
+    onTyping,
+    onUserOffline,
+    onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-  Ban,
-  Camera,
-  Edit2,
-  FileText,
-  Flag,
-  Image as ImageIcon,
-  Info,
-  MoreHorizontal,
-  Phone,
-  Plus,
-  Send,
-  Trash2,
-  User,
-  UserPlus,
-  Users,
-  Video,
-  X,
+    Ban,
+    Camera,
+    Edit2,
+    FileText,
+    Flag,
+    Image as ImageIcon,
+    Info,
+    MoreHorizontal,
+    Phone,
+    Plus,
+    Send,
+    Trash2,
+    User,
+    UserPlus,
+    Users,
+    Video,
+    X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -664,11 +664,12 @@ function ChatPageContent() {
           setMessages((prev) => [...prev, callMessage]);
         }
 
-        // Show browser notification
+        // Show browser notification - only use avatar if it's a valid URL
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+          const isValidAvatarUrl = callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') || callerAvatar?.startsWith('uploads');
           new Notification('Incoming Call', {
             body: `${callerName} is calling...`,
-            icon: callerAvatar,
+            icon: isValidAvatarUrl ? callerAvatar : '/favicon.ico',
             tag: 'incoming-call',
           });
         }
@@ -1136,6 +1137,10 @@ function ChatPageContent() {
         // Handle both direct _id and nested structure
         const threadId = response.data._id || response.data.thread?._id || response.data.threadId;
 
+        // Get participant data from the response
+        const participants = response.data.participants || [];
+        const otherParticipant = participants.find((p: any) => p._id?.toString() !== user?._id);
+
         if (threadId) {
           setSelectedThreadId(threadId);
           // Join thread room via socket
@@ -1144,6 +1149,37 @@ function ChatPageContent() {
           loadMessages(threadId);
           // Mark as seen
           markThreadAsRead(threadId, userId);
+
+          // Update selectedConversation with full participant data from API
+          if (otherParticipant) {
+            const updatedConversation: Conversation = {
+              id: threadId,
+              participantId: otherParticipant._id?.toString() || userId,
+              name: otherParticipant.firstName || otherParticipant.fullName || otherParticipant.username || 'Unknown',
+              avatar: otherParticipant.profilePicture || otherParticipant.profileImage || otherParticipant.avatar || '👤',
+              lastMessage: '',
+              timestamp: 'Now',
+              unread: false,
+              unreadCount: 0,
+              online: otherParticipant.isOnline || false,
+              threadId: threadId,
+            };
+
+            setSelectedConversation(updatedConversation);
+
+            // Also update in conversations list
+            setConversations((prev) => {
+              const existingIndex = prev.findIndex(
+                (c) => c.participantId === userId || c.threadId === threadId
+              );
+              if (existingIndex >= 0) {
+                const updated = [...prev];
+                updated[existingIndex] = { ...updated[existingIndex], ...updatedConversation, lastMessage: updated[existingIndex].lastMessage };
+                return updated;
+              }
+              return [updatedConversation, ...prev];
+            });
+          }
         } else {
           console.error('No thread ID in response');
         }
@@ -1341,7 +1377,8 @@ function ChatPageContent() {
                             <div className="w-full h-full rounded-full bg-background p-[2px]">
                               <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center">
                                 {friend.avatar?.startsWith('http') ||
-                                friend.avatar?.startsWith('/') ? (
+                                friend.avatar?.startsWith('/') ||
+                                friend.avatar?.startsWith('uploads') ? (
                                   <img
                                     src={getMediaUrl(friend.avatar)}
                                     alt={friend.name}
@@ -1404,7 +1441,8 @@ function ChatPageContent() {
                       } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                     >
                       {conversation.avatar?.startsWith('http') ||
-                      conversation.avatar?.startsWith('/') ? (
+                      conversation.avatar?.startsWith('/') ||
+                      conversation.avatar?.startsWith('uploads') ? (
                         <img
                           src={getMediaUrl(conversation.avatar)}
                           alt={conversation.name}
@@ -1555,7 +1593,8 @@ function ChatPageContent() {
                   } overflow-hidden ${!selectedConversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                 >
                   {selectedConversation.avatar?.startsWith('http') ||
-                  selectedConversation.avatar?.startsWith('/') ? (
+                  selectedConversation.avatar?.startsWith('/') ||
+                  selectedConversation.avatar?.startsWith('uploads') ? (
                     <img
                       src={getMediaUrl(selectedConversation.avatar)}
                       alt={selectedConversation.name}
@@ -1894,7 +1933,8 @@ function ChatPageContent() {
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
                           {selectedConversation?.avatar?.startsWith('http') ||
-                          selectedConversation?.avatar?.startsWith('/') ? (
+                          selectedConversation?.avatar?.startsWith('/') ||
+                          selectedConversation?.avatar?.startsWith('uploads') ? (
                             <img
                               src={getMediaUrl(selectedConversation.avatar)}
                               alt={selectedConversation.name}

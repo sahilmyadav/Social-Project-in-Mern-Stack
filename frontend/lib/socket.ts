@@ -3,6 +3,52 @@ import { API_CONFIG } from './api-config';
 
 let socket: Socket | null = null;
 let isConnecting = false;
+let currentToken: string | null = null;
+
+// Function to refresh token silently
+const refreshAccessToken = async (): Promise<string | null> => {
+  try {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!refreshToken) return null;
+
+    const response = await fetch(`${API_CONFIG.BASE_URL}/users/refresh-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.data?.accessToken) {
+        localStorage.setItem('accessToken', data.data.accessToken);
+        if (data.data.refreshToken) {
+          localStorage.setItem('refreshToken', data.data.refreshToken);
+        }
+        console.log('🔄 Token refreshed successfully');
+        return data.data.accessToken;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('🔄 Token refresh failed:', error);
+    return null;
+  }
+};
+
+// Force reconnect with new token
+export const reconnectSocket = async (): Promise<Socket | null> => {
+  const token = localStorage.getItem('accessToken');
+  if (!token) return null;
+
+  // Disconnect existing socket
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+
+  isConnecting = false;
+  return initSocket(token);
+};
 
 export const initSocket = (token: string) => {
   // If socket exists and is connected, return it
@@ -22,6 +68,7 @@ export const initSocket = (token: string) => {
   }
 
   isConnecting = true;
+  currentToken = token;
 
   socket = io(API_CONFIG.SOCKET_URL, {
     auth: {
@@ -33,6 +80,7 @@ export const initSocket = (token: string) => {
     reconnectionDelayMax: 5000,
     reconnectionAttempts: Infinity, // Keep trying to reconnect
     timeout: 20000, // Connection timeout
+    forceNew: false,
   });
 
   socket.on('connect', () => {
@@ -50,12 +98,24 @@ export const initSocket = (token: string) => {
     }
   });
 
-  socket.on('connect_error', (error) => {
+  socket.on('connect_error', async (error) => {
     // Only log in development and avoid noisy errors during reconnection
     if (process.env.NODE_ENV === 'development') {
       console.warn('🔌 Socket connection error:', error.message);
     }
     isConnecting = false;
+
+    // If authentication error, try refreshing token
+    if (error.message.includes('Authentication') || error.message.includes('Invalid token')) {
+      console.log('🔄 Attempting token refresh due to auth error...');
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        // Reconnect with new token
+        setTimeout(() => {
+          reconnectSocket();
+        }, 1000);
+      }
+    }
   });
 
   // Handle general socket errors silently (websocket errors during reconnection)
@@ -66,12 +126,20 @@ export const initSocket = (token: string) => {
     }
   });
 
-  socket.on('reconnect', () => {
+  socket.on('reconnect', (attemptNumber: number) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔌 Socket reconnected after', attemptNumber, 'attempts');
+    }
     isConnecting = false;
   });
 
-  socket.on('reconnect_attempt', () => {
+  socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log('🔌 Socket reconnection attempt:', attemptNumber);
     isConnecting = true;
+  });
+
+  socket.on('reconnect_error', (error) => {
+    console.error('🔌 Socket reconnection error:', error.message);
   });
 
   return socket;
@@ -79,6 +147,11 @@ export const initSocket = (token: string) => {
 
 export const getSocket = () => {
   return socket;
+};
+
+// Check if socket is healthy
+export const isSocketConnected = (): boolean => {
+  return socket?.connected ?? false;
 };
 
 export const disconnectSocket = () => {

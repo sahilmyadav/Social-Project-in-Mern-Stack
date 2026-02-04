@@ -13,12 +13,15 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://172.17.0.1:6379
       - MONGO_URL=mongodb://mongo:27017/social_media_app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - '5000:5000'
+    volumes:
+      - ./backend/uploads:/app/uploads
     depends_on:
-      - redis
       - mongo
     networks:
       - social-network
@@ -52,21 +55,9 @@ services:
     networks:
       - social-network
 
-  # Redis
-  redis:
-    image: redis:7-alpine
-    container_name: social-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis-data:/data
-    networks:
-      - social-network
-
 networks:
   social-network:
     driver: bridge
 
 volumes:
-  redis-data:
   mongo-data:

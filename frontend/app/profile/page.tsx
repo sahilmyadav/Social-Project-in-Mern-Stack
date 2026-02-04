@@ -9,40 +9,41 @@ import ReelCard from '@/components/reel-card';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from '@/components/ui/dialog';
 import { ApiError } from '@/lib/api-client';
 import {
-  authService,
-  feedService,
-  followService,
-  postService,
-  reelService,
+    authService,
+    feedService,
+    followService,
+    postService,
+    reelService,
 } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-  Bookmark,
-  Camera,
-  Clapperboard,
-  Edit2,
-  Eye,
-  Film,
-  Grid,
-  Heart,
-  ImageIcon,
-  Link as LinkIcon,
-  MessageCircle,
-  Moon,
-  MoreVertical,
-  Settings,
-  Sun,
-  Trash2,
-  User,
+    Bookmark,
+    Camera,
+    Clapperboard,
+    Edit2,
+    Eye,
+    Film,
+    Grid,
+    Heart,
+    ImageIcon,
+    Link as LinkIcon,
+    LogOut,
+    MessageCircle,
+    Moon,
+    MoreVertical,
+    Settings,
+    Sun,
+    Trash2,
+    User,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import dynamic from 'next/dynamic';
@@ -778,6 +779,19 @@ export default function ProfilePage() {
                         }`}
                       />
                     </div>
+                  </button>
+                  {/* Logout - Mobile Only */}
+                  <div className="border-t border-border lg:hidden"></div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      handleLogout();
+                    }}
+                    className="w-full px-3 py-2.5 text-left hover:bg-muted transition flex items-center gap-2 text-sm rounded-b-xl text-red-500 lg:hidden"
+                  >
+                    <LogOut size={16} />
+                    <span>Logout</span>
                   </button>
                 </div>
               )}

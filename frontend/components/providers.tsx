@@ -1,5 +1,6 @@
 'use client'
 
+import { VideoProvider } from '@/contexts/video-context'
 import GlobalCallHandler from './global-call-handler'
 import GlobalSocketHandler from './global-socket-handler'
 import { ThemeProvider } from './theme-provider'
@@ -12,9 +13,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      <GlobalSocketHandler />
-      <GlobalCallHandler />
-      {children}
+      <VideoProvider>
+        <GlobalSocketHandler />
+        <GlobalCallHandler />
+        {children}
+      </VideoProvider>
     </ThemeProvider>
   )
 }

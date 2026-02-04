@@ -3,19 +3,20 @@
 import Navigation from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { followService, notificationService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import {
-  AtSign,
-  Bell,
-  BellOff,
-  CheckCheck,
-  Heart,
-  Loader2,
-  MessageCircle,
-  Settings,
-  Share2,
-  UserCheck,
-  UserPlus,
-  X,
+    AtSign,
+    Bell,
+    BellOff,
+    CheckCheck,
+    Heart,
+    Loader2,
+    MessageCircle,
+    Settings,
+    Share2,
+    UserCheck,
+    UserPlus,
+    X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -383,11 +384,11 @@ export default function NotificationsPage() {
                         request.requester?.profilePicture ||
                         request.requester?.avatar ? (
                           <img
-                            src={
+                            src={getMediaUrl(
                               request.requester.profileImage ||
                               request.requester.profilePicture ||
                               request.requester.avatar
-                            }
+                            )}
                             alt={request.requester.firstName}
                             className="w-full h-full object-cover"
                           />
@@ -483,11 +484,11 @@ export default function NotificationsPage() {
                       notification.sender_id.profilePicture ||
                       notification.sender_id.avatar ? (
                         <img
-                          src={
+                          src={getMediaUrl(
                             notification.sender_id.profileImage ||
                             notification.sender_id.profilePicture ||
                             notification.sender_id.avatar
-                          }
+                          )}
                           alt={notification.sender_id.firstName}
                           className="w-full h-full object-cover"
                         />
@@ -529,14 +530,14 @@ export default function NotificationsPage() {
                         notification.thumbnail.includes('.webm') ||
                         notification.thumbnail.includes('.mov') ? (
                           <video
-                            src={notification.thumbnail}
+                            src={getMediaUrl(notification.thumbnail)}
                             className="w-12 h-12 rounded-md object-cover"
                             muted
                             playsInline
                           />
                         ) : (
                           <img
-                            src={notification.thumbnail}
+                            src={getMediaUrl(notification.thumbnail)}
                             alt="Reel"
                             className="w-12 h-12 rounded-md object-cover"
                           />
@@ -544,7 +545,7 @@ export default function NotificationsPage() {
                       ) : (
                         // Post thumbnail
                         <img
-                          src={notification.thumbnail}
+                          src={getMediaUrl(notification.thumbnail)}
                           alt="Post"
                           className="w-12 h-12 rounded-md object-cover"
                         />

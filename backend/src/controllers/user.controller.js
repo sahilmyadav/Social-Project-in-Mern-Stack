@@ -1147,14 +1147,14 @@ const getUserProfile = asyncHandler(async (req, res) => {
   let user;
   if (isValidObjectId) {
     user = await User.findById(userId).select(
-      'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status'
+      'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status blockedUsers'
     );
   }
 
   // If not found by ObjectId, try to find by username
   if (!user) {
     user = await User.findOne({ username: userId }).select(
-      'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status'
+      'firstName lastName username bio avatar profileImage coverPhoto isVerified profile_type isPrivate allowDownloads status blockedUsers'
     );
   }
 
@@ -1163,7 +1163,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
   }
 
   // Use the actual user's _id for subsequent operations
-  const profileUserId = user._id.toString();
+  const profileUserId = user._id;
 
   if (user.status !== 'active') {
     throw new ApiError(403, 'This account is not available');
@@ -1173,16 +1173,15 @@ const getUserProfile = asyncHandler(async (req, res) => {
   const currentUserId = req.user?._id;
 
   // ✅ INSTAGRAM-LIKE BLOCKING: Check bidirectional blocking BEFORE showing profile
-  if (currentUserId && currentUserId.toString() !== profileUserId) {
+  if (currentUserId && currentUserId.toString() !== profileUserId.toString()) {
     // Check if current user has blocked this profile user
-    const currentUser = await User.findById(currentUserId).select('blockedUsers');
+    const currentUser = await User.findById(currentUserId).select('blockedUsers').lean();
     const hasBlockedThem = currentUser?.blockedUsers?.some(
-      (blockedId) => blockedId.toString() === profileUserId
+      (blockedId) => blockedId.toString() === profileUserId.toString()
     );
 
     // Check if this profile user has blocked the current user
-    const profileUserBlocks = await User.findById(profileUserId).select('blockedUsers');
-    const theyBlockedYou = profileUserBlocks?.blockedUsers?.some(
+    const theyBlockedYou = user.blockedUsers?.some(
       (blockedId) => blockedId.toString() === currentUserId.toString()
     );
 
@@ -1192,48 +1191,23 @@ const getUserProfile = asyncHandler(async (req, res) => {
     }
   }
 
-  // Count followers
-  const followersCount = await Followers.countDocuments({
-    following_id: user._id,
-    status: 'accepted',
-  });
+  // ✅ OPTIMIZED: Run all count queries in parallel
+  const [followersCount, followingCount, postsCount, reelsCount, followRecord] = await Promise.all([
+    Followers.countDocuments({ following_id: profileUserId, status: 'accepted' }),
+    Followers.countDocuments({ follower_id: profileUserId, status: 'accepted' }),
+    Post.countDocuments({ user_id: profileUserId, is_deleted: false }),
+    Reel.countDocuments({ user_id: profileUserId, is_deleted: false }),
+    currentUserId && currentUserId.toString() !== profileUserId.toString()
+      ? Followers.findOne({ follower_id: currentUserId, following_id: profileUserId }).select('status').lean()
+      : null,
+  ]);
 
-  // Count following
-  const followingCount = await Followers.countDocuments({
-    follower_id: user._id,
-    status: 'accepted',
-  });
-
-  // Count posts
-  const postsCount = await Post.countDocuments({
-    user_id: user._id,
-    is_deleted: false,
-  });
-
-  // Count reels
-  const reelsCount = await Reel.countDocuments({
-    user_id: user._id,
-    is_deleted: false,
-  });
-
-  // Check if current user is following this profile user
+  // Check follow status from the parallel query result
   let isFollowing = false;
   let isPending = false;
-
-  if (currentUserId && currentUserId.toString() !== userId.toString()) {
-    // Check if there's a follow relationship
-    const followRecord = await Followers.findOne({
-      follower_id: currentUserId,
-      following_id: user._id,
-    });
-
-    if (followRecord) {
-      if (followRecord.status === 'accepted') {
-        isFollowing = true;
-      } else if (followRecord.status === 'requested') {
-        isPending = true;
-      }
-    }
+  if (followRecord) {
+    isFollowing = followRecord.status === 'accepted';
+    isPending = followRecord.status === 'requested';
   }
 
   // Build response
@@ -1978,32 +1952,32 @@ const verifyPhoneChange = asyncHandler(async (req, res) => {
 });
 
 export {
-  blockUser,
-  changePassword,
-  checkUsernameAvailability,
-  completeProfile,
-  deleteUser,
-  forgotPassword,
-  getBlockedUsers,
-  getCurrentUser,
-  getUserProfile,
-  loginUser,
-  logOutUser,
-  refreshAccessToken,
-  registerUser,
-  requestEmailChange,
-  requestPhoneChange,
-  resendRegistrationOtp,
-  resetPassword,
-  resetPasswordForTesting,
-  unblockUser,
-  unlockAccount,
-  updateCoverPhoto,
-  updatePrivacySettings,
-  updateProfile,
-  updateProfileImage,
-  verifyEmailChange,
-  verifyLoginOtp,
-  verifyPhoneChange,
-  verifyRegisterOtp,
+    blockUser,
+    changePassword,
+    checkUsernameAvailability,
+    completeProfile,
+    deleteUser,
+    forgotPassword,
+    getBlockedUsers,
+    getCurrentUser,
+    getUserProfile,
+    loginUser,
+    logOutUser,
+    refreshAccessToken,
+    registerUser,
+    requestEmailChange,
+    requestPhoneChange,
+    resendRegistrationOtp,
+    resetPassword,
+    resetPasswordForTesting,
+    unblockUser,
+    unlockAccount,
+    updateCoverPhoto,
+    updatePrivacySettings,
+    updateProfile,
+    updateProfileImage,
+    verifyEmailChange,
+    verifyLoginOtp,
+    verifyPhoneChange,
+    verifyRegisterOtp
 };

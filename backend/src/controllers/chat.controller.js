@@ -9,10 +9,10 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import {
-  decryptMessage,
-  encryptMediaUrl,
-  encryptMessage,
-  generateSessionKey,
+    decryptMessage,
+    encryptMediaUrl,
+    encryptMessage,
+    generateSessionKey,
 } from '../utils/encryption.js';
 import { uploadOnCloudinary } from '../utils/localStorage.js';
 
@@ -164,7 +164,7 @@ export const createOrGetThread = asyncHandler(async (req, res) => {
   let thread = await ChatThread.findOne({
     participants: { $all: [userId, receiverId] },
     isDeleted: false,
-  }).populate('participants', 'firstName lastName username profilePicture');
+  }).populate('participants', 'firstName lastName username profileImage avatar isOnline');
 
   const isNewThread = !thread;
 
@@ -186,7 +186,7 @@ export const createOrGetThread = asyncHandler(async (req, res) => {
       },
     });
 
-    thread = await thread.populate('participants', 'firstName lastName username profilePicture');
+    thread = await thread.populate('participants', 'firstName lastName username profileImage avatar isOnline');
   }
 
   // Emit socket event for new thread to both users
@@ -396,7 +396,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const message = await ChatMessage.create(messageData);
 
   // Populate sender and reply info
-  await message.populate('senderId', 'firstName lastName username profilePicture');
+  await message.populate('senderId', 'firstName lastName username profileImage avatar');
   if (reply_to) {
     await message.populate('replyTo', 'encryptedContent createdAt');
   }
@@ -588,7 +588,7 @@ export const getMessages = asyncHandler(async (req, res) => {
   const messages = await ChatMessage.find(query)
     .sort({ createdAt: 1 })
     .limit(parseInt(limit))
-    .populate('senderId', 'firstName lastName username profilePicture')
+    .populate('senderId', 'firstName lastName username profileImage avatar')
     .populate('replyTo', 'encryptedContent senderId createdAt');
 
   // Decrypt messages
@@ -754,7 +754,7 @@ export const requestCall = asyncHandler(async (req, res) => {
   });
 
   // Populate caller info
-  await callLog.populate('callerId', 'firstName lastName username profilePicture');
+  await callLog.populate('callerId', 'firstName lastName username profileImage avatar');
 
   // Emit socket event to receiver
   const io = getIO();

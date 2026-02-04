@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,6 +26,16 @@ const ALLOWED_EXTENSIONS = {
   video: ['.mp4', '.mov', '.avi', '.mkv', '.webm'],
 };
 
+// Image compression settings by content type
+const COMPRESSION_SETTINGS = {
+  avatar: { maxWidth: 400, maxHeight: 400, quality: 80 },
+  cover: { maxWidth: 1200, maxHeight: 400, quality: 85 },
+  post: { maxWidth: 1080, maxHeight: 1350, quality: 85 },
+  story: { maxWidth: 1080, maxHeight: 1920, quality: 80 },
+  reel: { maxWidth: 1080, maxHeight: 1920, quality: 80 }, // For thumbnails
+  general: { maxWidth: 1200, maxHeight: 1200, quality: 85 },
+};
+
 const ensureDirectoryExists = (dir) => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -38,9 +49,31 @@ const ensureDirectoryExists = (dir) => {
 const generateUniqueFileName = (userId, originalName, type) => {
   const timestamp = Date.now();
   const randomStr = crypto.randomBytes(8).toString('hex');
-  const ext = path.extname(originalName).toLowerCase();
+  // Always output as .jpg for compressed images, keep original for videos
+  const originalExt = path.extname(originalName).toLowerCase();
+  const ext = ALLOWED_EXTENSIONS.video.includes(originalExt) ? originalExt : '.jpg';
   const safeUserId = String(userId).replace(/[^a-zA-Z0-9]/g, '');
   return `${type}_${safeUserId}_${timestamp}_${randomStr}${ext}`;
+};
+
+// Compress image using sharp
+const compressImage = async (inputPath, outputPath, contentType) => {
+  const settings = COMPRESSION_SETTINGS[contentType] || COMPRESSION_SETTINGS.general;
+
+  try {
+    await sharp(inputPath)
+      .resize(settings.maxWidth, settings.maxHeight, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: settings.quality, progressive: true })
+      .toFile(outputPath);
+
+    return true;
+  } catch (error) {
+    console.error('[Compression] Error compressing image:', error.message);
+    return false;
+  }
 };
 
 const getFileType = (mimetype) => {
@@ -94,6 +127,7 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
     let tempFilePath;
     let originalName;
     let fileSize;
+    let mimetype;
 
     if (typeof fileOrPath === 'string') {
       tempFilePath = fileOrPath;
@@ -102,6 +136,7 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
       tempFilePath = fileOrPath.path;
       originalName = fileOrPath.originalname || path.basename(fileOrPath.path);
       fileSize = fileOrPath.size;
+      mimetype = fileOrPath.mimetype;
     } else {
       console.error('[Storage] Invalid file input:', fileOrPath);
       return null;
@@ -117,14 +152,27 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
       return null;
     }
 
-    const stats = fs.statSync(tempFilePath);
+    const originalExt = path.extname(originalName).toLowerCase();
+    const isImage = ALLOWED_EXTENSIONS.image.includes(originalExt) && originalExt !== '.gif' && originalExt !== '.svg';
+    const isVideo = ALLOWED_EXTENSIONS.video.includes(originalExt);
+
     const fileName = generateUniqueFileName(userId, originalName, contentType);
     const targetDir = getTargetDirectory(contentType);
     const targetPath = path.join(targetDir, fileName);
 
     ensureDirectoryExists(targetDir);
 
-    await fs.promises.copyFile(tempFilePath, targetPath);
+    // Compress images, copy videos directly
+    if (isImage) {
+      const compressed = await compressImage(tempFilePath, targetPath, contentType);
+      if (!compressed) {
+        // Fallback to copy if compression fails
+        await fs.promises.copyFile(tempFilePath, targetPath);
+        console.warn('[Storage] Compression failed, using original file');
+      }
+    } else {
+      await fs.promises.copyFile(tempFilePath, targetPath);
+    }
 
     try {
       await fs.promises.unlink(tempFilePath);
@@ -144,13 +192,16 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
     const folderName = folderNameMap[contentType] || `${contentType}s`;
     const relativePath = `/uploads/${folderName}/${fileName}`;
 
+    // Get final file stats after processing
+    const finalStats = fs.statSync(targetPath);
+
     return {
       fileName,
       filePath: targetPath,
       relativePath,
       url: relativePath,
       secure_url: relativePath,
-      size: stats.size,
+      size: finalStats.size,
       public_id: `${contentType}_${fileName}`,
     };
   } catch (error) {
@@ -309,19 +360,19 @@ const delteOnCloudinray = async (publicId) => {
 };
 
 export {
-  AVATARS_DIR,
-  deleteLocalFile,
-  deleteMultipleFiles,
-  delteOnCloudinray,
-  generateUniqueFileName,
-  getFileType,
-  getStorageStats,
-  POSTS_DIR,
-  REELS_DIR,
-  saveFileLocally,
-  saveMultipleFilesLocally,
-  STORIES_DIR,
-  uploadOnCloudinary,
-  UPLOADS_DIR,
-  validateFile,
+    AVATARS_DIR,
+    deleteLocalFile,
+    deleteMultipleFiles,
+    delteOnCloudinray,
+    generateUniqueFileName,
+    getFileType,
+    getStorageStats,
+    POSTS_DIR,
+    REELS_DIR,
+    saveFileLocally,
+    saveMultipleFilesLocally,
+    STORIES_DIR,
+    uploadOnCloudinary,
+    UPLOADS_DIR,
+    validateFile
 };

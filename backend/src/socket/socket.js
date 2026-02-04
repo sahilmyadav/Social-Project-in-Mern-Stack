@@ -11,10 +11,16 @@ let redisClient;
 let redisPubClient;
 let redisSubClient;
 
-// Track online users: userId -> socketId
+// Track online users: userId -> Set of socketIds (multiple tabs/devices)
 // Note: In cluster mode, this Map is per-worker. For cross-worker user tracking,
 // we'll use Redis for shared state
 const onlineUsers = new Map();
+
+// Track disconnect timeouts for grace period
+const disconnectTimeouts = new Map();
+
+// Grace period before marking user offline (5 seconds)
+const DISCONNECT_GRACE_PERIOD = 5000;
 
 /**
  * Initialize Redis clients for Socket.IO adapter
@@ -84,19 +90,26 @@ export const initializeSocket = async (server) => {
   });
 
   io.on('connection', async (socket) => {
-    const userId = socket.userId;
+    const userId = socket.userId.toString(); // Ensure string format
     console.log(`✅ User connected: ${userId} (socket: ${socket.id})`);
+
+    // Cancel any pending disconnect timeout for this user (they reconnected!)
+    if (disconnectTimeouts.has(userId)) {
+      clearTimeout(disconnectTimeouts.get(userId));
+      disconnectTimeouts.delete(userId);
+      console.log(`🔄 User ${userId} reconnected, cancelled offline broadcast`);
+    }
 
     //  ADD USER TO ONLINE MAP (Redis + local)
     await addOnlineUser(userId, socket.id);
 
-    // Join user's personal room
+    // Join user's personal room (ensure string format for consistency)
     socket.join(userId);
 
     //  BROADCAST TO ALL USERS THAT THIS USER IS ONLINE
-    console.log(`📢 Broadcasting userOnline event for userId: ${userId.toString()}`);
+    console.log(`📢 Broadcasting userOnline event for userId: ${userId}`);
     io.emit('userOnline', {
-      userId: userId.toString(),
+      userId: userId,
       socketId: socket.id,
     });
 
@@ -249,22 +262,26 @@ export const initializeSocket = async (server) => {
     // Initiate call - User A calls User B
     socket.on('initiateCall', async ({ recipientId, threadId, callType = 'voice' }) => {
       try {
-        console.log(`📞 Call initiated: ${socket.userId} -> ${recipientId}, type: ${callType}`);
+        // Ensure recipientId is a string for room lookup consistency
+        const recipientIdStr = recipientId?.toString();
+        console.log(`📞 Call initiated: ${userId} -> ${recipientIdStr}, type: ${callType}`);
 
-        // Check if recipient is connected
-        const recipientSockets = await io.in(recipientId).allSockets();
+        // Check if recipient is connected (use string format for room lookup)
+        const recipientSockets = await io.in(recipientIdStr).allSockets();
+        console.log(`📞 Recipient ${recipientIdStr} has ${recipientSockets.size} active sockets`);
+
         if (recipientSockets.size === 0) {
-          console.log(`❌ Recipient ${recipientId} is offline`);
+          console.log(`❌ Recipient ${recipientIdStr} is offline`);
           // Recipient is offline
           socket.emit('callFailed', {
-            recipientId,
+            recipientId: recipientIdStr,
             reason: 'User is offline',
           });
           return;
         }
 
         // Fetch caller's user info to send with the notification
-        const callerUser = await User.findById(socket.userId).select(
+        const callerUser = await User.findById(userId).select(
           'firstName lastName username profilePicture avatar'
         );
 
@@ -276,22 +293,22 @@ export const initializeSocket = async (server) => {
           callerName = callerUser.username;
         }
 
-        console.log(`📞 Sending incoming call notification to ${recipientId}`);
+        console.log(`📞 Sending incoming call notification to ${recipientIdStr}`);
 
         // Send incoming call notification to recipient with caller info
-        io.to(recipientId).emit('incomingCall', {
-          callerId: socket.userId,
+        io.to(recipientIdStr).emit('incomingCall', {
+          callerId: userId,
           threadId: threadId,
           callType: callType,
           callerInfo: {
             avatar: callerUser?.profilePicture || callerUser?.avatar || '👤',
-            name: callerName, // Added name to callerInfo object as expected by frontend
+            name: callerName,
           },
           timestamp: new Date(),
           name: callerName,
         });
 
-        console.log(`✅ Call notification sent successfully`);
+        console.log(`✅ Call notification sent successfully to room: ${recipientIdStr}`);
       } catch (error) {
         console.error('❌ Error initiating call:', error);
         socket.emit('callFailed', {
@@ -303,31 +320,38 @@ export const initializeSocket = async (server) => {
 
     // Accept call - User B accepts the incoming call
     socket.on('acceptCall', ({ callerId, threadId }) => {
-      console.log(`📞 Call accepted: ${socket.userId} accepted call from ${callerId}`);
+      const callerIdStr = callerId?.toString();
+      console.log(`📞 Call accepted: ${userId} accepted call from ${callerIdStr}`);
 
       // Notify the caller that call was accepted
-      io.to(callerId).emit('callAccepted', {
-        receiverId: socket.userId,
+      io.to(callerIdStr).emit('callAccepted', {
+        receiverId: userId,
         threadId: threadId,
       });
 
-      console.log(`✅ Call accepted notification sent to ${callerId}`);
+      console.log(`✅ Call accepted notification sent to ${callerIdStr}`);
     });
 
     // Reject call - User B rejects the incoming call
     socket.on('rejectCall', ({ callerId, threadId }) => {
+      const callerIdStr = callerId?.toString();
+      console.log(`📞 Call rejected: ${userId} rejected call from ${callerIdStr}`);
+
       // Notify the caller that call was rejected
-      io.to(callerId).emit('callRejected', {
-        receiverId: socket.userId,
+      io.to(callerIdStr).emit('callRejected', {
+        receiverId: userId,
         threadId: threadId,
       });
     });
 
     // End call - Either party ends the active call
     socket.on('endCall', ({ recipientId, threadId }) => {
+      const recipientIdStr = recipientId?.toString();
+      console.log(`📞 Call ended: ${userId} ended call with ${recipientIdStr}`);
+
       // Notify the other party that call ended
-      io.to(recipientId).emit('callEnded', {
-        userId: socket.userId,
+      io.to(recipientIdStr).emit('callEnded', {
+        userId: userId,
         threadId: threadId,
         endedAt: new Date(),
       });
@@ -371,17 +395,43 @@ export const initializeSocket = async (server) => {
     socket.on('disconnect', async (reason) => {
       console.log(`❌ User disconnected: ${userId} (reason: ${reason})`);
 
-      //  REMOVE USER FROM ONLINE MAP (Redis + local)
-      await removeOnlineUser(userId);
+      // Check if user has other active sockets (multiple tabs/devices)
+      const userSockets = await io.in(userId).allSockets();
 
-      //  BROADCAST TO ALL USERS THAT THIS USER IS OFFLINE
-      console.log(`📢 Broadcasting userOffline event for userId: ${userId.toString()}`);
-      io.emit('userOffline', {
-        userId: userId.toString(),
-      });
+      if (userSockets.size > 0) {
+        // User still has other connections, don't mark as offline
+        console.log(`🔄 User ${userId} still has ${userSockets.size} other socket(s), staying online`);
+        return;
+      }
 
-      const totalOnline = await getOnlineUsersCount();
-      console.log(`📊 Total online users: ${totalOnline}`);
+      // Use grace period to handle brief disconnections (network hiccup, page refresh)
+      console.log(`⏳ Starting ${DISCONNECT_GRACE_PERIOD}ms grace period for ${userId}`);
+
+      const timeoutId = setTimeout(async () => {
+        // Double-check user hasn't reconnected during grace period
+        const currentSockets = await io.in(userId).allSockets();
+        if (currentSockets.size > 0) {
+          console.log(`🔄 User ${userId} reconnected during grace period, staying online`);
+          disconnectTimeouts.delete(userId);
+          return;
+        }
+
+        //  REMOVE USER FROM ONLINE MAP (Redis + local)
+        await removeOnlineUser(userId);
+
+        //  BROADCAST TO ALL USERS THAT THIS USER IS OFFLINE
+        console.log(`📢 Broadcasting userOffline event for userId: ${userId.toString()}`);
+        io.emit('userOffline', {
+          userId: userId.toString(),
+        });
+
+        const totalOnline = await getOnlineUsersCount();
+        console.log(`📊 Total online users: ${totalOnline}`);
+
+        disconnectTimeouts.delete(userId);
+      }, DISCONNECT_GRACE_PERIOD);
+
+      disconnectTimeouts.set(userId, timeoutId);
     });
   });
 

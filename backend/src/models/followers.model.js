@@ -27,4 +27,9 @@ followerSchema.index(
   { unique: true }
 );
 
+// Performance indexes for common queries
+followerSchema.index({ follower_id: 1, status: 1 }); // Get who I follow (accepted)
+followerSchema.index({ following_id: 1, status: 1 }); // Get my followers (accepted)
+followerSchema.index({ following_id: 1, follower_id: 1, status: 1 }); // Check follow relationship
+
 export const Followers = mongoose.model("Followers", followerSchema);

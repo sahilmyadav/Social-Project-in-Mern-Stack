@@ -97,7 +97,9 @@ const nextConfig = {
     return [
       {
         source: '/uploads/:path*',
-        destination: 'http://localhost:3333/uploads/:path*',
+        destination: process.env.NODE_ENV === 'production'
+          ? 'http://backend:5000/uploads/:path*'
+          : 'http://localhost:5000/uploads/:path*',
       },
     ];
   },

@@ -6,30 +6,32 @@ import ShareModal from '@/components/share-modal';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { useVideoSafe } from '@/contexts/video-context';
 import { commentService, reelService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-  ArrowLeft,
-  Bookmark,
-  Flag,
-  Heart,
-  Loader2,
-  MessageCircle,
-  MoreVertical,
-  Pause,
-  Play,
-  Send,
-  Share2,
-  Trash2,
-  Volume2,
-  VolumeX,
-  X,
+    ArrowLeft,
+    Bookmark,
+    Flag,
+    Heart,
+    Loader2,
+    MessageCircle,
+    MoreVertical,
+    Pause,
+    Play,
+    Send,
+    Share2,
+    Trash2,
+    Volume2,
+    VolumeX,
+    X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -41,6 +43,7 @@ export default function ReelPage() {
   const searchParams = useSearchParams();
   const reelId = params.reelId as string;
   const showComments = searchParams.get('comments') === 'true';
+  const { isMuted: globalMuted, toggleMute: toggleGlobalMute } = useVideoSafe();
 
   const [reel, setReel] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
@@ -49,8 +52,14 @@ export default function ReelPage() {
 
   // Video states
   const [isPlaying, setIsPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Sync video muted state with global mute
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = globalMuted;
+    }
+  }, [globalMuted]);
 
   // Reel states
   const [liked, setLiked] = useState(false);
@@ -156,10 +165,7 @@ export default function ReelPage() {
 
   // Handle mute/unmute
   const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
+    toggleGlobalMute(); // Toggle global mute state - affects all videos
   };
 
   // Handle like
@@ -345,8 +351,10 @@ export default function ReelPage() {
               loop
               playsInline
               autoPlay
-              muted={isMuted}
+              muted={globalMuted}
               onClick={togglePlayPause}
+              preload="metadata"
+              poster={reel?.media?.thumbnail ? getMediaUrl(reel.media.thumbnail) : undefined}
             />
 
             {/* Video Controls Overlay */}
@@ -365,7 +373,7 @@ export default function ReelPage() {
                 onClick={toggleMute}
                 className="bg-black/50 hover:bg-black/70 text-white"
               >
-                {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                {globalMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
               </Button>
             </div>
 

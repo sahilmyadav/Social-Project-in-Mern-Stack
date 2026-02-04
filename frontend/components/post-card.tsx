@@ -3,26 +3,27 @@
 import ReportPostModal from '@/components/report-post-modal';
 import ShareModal from '@/components/share-modal';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
+import { useVideoSafe } from '@/contexts/video-context';
 import { commentService, postService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-  Download,
-  Heart,
-  MessageCircle,
-  MoreHorizontal,
-  Play,
-  Send,
-  Share2,
-  Trash2,
-  Volume2,
-  VolumeX,
+    Download,
+    Heart,
+    MessageCircle,
+    MoreHorizontal,
+    Play,
+    Send,
+    Share2,
+    Trash2,
+    Volume2,
+    VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -40,10 +41,10 @@ interface PostCardProps {
 function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { isMuted: globalMuted, toggleMute: toggleGlobalMute } = useVideoSafe();
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
   const [isInView, setIsInView] = useState(false);
-  const [userPaused, setUserPaused] = useState(true); // Start paused by default
+  const [userPaused, setUserPaused] = useState(false); // Auto-play when in view
 
   // Intersection Observer for auto-play/pause
   useEffect(() => {
@@ -69,14 +70,23 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
     };
   }, []);
 
-  // Pause when out of view
+  // Auto-play when in view, pause when out of view
   useEffect(() => {
     if (!videoRef.current) return;
 
-    if (!isInView && isPlaying) {
+    if (isInView && !userPaused) {
+      videoRef.current.play().catch(() => {});
+    } else if (!isInView) {
       videoRef.current.pause();
     }
-  }, [isInView, isPlaying]);
+  }, [isInView, userPaused]);
+
+  // Sync video muted state with global mute
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = globalMuted;
+    }
+  }, [globalMuted]);
 
   const handlePlayPause = () => {
     if (videoRef.current) {
@@ -92,10 +102,7 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
 
   const handleMuteToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
+    toggleGlobalMute(); // Toggle global mute state - affects all videos
   };
 
   return (
@@ -110,7 +117,7 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
         controls={false}
         loop
         playsInline
-        muted={isMuted}
+        muted={globalMuted}
         preload="metadata"
       />
 
@@ -143,7 +150,7 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
         className="absolute bottom-4 right-4 p-2 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition cursor-pointer"
         onClick={handleMuteToggle}
       >
-        {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+        {globalMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
       </button>
     </div>
   );

@@ -73,5 +73,7 @@ const postSchema = new mongoose.Schema(
 postSchema.index({ user_id: 1, createdAt: -1 });
 postSchema.index({ createdAt: -1 });
 postSchema.index({ visibility: 1, createdAt: -1 });
+postSchema.index({ is_deleted: 1, createdAt: -1 }); // Feed queries
+postSchema.index({ user_id: 1, is_deleted: 1 }); // User post count
 
 export const Post = mongoose.model("Post", postSchema);

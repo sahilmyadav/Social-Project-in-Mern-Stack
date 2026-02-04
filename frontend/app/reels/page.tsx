@@ -2,20 +2,21 @@
 
 import Navigation from '@/components/navigation';
 import ReelCommentsModal from '@/components/reel-comments-modal';
+import ShareModal from '@/components/share-modal';
 import UserAvatar from '@/components/user-avatar';
 import { feedService, reelService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  Heart,
-  MessageCircle,
-  Play,
-  Share2,
-  Video,
-  Volume2,
-  VolumeX,
+    Bookmark,
+    ChevronDown,
+    ChevronUp,
+    Heart,
+    MessageCircle,
+    Play,
+    Send,
+    Video,
+    Volume2,
+    VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -56,9 +57,10 @@ export default function ReelsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [showComments, setShowComments] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [savedReels, setSavedReels] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reelContainerRef = useRef<HTMLDivElement>(null);
-  const viewedReelsRef = useRef<Set<string>>(new Set());
   const router = useRouter();
 
   useEffect(() => {
@@ -108,40 +110,6 @@ export default function ReelsPage() {
       }
     }
   }, [isPlaying, currentReelIndex]);
-
-  // Track reel view when current reel changes
-  useEffect(() => {
-    const currentReel = reels[currentReelIndex];
-    if (!currentReel || !user) return;
-
-    // Only track view once per reel per session
-    if (viewedReelsRef.current.has(currentReel._id)) return;
-
-    const trackView = async () => {
-      try {
-        viewedReelsRef.current.add(currentReel._id);
-        const response = await reelService.viewReel(currentReel._id);
-        if (response.success && response.data) {
-          // Update view count in state
-          setReels((prevReels) =>
-            prevReels.map((reel) =>
-              reel._id === currentReel._id
-                ? { ...reel, views_count: response.data.views_count }
-                : reel
-            )
-          );
-        }
-      } catch (error) {
-        console.error('Error tracking reel view:', error);
-        // Remove from viewed set so it can be retried
-        viewedReelsRef.current.delete(currentReel._id);
-      }
-    };
-
-    // Small delay to avoid tracking if user is just scrolling through
-    const timeoutId = setTimeout(trackView, 1000);
-    return () => clearTimeout(timeoutId);
-  }, [currentReelIndex, reels, user]);
 
   // Scroll snap functionality
   useEffect(() => {
@@ -389,21 +357,19 @@ export default function ReelsPage() {
                       )}
                     </div>
 
-                    <div className="absolute right-3 bottom-20 flex flex-col gap-4 z-10">
+                    <div className="absolute right-2 bottom-6 flex flex-col items-center gap-3 z-10">
                       <button
                         onClick={index === currentReelIndex ? handleLike : undefined}
-                        className="flex flex-col items-center gap-1 cursor-pointer"
+                        className="flex flex-col items-center cursor-pointer"
                       >
-                        <div className="p-2.5 rounded-full bg-black/40">
-                          <Heart
-                            size={22}
-                            className={
-                              isLiked && index === currentReelIndex ? 'text-red-500' : 'text-white'
-                            }
-                            fill={isLiked && index === currentReelIndex ? 'currentColor' : 'none'}
-                          />
-                        </div>
-                        <span className="text-white text-xs">{reel.likes_count}</span>
+                        <Heart
+                          size={26}
+                          className={
+                            isLiked && index === currentReelIndex ? 'text-red-500' : 'text-white'
+                          }
+                          fill={isLiked && index === currentReelIndex ? 'currentColor' : 'none'}
+                        />
+                        <span className="text-white text-[11px] mt-0.5">{reel.likes_count}</span>
                       </button>
 
                       <button
@@ -412,26 +378,47 @@ export default function ReelsPage() {
                             setShowComments(true);
                           }
                         }}
-                        className="flex flex-col items-center gap-1 cursor-pointer"
+                        className="flex flex-col items-center cursor-pointer"
                       >
-                        <div className="p-2.5 rounded-full bg-black/40">
-                          <MessageCircle size={22} className="text-white" />
-                        </div>
-                        <span className="text-white text-xs">{reel.comments_count}</span>
+                        <MessageCircle size={26} className="text-white" />
+                        <span className="text-white text-[11px] mt-0.5">{reel.comments_count}</span>
                       </button>
 
-                      <button className="flex flex-col items-center gap-1 cursor-pointer">
-                        <div className="p-2.5 rounded-full bg-black/40">
-                          <Share2 size={22} className="text-white" />
-                        </div>
-                        <span className="text-white text-xs">{reel.shares_count}</span>
+                      <button
+                        onClick={() => {
+                          if (index === currentReelIndex) {
+                            setShowShare(true);
+                          }
+                        }}
+                        className="flex flex-col items-center cursor-pointer"
+                      >
+                        <Send size={24} className="text-white" />
                       </button>
 
-                      <div className="flex flex-col items-center gap-1">
-                        <div className="p-2.5 rounded-full bg-black/40">
-                          <Eye size={22} className="text-white" />
-                        </div>
-                        <span className="text-white text-xs">{reel.views_count}</span>
+                      <button
+                        onClick={() => {
+                          if (index === currentReelIndex) {
+                            const isSaved = savedReels.includes(reel._id);
+                            if (isSaved) {
+                              setSavedReels(savedReels.filter(id => id !== reel._id));
+                              reelService.unsaveReel(reel._id).catch(() => {});
+                            } else {
+                              setSavedReels([...savedReels, reel._id]);
+                              reelService.saveReel(reel._id).catch(() => {});
+                            }
+                          }
+                        }}
+                        className="flex flex-col items-center cursor-pointer"
+                      >
+                        <Bookmark
+                          size={26}
+                          className="text-white"
+                          fill={savedReels.includes(reel._id) ? 'currentColor' : 'none'}
+                        />
+                      </button>
+
+                      <div className="w-7 h-7 rounded border-2 border-white overflow-hidden mt-1">
+                        <UserAvatar user={reel.user_id} size="sm" />
                       </div>
                     </div>
                   </div>
@@ -530,6 +517,14 @@ export default function ReelsPage() {
         reelId={currentReel._id}
         commentsCount={currentReel.comments_count}
         currentUserId={user._id}
+      />
+
+      {/* Share Modal */}
+      <ShareModal
+        isOpen={showShare}
+        onClose={() => setShowShare(false)}
+        contentType="reel"
+        contentId={currentReel._id}
       />
 
       {/* Hide scrollbar */}

@@ -1,7 +1,7 @@
 'use client'
 
-import { emitRejectCall, initSocket, offCallEnded, offCallRejected, offIncomingCall, onCallEnded, onCallRejected, onIncomingCall } from '@/lib/socket'
-import { useEffect, useState } from 'react'
+import { emitRejectCall, getSocket, initSocket } from '@/lib/socket'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import IncomingCallNotification from './incoming-call-notification'
 import IncomingVideoCallNotification from './incoming-video-call-notification'
 import VideoCallModal from './video-call-modal'
@@ -19,92 +19,118 @@ export default function GlobalCallHandler() {
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null)
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false)
   const [isVideoCallOpen, setIsVideoCallOpen] = useState(false)
-  const [isSocketReady, setIsSocketReady] = useState(false)
   const [currentUserId, setCurrentUserId] = useState<string>('')
+  const listenersAttached = useRef(false)
 
+  // Memoized handlers
+  const handleIncomingCall = useCallback((data: any) => {
+    console.log('📞 Global: Incoming call received:', data)
 
+    const callType = data.callType || 'voice'
 
-  // Initialize socket connection on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('accessToken')
-      const userId = localStorage.getItem('userId') || ''
-      setCurrentUserId(userId)
-
-      if (token) {
-        const socket = initSocket(token)
-
-        if (socket) {
-          // Wait for socket to connect
-          if (socket.connected) {
-            setIsSocketReady(true)
-          } else {
-            const onConnect = () => {
-              setIsSocketReady(true)
-            }
-            socket.on('connect', onConnect)
-
-            return () => {
-              socket.off('connect', onConnect)
-            }
-          }
-        }
-      }
+    const callData = {
+      callerId: data.callerId,
+      callerName: data.callerInfo?.name || data.name || 'Unknown',
+      callerAvatar: data.callerInfo?.avatar || '👤',
+      threadId: data.threadId,
+      callType: callType,
     }
+
+    console.log('📞 Global: Setting incoming call:', callData)
+    setIncomingCall(callData)
   }, [])
 
-  // Listen for incoming calls only after socket is ready
+  const handleCallRejected = useCallback((data: any) => {
+    console.log('📞 Global: Call rejected:', data)
+    setIncomingCall(null)
+    setIsVoiceCallOpen(false)
+    setIsVideoCallOpen(false)
+  }, [])
+
+  const handleCallEnded = useCallback((data: any) => {
+    console.log('📞 Global: Call ended by remote:', data)
+    setIncomingCall(null)
+    setIsVoiceCallOpen(false)
+    setIsVideoCallOpen(false)
+  }, [])
+
+  // Function to attach listeners
+  const attachListeners = useCallback((socket: any) => {
+    if (!socket || listenersAttached.current) return
+
+    // Remove any existing listeners first
+    socket.off('incomingCall', handleIncomingCall)
+    socket.off('callRejected', handleCallRejected)
+    socket.off('callEnded', handleCallEnded)
+
+    // Attach fresh listeners
+    socket.on('incomingCall', handleIncomingCall)
+    socket.on('callRejected', handleCallRejected)
+    socket.on('callEnded', handleCallEnded)
+
+    listenersAttached.current = true
+  }, [handleIncomingCall, handleCallRejected, handleCallEnded])
+
+  // Initialize socket and set up listeners
   useEffect(() => {
-    if (!isSocketReady) {
-      console.log('⏳ Socket not ready, waiting...')
-      return
-    }
+    if (typeof window === 'undefined') return
 
-    console.log('✅ Socket ready, setting up call listeners')
+    const token = localStorage.getItem('accessToken')
+    const userDataStr = localStorage.getItem('user')
 
-    const handleIncomingCall = (data: any) => {
-      console.log('📞 Global: Incoming call received:', data)
-
-      const callType = data.callType || 'voice'
-
-      const callData = {
-        callerId: data.callerId,
-        callerName: data.callerInfo?.name || 'Unknown',
-        callerAvatar: data.callerInfo?.avatar || '👤',
-        threadId: data.threadId,
-        callType: callType,
+    if (userDataStr) {
+      try {
+        const userData = JSON.parse(userDataStr)
+        setCurrentUserId(userData._id || '')
+      } catch (e) {
+        console.error('Error parsing user data:', e)
       }
-
-      console.log('📞 Global: Setting incoming call:', callData)
-      setIncomingCall(callData)
     }
 
-    // Handle when remote user rejects our call
-    const handleCallRejected = (data: any) => {
-      console.log('📞 Global: Call rejected:', data)
-      setIncomingCall(null)
-      setIsVoiceCallOpen(false)
-      setIsVideoCallOpen(false)
+    if (!token) return
+
+    const socket = initSocket(token)
+    if (!socket) return
+
+    // Attach listeners immediately if connected
+    if (socket.connected) {
+      attachListeners(socket)
     }
 
-    // Handle when remote user ends the call
-    const handleCallEndedByRemote = (data: any) => {
-      console.log('📞 Global: Call ended by remote:', data)
-      setIncomingCall(null)
-      setIsVoiceCallOpen(false)
-      setIsVideoCallOpen(false)
+    // Re-attach listeners on connect/reconnect
+    const onConnect = () => {
+      listenersAttached.current = false
+      attachListeners(socket)
     }
 
-    onIncomingCall(handleIncomingCall)
-    onCallRejected(handleCallRejected)
-    onCallEnded(handleCallEndedByRemote)
+    socket.on('connect', onConnect)
+
+    // Also try to get existing socket and attach
+    const existingSocket = getSocket()
+    if (existingSocket?.connected) {
+      attachListeners(existingSocket)
+    }
 
     return () => {
-      offIncomingCall(handleIncomingCall)
-      offCallRejected(handleCallRejected)
-      offCallEnded(handleCallEndedByRemote)
+      socket.off('connect', onConnect)
+      socket.off('incomingCall', handleIncomingCall)
+      socket.off('callRejected', handleCallRejected)
+      socket.off('callEnded', handleCallEnded)
+      listenersAttached.current = false
     }
-  }, [isSocketReady])
+  }, [attachListeners, handleIncomingCall, handleCallRejected, handleCallEnded])
+
+  // Re-check socket periodically to ensure listeners are attached
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const socket = getSocket()
+      if (socket?.connected && !listenersAttached.current) {
+        attachListeners(socket)
+      }
+    }, 5000) // Increased from 2000ms to reduce console noise
+
+    return () => clearInterval(interval)
+  }, [attachListeners])
 
   const handleAcceptVoiceCall = () => {
     setIsVoiceCallOpen(true)

@@ -4,26 +4,27 @@ import ReportReelModal from '@/components/report-reel-modal';
 import ShareModal from '@/components/share-modal';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
+import { useVideoSafe } from '@/contexts/video-context';
 import { reelService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast } from '@/lib/toast';
 import {
-  Bookmark,
-  Download,
-  Eye,
-  Heart,
-  MessageCircle,
-  MoreHorizontal,
-  Play,
-  Share2,
-  Volume2,
-  VolumeX,
+    Bookmark,
+    Download,
+    Eye,
+    Heart,
+    MessageCircle,
+    MoreHorizontal,
+    Play,
+    Share2,
+    Volume2,
+    VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -42,6 +43,7 @@ export default function ReelCard({
   onViewUpdate,
 }: ReelCardProps) {
   const router = useRouter();
+  const { isMuted: globalMuted, toggleMute: toggleGlobalMute } = useVideoSafe();
   const [liked, setLiked] = useState(reel.isLiked || false);
   const [likeCount, setLikeCount] = useState(reel.likes_count || 0);
   const [saved, setSaved] = useState(reel.isSaved || false);
@@ -50,7 +52,6 @@ export default function ReelCard({
   const [isLiking, setIsLiking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isHidden, setIsHidden] = useState(false);
@@ -63,6 +64,13 @@ export default function ReelCard({
 
   // Check if this is the user's own reel
   const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
+
+  // Sync video muted state with global mute
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = globalMuted;
+    }
+  }, [globalMuted]);
 
   // Intersection Observer for auto-play/pause
   useEffect(() => {
@@ -209,10 +217,7 @@ export default function ReelCard({
   };
 
   const handleMuteToggle = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
+    toggleGlobalMute(); // Toggle global mute state - affects all videos
   };
 
   const handleDownloadReel = async () => {
@@ -414,7 +419,8 @@ export default function ReelCard({
               controls={false}
               loop
               playsInline
-              muted={isMuted}
+              muted={globalMuted}
+              preload="metadata"
             />
 
             {/* Play Button Overlay */}
@@ -449,7 +455,7 @@ export default function ReelCard({
                 handleMuteToggle();
               }}
             >
-              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              {globalMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
             </button>
           </>
         ) : (

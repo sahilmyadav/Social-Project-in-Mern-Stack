@@ -60,7 +60,7 @@ export default function IncomingCallNotification({
             {/* Avatar */}
             <div className="relative">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-3xl shadow-lg ring-4 ring-white/10">
-                {callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') ? (
+                {callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') || callerAvatar?.startsWith('uploads') ? (
                   <img
                     src={getMediaUrl(callerAvatar)}
                     alt={callerName}
