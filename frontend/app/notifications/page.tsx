@@ -2,7 +2,7 @@
 
 import Navigation from '@/components/navigation';
 import { Button } from '@/components/ui/button';
-import { followService, notificationService } from '@/lib/api-services';
+import { authService, followService, notificationService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
     AtSign,
@@ -70,6 +70,8 @@ export default function NotificationsPage() {
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [followingStatus, setFollowingStatus] = useState<Record<string, 'none' | 'following' | 'pending'>>({});
+  const [processingFollowBack, setProcessingFollowBack] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -193,6 +195,56 @@ export default function NotificationsPage() {
       setProcessingRequest(null);
     }
   };
+
+  // Check if current user is following the notification sender
+  const checkFollowingStatus = async (userId: string) => {
+    try {
+      const response = await authService.getUserProfile(userId);
+      if (response.success && response.data) {
+        const user = response.data;
+        if (user.isFollowing) {
+          setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }));
+        } else if (user.isPending) {
+          setFollowingStatus(prev => ({ ...prev, [userId]: 'pending' }));
+        } else {
+          setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check following status:', error);
+    }
+  };
+
+  // Handle Follow Back button click
+  const handleFollowBack = async (e: React.MouseEvent, userId: string) => {
+    e.stopPropagation(); // Prevent notification click
+    setProcessingFollowBack(userId);
+    try {
+      const response = await followService.followBack(userId);
+      if (response.success) {
+        setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }));
+      }
+    } catch (error: any) {
+      console.error('Failed to follow back:', error);
+      // If error is "already following" or similar, update status
+      if (error?.message?.toLowerCase().includes('already')) {
+        setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }));
+      }
+    } finally {
+      setProcessingFollowBack(null);
+    }
+  };
+
+  // Check following status for follow notifications
+  useEffect(() => {
+    const followNotifications = notifications.filter(n => n.type === 'follow' && n.sender_id?._id);
+    followNotifications.forEach(notification => {
+      const senderId = notification.sender_id._id;
+      if (!followingStatus[senderId]) {
+        checkFollowingStatus(senderId);
+      }
+    });
+  }, [notifications]);
 
   const handleNotificationClick = async (notification: Notification) => {
     if (!notification.is_read) {
@@ -549,6 +601,34 @@ export default function NotificationsPage() {
                           alt="Post"
                           className="w-12 h-12 rounded-md object-cover"
                         />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Follow Back Button - for follow notifications */}
+                  {notification.type === 'follow' && notification.sender_id?._id && (
+                    <div className="flex-shrink-0">
+                      {followingStatus[notification.sender_id._id] === 'following' ? (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <UserCheck size={14} className="text-green-500" />
+                          Following
+                        </span>
+                      ) : followingStatus[notification.sender_id._id] === 'pending' ? (
+                        <span className="text-xs text-muted-foreground">Requested</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={(e) => handleFollowBack(e, notification.sender_id._id)}
+                          disabled={processingFollowBack === notification.sender_id._id}
+                          className="gap-1"
+                        >
+                          {processingFollowBack === notification.sender_id._id ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <UserPlus size={14} />
+                          )}
+                          Follow Back
+                        </Button>
                       )}
                     </div>
                   )}

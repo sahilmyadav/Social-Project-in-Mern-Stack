@@ -106,45 +106,45 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { liveStreamService } from '@/lib/api-services';
 import {
-  emitEndLiveStream,
-  emitLiveComment,
-  emitLiveStreamIceCandidate,
-  emitLiveStreamOffer,
-  emitStartLiveStream,
-  offLiveComment,
-  offLiveStreamAnswer,
-  offLiveStreamIceCandidate,
-  offViewerCountUpdate,
-  offViewerJoined,
-  offViewerLeft,
-  onLiveComment,
-  onLiveStreamAnswer,
-  onLiveStreamIceCandidate,
-  onViewerCountUpdate,
-  onViewerJoined,
-  onViewerLeft,
+    emitEndLiveStream,
+    emitLiveComment,
+    emitLiveStreamIceCandidate,
+    emitLiveStreamOffer,
+    emitStartLiveStream,
+    offLiveComment,
+    offLiveStreamAnswer,
+    offLiveStreamIceCandidate,
+    offViewerCountUpdate,
+    offViewerJoined,
+    offViewerLeft,
+    onLiveComment,
+    onLiveStreamAnswer,
+    onLiveStreamIceCandidate,
+    onViewerCountUpdate,
+    onViewerJoined,
+    onViewerLeft,
 } from '@/lib/socket';
 import { cn } from '@/lib/utils';
 import { LiveComment, LiveViewer } from '@/types/live';
 import {
-  CameraOff,
-  Clock,
-  Eye,
-  FlipHorizontal,
-  Heart,
-  Loader2,
-  MessageCircle,
-  Mic,
-  MicOff,
-  Pin,
-  Radio,
-  Send,
-  Share2,
-  Sparkles,
-  Users,
-  Video,
-  VideoOff,
-  X,
+    CameraOff,
+    Clock,
+    Eye,
+    FlipHorizontal,
+    Heart,
+    Loader2,
+    MessageCircle,
+    Mic,
+    MicOff,
+    Pin,
+    Radio,
+    Send,
+    Share2,
+    Sparkles,
+    Users,
+    Video,
+    VideoOff,
+    X,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -969,13 +969,26 @@ export default function BroadcastPage() {
     requestMediaPermissions();
 
     return () => {
-      // Cleanup on unmount
-      if (localStream) {
-        localStream.getTracks().forEach((track) => track.stop());
+      // Cleanup on unmount - use ref to get current stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
       peerConnectionsRef.current.forEach((pc) => pc.close());
     };
   }, []);
+
+  // ========================================================================
+  // ATTACH STREAM TO VIDEO ELEMENT WHEN READY
+  // ========================================================================
+  useEffect(() => {
+    if (localStream && videoRef.current) {
+      console.log('📹 Attaching local stream to video element');
+      videoRef.current.srcObject = localStream;
+      videoRef.current.play().catch((err) => {
+        console.warn('Auto-play blocked:', err);
+      });
+    }
+  }, [localStream]);
 
   // ========================================================================
   // ERROR STATE
@@ -1038,10 +1051,10 @@ export default function BroadcastPage() {
                     {/* Left Side - Live Badge & Timer */}
                     <div className="flex items-center gap-3">
                       {isLive ? (
-                        <Badge className="bg-red-600 text-white border-0 px-4 py-2 text-sm animate-pulse">
-                          <span className="relative flex h-2 w-2 mr-2">
+                        <Badge className="bg-red-600 text-white border-0 px-4 py-2 text-sm animate-live-pulse animate-live-glow">
+                          <span className="relative flex h-2.5 w-2.5 mr-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
                           </span>
                           LIVE
                         </Badge>

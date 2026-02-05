@@ -555,6 +555,11 @@ export const followService = {
   getSuggestions: async (params?: { limit?: number }) => {
     return api.get(API_ENDPOINTS.FOLLOW.GET_SUGGESTIONS, params);
   },
+
+  // Follow Back a user who follows you
+  followBack: async (userId: string) => {
+    return api.post(API_ENDPOINTS.FOLLOW.FOLLOW_BACK(userId));
+  },
 };
 
 // Search Service

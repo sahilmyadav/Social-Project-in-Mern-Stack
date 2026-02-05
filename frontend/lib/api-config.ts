@@ -113,6 +113,7 @@ export const API_ENDPOINTS = {
     GET_FOLLOWERS: (userId: string) => `/follow/followers/${userId}`,
     GET_FOLLOWING: (userId: string) => `/follow/following/${userId}`,
     GET_SUGGESTIONS: '/follow/suggestions',
+    FOLLOW_BACK: (userId: string) => `/follow/follow-back/${userId}`,
   },
 
   // Chat

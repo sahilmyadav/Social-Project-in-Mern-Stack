@@ -1192,7 +1192,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
   }
 
   // ✅ OPTIMIZED: Run all count queries in parallel
-  const [followersCount, followingCount, postsCount, reelsCount, followRecord] = await Promise.all([
+  const [followersCount, followingCount, postsCount, reelsCount, followRecord, reverseFollowRecord] = await Promise.all([
     Followers.countDocuments({ following_id: profileUserId, status: 'accepted' }),
     Followers.countDocuments({ follower_id: profileUserId, status: 'accepted' }),
     Post.countDocuments({ user_id: profileUserId, is_deleted: false }),
@@ -1200,14 +1200,23 @@ const getUserProfile = asyncHandler(async (req, res) => {
     currentUserId && currentUserId.toString() !== profileUserId.toString()
       ? Followers.findOne({ follower_id: currentUserId, following_id: profileUserId }).select('status').lean()
       : null,
+    // Check if profile user follows the current user (for "Follow Back" feature)
+    currentUserId && currentUserId.toString() !== profileUserId.toString()
+      ? Followers.findOne({ follower_id: profileUserId, following_id: currentUserId, status: 'accepted' }).select('status').lean()
+      : null,
   ]);
 
   // Check follow status from the parallel query result
   let isFollowing = false;
   let isPending = false;
+  let followsYou = false;
   if (followRecord) {
     isFollowing = followRecord.status === 'accepted';
     isPending = followRecord.status === 'requested';
+  }
+  // Check if profile user follows the current user
+  if (reverseFollowRecord) {
+    followsYou = true;
   }
 
   // Build response
@@ -1231,6 +1240,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     allowDownloads: user.allowDownloads,
     isFollowing: isFollowing,
     isPending: isPending,
+    followsYou: followsYou,
   };
 
   return res

@@ -12,24 +12,24 @@ import { authService, feedService, followService, reelService } from '@/lib/api-
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-  ArrowLeft,
-  Ban,
-  Camera,
-  Clapperboard,
-  Clock,
-  Edit2,
-  Flag,
-  Grid,
-  Heart,
-  Link as LinkIcon,
-  MessageCircle,
-  MoreHorizontal,
-  Share2,
-  Unlock,
-  User,
-  UserCheck,
-  UserPlus,
-  UserX,
+    ArrowLeft,
+    Ban,
+    Camera,
+    Clapperboard,
+    Clock,
+    Edit2,
+    Flag,
+    Grid,
+    Heart,
+    Link as LinkIcon,
+    MessageCircle,
+    MoreHorizontal,
+    Share2,
+    Unlock,
+    User,
+    UserCheck,
+    UserPlus,
+    UserX,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
@@ -49,6 +49,7 @@ export default function UserProfilePage() {
   const [reels, setReels] = useState<any[]>([]);
   const [reelsLoading, setReelsLoading] = useState(true);
   const [followStatus, setFollowStatus] = useState<'none' | 'following' | 'pending'>('none');
+  const [followsYou, setFollowsYou] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -132,6 +133,7 @@ export default function UserProfilePage() {
           isPrivate: user.profile_type === 'private' || user.isPrivate || false,
           isFollowing: user.isFollowing || false,
           isPending: user.isPending || false,
+          followsYou: user.followsYou || false,
         });
 
         // Set blocked status from API response
@@ -140,6 +142,9 @@ export default function UserProfilePage() {
         } else {
           setIsBlocked(false);
         }
+
+        // Set followsYou status from API response
+        setFollowsYou(user.followsYou || false);
 
         // Set follow status from API response (API is source of truth)
         if (user.isFollowing === true) {
@@ -588,9 +593,11 @@ export default function UserProfilePage() {
                             ? 'Unfollow'
                             : followStatus === 'pending'
                               ? 'Requested'
-                              : profileUser.isPrivate
-                                ? 'Request'
-                                : 'Follow'}
+                              : followsYou
+                                ? 'Follow Back'
+                                : profileUser.isPrivate
+                                  ? 'Request'
+                                  : 'Follow'}
                         </Button>
                         <Button
                           onClick={handleMessage}

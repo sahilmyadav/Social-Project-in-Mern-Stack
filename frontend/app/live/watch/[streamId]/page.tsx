@@ -96,42 +96,42 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { liveStreamService } from '@/lib/api-services';
 import {
-  emitJoinLiveStream,
-  emitLeaveLiveStream,
-  emitLiveComment,
-  emitLiveReaction,
-  emitLiveStreamAnswer,
-  emitLiveStreamIceCandidate,
-  offLiveComment,
-  offLiveStreamEnded,
-  offLiveStreamIceCandidate,
-  offLiveStreamOffer,
-  offViewerCountUpdate,
-  onLiveComment,
-  onLiveStreamEnded,
-  onLiveStreamIceCandidate,
-  onLiveStreamOffer,
-  onViewerCountUpdate,
+    emitJoinLiveStream,
+    emitLeaveLiveStream,
+    emitLiveComment,
+    emitLiveReaction,
+    emitLiveStreamAnswer,
+    emitLiveStreamIceCandidate,
+    offLiveComment,
+    offLiveStreamEnded,
+    offLiveStreamIceCandidate,
+    offLiveStreamOffer,
+    offViewerCountUpdate,
+    onLiveComment,
+    onLiveStreamEnded,
+    onLiveStreamIceCandidate,
+    onLiveStreamOffer,
+    onViewerCountUpdate,
 } from '@/lib/socket';
 import { cn } from '@/lib/utils';
 import { LiveComment, LiveStream } from '@/types/live';
 import {
-  ArrowLeft,
-  Clock,
-  Eye,
-  Heart,
-  Loader2,
-  Maximize2,
-  MessageCircle,
-  Minimize2,
-  Pin,
-  Send,
-  Share2,
-  Volume2,
-  VolumeX,
-  Wifi,
-  WifiOff,
-  X,
+    ArrowLeft,
+    Clock,
+    Eye,
+    Heart,
+    Loader2,
+    Maximize2,
+    MessageCircle,
+    Minimize2,
+    Pin,
+    Send,
+    Share2,
+    Volume2,
+    VolumeX,
+    Wifi,
+    WifiOff,
+    X,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -289,8 +289,9 @@ export default function WatchLivePage() {
   // Video state
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState>('new');
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true); // Start muted for autoplay
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isProcessingOffer, setIsProcessingOffer] = useState(false);
 
   // Viewer count
   const [viewerCount, setViewerCount] = useState(0);
@@ -444,9 +445,12 @@ export default function WatchLivePage() {
 
         if (videoRef.current) {
           videoRef.current.srcObject = remoteStream;
-          // Try to play (may be blocked by browser autoplay policy)
+          // Mute initially for autoplay policy compliance
+          videoRef.current.muted = true;
+          setIsMuted(true);
+          // Try to play
           videoRef.current.play().catch((err) => {
-            console.warn('Autoplay blocked, user interaction needed:', err);
+            console.warn('Autoplay blocked even with muted:', err);
           });
         }
       };
@@ -509,22 +513,40 @@ export default function WatchLivePage() {
 
       const { offer, broadcasterId } = data;
 
+      // Check if we're already processing an offer or connected
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        const state = pc.signalingState;
+        const connState = pc.connectionState;
+        console.log('📡 Current signaling state:', state, 'connection state:', connState);
+
+        // Skip if already connected or stable (already processed an offer)
+        if (connState === 'connected' || connState === 'connecting') {
+          console.log('⏭️ Already connected/connecting, ignoring duplicate offer');
+          return;
+        }
+        if (state !== 'stable' && state !== 'closed') {
+          console.log('⏭️ Signaling in progress, ignoring duplicate offer');
+          return;
+        }
+      }
+
       // Setup peer connection when we receive the offer (with broadcaster ID)
       // This ensures the connection is ready and knows where to send ICE candidates
-      let pc = peerConnectionRef.current;
-      if (!pc || pc.connectionState === 'closed') {
+      let newPc = peerConnectionRef.current;
+      if (!newPc || newPc.connectionState === 'closed' || newPc.connectionState === 'failed') {
         console.log('🔧 Creating new peer connection for broadcaster:', broadcasterId);
-        pc = setupPeerConnection(broadcasterId);
+        newPc = setupPeerConnection(broadcasterId);
       }
 
       try {
         // Set the broadcaster's offer as our remote description
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await newPc.setRemoteDescription(new RTCSessionDescription(offer));
         console.log('✅ Remote description set');
 
         // Create our answer
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        const answer = await newPc.createAnswer();
+        await newPc.setLocalDescription(answer);
         console.log('✅ Local description set, sending answer to:', broadcasterId);
 
         // Send answer back to broadcaster
@@ -808,13 +830,14 @@ export default function WatchLivePage() {
                     ============================================================ */}
         <div className="flex-1 relative flex flex-col">
           {/* Video Area */}
-          <div className="flex-1 relative bg-muted">
+          <div className="flex-1 relative bg-black">
             {/* Video Element */}
             <video
               ref={videoRef}
               autoPlay
               playsInline
-              className="w-full h-full object-contain"
+              muted={isMuted}
+              className="w-full h-full object-cover"
               onClick={toggleMute}
             />
 
@@ -835,10 +858,10 @@ export default function WatchLivePage() {
                     <ArrowLeft className="h-5 w-5" />
                   </Button>
 
-                  <Badge className="bg-red-600 text-white border-0 px-3 py-1.5">
-                    <span className="relative flex h-2 w-2 mr-2">
+                  <Badge className="bg-red-600 text-white border-0 px-3 py-1.5 animate-live-pulse animate-live-glow">
+                    <span className="relative flex h-2.5 w-2.5 mr-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
                     </span>
                     LIVE
                   </Badge>
@@ -884,12 +907,14 @@ export default function WatchLivePage() {
               <div className="flex items-end justify-between">
                 {/* Streamer Info */}
                 <div className="flex items-center gap-3">
-                  {/* Avatar with live ring */}
-                  <div className="p-0.5 rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600">
-                    <Avatar className="w-12 h-12 border-2 border-background">
-                      <AvatarImage src={stream?.streamer?.profilePicture} />
-                      <AvatarFallback>{stream?.streamer?.fullName?.[0] || 'U'}</AvatarFallback>
-                    </Avatar>
+                  {/* Avatar with Instagram-style live ring */}
+                  <div className="p-[3px] rounded-full live-avatar-ring">
+                    <div className="p-[2px] rounded-full bg-black">
+                      <Avatar className="w-12 h-12">
+                        <AvatarImage src={stream?.streamer?.profilePicture} />
+                        <AvatarFallback>{stream?.streamer?.fullName?.[0] || 'U'}</AvatarFallback>
+                      </Avatar>
+                    </div>
                   </div>
                   <div>
                     <h2 className="font-bold text-lg text-white">{stream?.title}</h2>
