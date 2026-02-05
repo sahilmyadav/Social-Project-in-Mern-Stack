@@ -88,8 +88,9 @@ export default function PostPage() {
         if (response.success && response.data) {
           setPost(response.data);
           setLikeCount(response.data.likes_count || 0);
-          setLiked(response.data.isLiked || false);
-          setSavedPost(response.data.isSaved || false);
+          // Backend may return is_liked (snake_case) or isLiked (camelCase)
+          setLiked(response.data.isLiked || response.data.is_liked || false);
+          setSavedPost(response.data.isSaved || response.data.is_saved || false);
           setComments(response.data.comments || []);
 
           // Auto-focus comment input if showComments is true
@@ -138,21 +139,36 @@ export default function PostPage() {
 
     setIsLiking(true);
     const wasLiked = liked;
+    const previousCount = likeCount;
 
     // Optimistic update
     setLiked(!wasLiked);
-    setLikeCount((prev) => (wasLiked ? prev - 1 : prev + 1));
+    setLikeCount(wasLiked ? Math.max(0, previousCount - 1) : previousCount + 1);
 
     try {
+      let response;
       if (wasLiked) {
-        await postService.unlikePost(post._id);
+        response = await postService.unlikePost(post._id);
       } else {
-        await postService.likePost(post._id);
+        response = await postService.likePost(post._id);
+      }
+
+      if (response.success && response.data) {
+        // Always use server response for final state
+        const serverIsLiked = response.data.isLiked ?? !wasLiked;
+        const serverLikeCount =
+          response.data.likes_count ?? response.data.likesCount ?? previousCount;
+        setLiked(serverIsLiked);
+        setLikeCount(serverLikeCount);
+      } else {
+        // Revert on failure
+        setLiked(wasLiked);
+        setLikeCount(previousCount);
       }
     } catch (error) {
       // Revert on error
       setLiked(wasLiked);
-      setLikeCount((prev) => (wasLiked ? prev + 1 : prev - 1));
+      setLikeCount(previousCount);
       showToast.error('Failed to update like');
     } finally {
       setIsLiking(false);

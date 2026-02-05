@@ -3,10 +3,10 @@
 import ReportPostModal from '@/components/report-post-modal';
 import ShareModal from '@/components/share-modal';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
 import { useVideoSafe } from '@/contexts/video-context';
@@ -14,16 +14,16 @@ import { commentService, postService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-    Download,
-    Heart,
-    MessageCircle,
-    MoreHorizontal,
-    Play,
-    Send,
-    Share2,
-    Trash2,
-    Volume2,
-    VolumeX,
+  Download,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Send,
+  Share2,
+  Trash2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -165,9 +165,10 @@ function PostCard({
   showComments,
 }: PostCardProps) {
   const router = useRouter();
-  const [liked, setLiked] = useState(post.isLiked || false);
+  // Backend may return is_liked (snake_case) or isLiked (camelCase)
+  const [liked, setLiked] = useState(post.isLiked || post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
-  const [saved, setSaved] = useState(post.isSaved || false);
+  const [saved, setSaved] = useState(post.isSaved || post.is_saved || false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -569,48 +570,37 @@ function PostCard({
     const previousCount = likeCount;
 
     // Optimistic update
-    const newLikedState = !liked;
-    const newLikeCount = liked ? likeCount - 1 : likeCount + 1;
-
-    setLiked(newLikedState);
-    setLikeCount(newLikeCount);
+    setLiked(!liked);
+    setLikeCount(liked ? Math.max(0, likeCount - 1) : likeCount + 1);
 
     try {
-      if (liked) {
-        // Unlike the post
-        const response = await postService.unlikePost(postId);
-        if (response.success) {
-          onLikeUpdate?.(postId, newLikedState, newLikeCount);
-        }
+      let response;
+      if (previousLiked) {
+        // Unlike the post (was liked before)
+        response = await postService.unlikePost(postId);
       } else {
-        // Like the post
-        const response = await postService.likePost(postId);
-        if (response.success) {
-          onLikeUpdate?.(postId, newLikedState, newLikeCount);
-        }
+        // Like the post (was not liked before)
+        response = await postService.likePost(postId);
       }
-    } catch (error: any) {
-      console.error('Error toggling like:', error);
 
-      // Check if error is about already liked/unliked
-      const errorMessage = error?.message || error?.error || '';
-
-      if (errorMessage.toLowerCase().includes('already liked')) {
-        // Post is already liked - sync state to liked
-        setLiked(true);
-        // Keep the optimistic count or fetch fresh data
-      } else if (
-        errorMessage.toLowerCase().includes('not liked') ||
-        errorMessage.toLowerCase().includes("haven't liked")
-      ) {
-        // Post is not liked - sync state to not liked
-        setLiked(false);
-        // Keep the optimistic count or fetch fresh data
+      if (response.success && response.data) {
+        // Always use server response for final state
+        const serverIsLiked = response.data.isLiked ?? !previousLiked;
+        const serverLikeCount =
+          response.data.likes_count ?? response.data.likesCount ?? previousCount;
+        setLiked(serverIsLiked);
+        setLikeCount(serverLikeCount);
+        onLikeUpdate?.(postId, serverIsLiked, serverLikeCount);
       } else {
-        // Other error - revert to previous state
+        // Revert on failure
         setLiked(previousLiked);
         setLikeCount(previousCount);
       }
+    } catch (error: any) {
+      console.error('Error toggling like:', error);
+      // Revert to previous state on error
+      setLiked(previousLiked);
+      setLikeCount(previousCount);
     } finally {
       setIsLoading(false);
     }

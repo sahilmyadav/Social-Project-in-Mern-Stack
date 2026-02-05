@@ -7,16 +7,16 @@ import UserAvatar from '@/components/user-avatar';
 import { feedService, reelService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-    Bookmark,
-    ChevronDown,
-    ChevronUp,
-    Heart,
-    MessageCircle,
-    Play,
-    Send,
-    Video,
-    Volume2,
-    VolumeX,
+  Bookmark,
+  ChevronDown,
+  ChevronUp,
+  Heart,
+  MessageCircle,
+  Play,
+  Send,
+  Video,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -80,9 +80,9 @@ export default function ReelsPage() {
         if (response.success && response.data) {
           setReels(response.data.reels || []);
 
-          // Set initial liked state based on reel data
+          // Set initial liked state based on reel data (check both snake_case and camelCase)
           const likedReelsFromAPI = response.data.reels
-            .filter((reel: any) => reel.isLiked)
+            .filter((reel: any) => reel.isLiked || reel.is_liked)
             .map((reel: any) => reel._id);
           setLikedReels(likedReelsFromAPI);
         } else {
@@ -140,33 +140,74 @@ export default function ReelsPage() {
 
   const currentReel = reels[currentReelIndex];
   const isLiked = likedReels.includes(currentReel?._id);
+  const [isLiking, setIsLiking] = useState(false);
 
   const handleLike = async () => {
-    if (!currentReel) return;
+    if (!currentReel || isLiking) return;
+
+    setIsLiking(true);
+    const wasLiked = isLiked;
+    const previousLikedReels = [...likedReels];
+    const previousReels = [...reels];
+
+    // Optimistic update
+    if (wasLiked) {
+      setLikedReels(likedReels.filter((id) => id !== currentReel._id));
+      setReels(
+        reels.map((reel) =>
+          reel._id === currentReel._id
+            ? { ...reel, likes_count: Math.max(0, (reel.likes_count || 1) - 1) }
+            : reel
+        )
+      );
+    } else {
+      setLikedReels([...likedReels, currentReel._id]);
+      setReels(
+        reels.map((reel) =>
+          reel._id === currentReel._id
+            ? { ...reel, likes_count: (reel.likes_count || 0) + 1 }
+            : reel
+        )
+      );
+    }
 
     try {
       const response = await reelService.toggleLikeReel(currentReel._id);
 
       if (response.success) {
+        // Use server response to sync state
         if (response.data.isLiked) {
-          setLikedReels([...likedReels, currentReel._id]);
+          setLikedReels((prev) =>
+            prev.includes(currentReel._id) ? prev : [...prev, currentReel._id]
+          );
         } else {
-          setLikedReels(likedReels.filter((id) => id !== currentReel._id));
+          setLikedReels((prev) => prev.filter((id) => id !== currentReel._id));
         }
-        // Update the reel's like count
-        setReels(
-          reels.map((reel) =>
+        // Update the reel's like count from server
+        setReels((prev) =>
+          prev.map((reel) =>
             reel._id === currentReel._id
-              ? { ...reel, likes_count: response.data.likes_count }
+              ? {
+                  ...reel,
+                  likes_count: response.data.likes_count ?? reel.likes_count,
+                  isLiked: response.data.isLiked,
+                }
               : reel
           )
         );
       } else {
+        // Revert on failure
+        setLikedReels(previousLikedReels);
+        setReels(previousReels);
         console.error('API returned error:', response.message);
       }
     } catch (error) {
+      // Revert on error
+      setLikedReels(previousLikedReels);
+      setReels(previousReels);
       console.error('Error toggling like:', error);
-      console.error('Error details:', JSON.stringify(error, null, 2));
+    } finally {
+      setIsLiking(false);
     }
   };
 
@@ -400,7 +441,7 @@ export default function ReelsPage() {
                           if (index === currentReelIndex) {
                             const isSaved = savedReels.includes(reel._id);
                             if (isSaved) {
-                              setSavedReels(savedReels.filter(id => id !== reel._id));
+                              setSavedReels(savedReels.filter((id) => id !== reel._id));
                               reelService.unsaveReel(reel._id).catch(() => {});
                             } else {
                               setSavedReels([...savedReels, reel._id]);

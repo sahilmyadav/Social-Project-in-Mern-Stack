@@ -13,7 +13,7 @@ import {
   uploadReel,
   viewReel,
 } from '../controllers/reel.controller.js';
-import { verifyJwt } from '../middleware/auth.middleware.js';
+import { verifyJwt, verifyJwtOptional } from '../middleware/auth.middleware.js';
 import { handleUploadError, uploadSingle } from '../middleware/upload.middleware.js';
 
 const router = Router();
@@ -21,7 +21,7 @@ const router = Router();
 // Reel routes
 router.route('/upload').post(verifyJwt, uploadSingle, handleUploadError, uploadReel);
 router.route('/delete/:reelId').delete(verifyJwt, deleteReel);
-router.route('/details/:reelId').get(getReelDetails);
+router.route('/details/:reelId').get(verifyJwtOptional, getReelDetails);
 
 // User reels
 router.route('/user/:userId').get(verifyJwt, getUserReels);

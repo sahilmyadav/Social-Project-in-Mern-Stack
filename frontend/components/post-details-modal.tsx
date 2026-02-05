@@ -75,15 +75,16 @@ export default function PostDetailsModal({
         if (response.success && response.data) {
           setPost(response.data);
           setLikeCount(response.data.likes_count || 0);
-          setLiked(response.data.isLiked || false);
-          setSavedPost(response.data.isSaved || false);
+          // Backend may return is_liked (snake_case) or isLiked (camelCase)
+          setLiked(response.data.isLiked || response.data.is_liked || false);
+          setSavedPost(response.data.isSaved || response.data.is_saved || false);
           setComments(response.data.comments || []);
         } else {
           // Fallback to initial post data
           setPost(initialPost);
           setLikeCount(initialPost.likes_count || 0);
-          setLiked(initialPost.isLiked || false);
-          setSavedPost(initialPost.isSaved || false);
+          setLiked(initialPost.isLiked || initialPost.is_liked || false);
+          setSavedPost(initialPost.isSaved || initialPost.is_saved || false);
           setComments([]);
         }
       } catch (error) {
@@ -91,8 +92,8 @@ export default function PostDetailsModal({
         // Fallback to initial post data
         setPost(initialPost);
         setLikeCount(initialPost.likes_count || 0);
-        setLiked(initialPost.isLiked || false);
-        setSavedPost(initialPost.isSaved || false);
+        setLiked(initialPost.isLiked || initialPost.is_liked || false);
+        setSavedPost(initialPost.isSaved || initialPost.is_saved || false);
         setComments([]);
       } finally {
         setIsLoadingPost(false);
@@ -144,20 +145,28 @@ export default function PostDetailsModal({
 
     // Optimistic update
     setLiked(!liked);
-    setLikeCount(liked ? likeCount - 1 : likeCount + 1);
+    setLikeCount(liked ? Math.max(0, likeCount - 1) : likeCount + 1);
 
     try {
       const postId = post._id || post.id;
-      if (liked) {
-        const response = await postService.unlikePost(postId);
-        if (!response.success) {
-          throw new Error(response.message || 'Failed to unlike post');
-        }
+      let response;
+      if (previousLiked) {
+        response = await postService.unlikePost(postId);
       } else {
-        const response = await postService.likePost(postId);
-        if (!response.success) {
-          throw new Error(response.message || 'Failed to like post');
-        }
+        response = await postService.likePost(postId);
+      }
+
+      if (response.success && response.data) {
+        // Always use server response for final state
+        const serverIsLiked = response.data.isLiked ?? !previousLiked;
+        const serverLikeCount =
+          response.data.likes_count ?? response.data.likesCount ?? previousCount;
+        setLiked(serverIsLiked);
+        setLikeCount(serverLikeCount);
+      } else {
+        // Revert on failure
+        setLiked(previousLiked);
+        setLikeCount(previousCount);
       }
     } catch (error: any) {
       console.error('Error toggling like:', error.message || error);

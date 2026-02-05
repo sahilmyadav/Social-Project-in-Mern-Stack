@@ -3,7 +3,8 @@
 import PostDetailsModal from '@/components/post-details-modal';
 import UserAvatar from '@/components/user-avatar';
 import { getMediaUrl } from '@/lib/media-utils';
-import { Heart, MessageCircle, Play } from 'lucide-react';
+import { Eye, Heart, MessageCircle, Play } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 interface SharedContentPreviewProps {
@@ -22,6 +23,7 @@ interface SharedContentPreviewProps {
     };
     likes_count?: number;
     comments_count?: number;
+    views_count?: number;
   };
 }
 
@@ -30,6 +32,7 @@ export default function SharedContentPreview({
   contentData,
 }: SharedContentPreviewProps) {
   const [showModal, setShowModal] = useState(false);
+  const router = useRouter();
 
   if (!contentData) {
     return (
@@ -45,10 +48,19 @@ export default function SharedContentPreview({
   const thumbnailUrl = getMediaUrl(rawThumbnailUrl);
   const isVideo = contentData.media?.[0]?.type === 'video' || messageType === 'shared_reel';
 
+  const handleClick = () => {
+    if (messageType === 'shared_reel') {
+      // Navigate to reel page
+      router.push(`/reel/${contentData._id}`);
+    } else {
+      setShowModal(true);
+    }
+  };
+
   return (
     <>
       <div
-        onClick={() => setShowModal(true)}
+        onClick={handleClick}
         className="mt-2 border border-border rounded-lg overflow-hidden cursor-pointer hover:border-primary/50 transition max-w-sm"
       >
         {/* Preview Image/Video */}
@@ -100,6 +112,12 @@ export default function SharedContentPreview({
               <MessageCircle size={14} />
               {contentData.comments_count || 0}
             </span>
+            {messageType === 'shared_reel' && (
+              <span className="flex items-center gap-1">
+                <Eye size={14} />
+                {contentData.views_count || 0}
+              </span>
+            )}
           </div>
 
           <div className="mt-2 text-xs text-primary font-medium">
@@ -108,7 +126,7 @@ export default function SharedContentPreview({
         </div>
       </div>
 
-      {/* Full View Modal - Only for posts for now */}
+      {/* Full View Modal - Only for posts */}
       {showModal && messageType === 'shared_post' && (
         <PostDetailsModal
           post={{
@@ -118,21 +136,6 @@ export default function SharedContentPreview({
           isOpen={showModal}
           onClose={() => setShowModal(false)}
         />
-      )}
-
-      {/* For reels, you can add a ReelDetailsModal later */}
-      {showModal && messageType === 'shared_reel' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <div className="relative max-w-md w-full">
-            <button
-              onClick={() => setShowModal(false)}
-              className="absolute -top-10 right-0 text-white hover:text-gray-300"
-            >
-              Close
-            </button>
-            <video src={mediaUrl} controls autoPlay className="w-full rounded-lg" />
-          </div>
-        </div>
       )}
     </>
   );

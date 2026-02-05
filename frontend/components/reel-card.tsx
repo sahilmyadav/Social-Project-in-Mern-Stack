@@ -4,10 +4,10 @@ import ReportReelModal from '@/components/report-reel-modal';
 import ShareModal from '@/components/share-modal';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
 import { useVideoSafe } from '@/contexts/video-context';
@@ -15,16 +15,16 @@ import { reelService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast } from '@/lib/toast';
 import {
-    Bookmark,
-    Download,
-    Eye,
-    Heart,
-    MessageCircle,
-    MoreHorizontal,
-    Play,
-    Share2,
-    Volume2,
-    VolumeX,
+  Bookmark,
+  Download,
+  Eye,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Share2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -44,11 +44,12 @@ export default function ReelCard({
 }: ReelCardProps) {
   const router = useRouter();
   const { isMuted: globalMuted, toggleMute: toggleGlobalMute } = useVideoSafe();
-  const [liked, setLiked] = useState(reel.isLiked || false);
+  // Backend may return is_liked (snake_case) or isLiked (camelCase)
+  const [liked, setLiked] = useState(reel.isLiked || reel.is_liked || false);
   const [likeCount, setLikeCount] = useState(reel.likes_count || 0);
-  const [saved, setSaved] = useState(reel.isSaved || false);
+  const [saved, setSaved] = useState(reel.isSaved || reel.is_saved || false);
   const [viewCount, setViewCount] = useState(reel.views_count || 0);
-  const [isViewed, setIsViewed] = useState(reel.isViewed || false);
+  const [isViewed, setIsViewed] = useState(reel.isViewed || reel.is_viewed || false);
   const [isLiking, setIsLiking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -154,11 +155,20 @@ export default function ReelCard({
 
     // Optimistic update
     setLiked(!liked);
-    setLikeCount(liked ? likeCount - 1 : likeCount + 1);
+    setLikeCount(liked ? Math.max(0, likeCount - 1) : likeCount + 1);
 
     try {
       const response = await reelService.toggleLikeReel(reel._id);
-      if (!response.success) {
+      if (response.success) {
+        // Always use server response to sync state
+        const serverIsLiked = response.data?.isLiked ?? !previousLiked;
+        const serverLikeCount =
+          response.data?.likes_count ??
+          response.data?.likesCount ??
+          (serverIsLiked ? previousCount + 1 : previousCount - 1);
+        setLiked(serverIsLiked);
+        setLikeCount(serverLikeCount);
+      } else {
         throw new Error(response.message || 'Failed to toggle like');
       }
     } catch (error: any) {
