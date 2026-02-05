@@ -11,11 +11,13 @@ import {
     offAnswer,
     offCallAccepted,
     offCallEnded,
+    offCallFailed,
     offIceCandidate,
     offOffer,
     onAnswer,
     onCallAccepted,
     onCallEnded,
+    onCallFailed,
     onIceCandidate,
     onOffer,
 } from '@/lib/socket';
@@ -50,6 +52,7 @@ export default function VoiceCallModal({
   const [callStatus, setCallStatus] = useState<'ringing' | 'connecting' | 'active' | 'ended'>(
     'ringing'
   );
+  const [callFailedReason, setCallFailedReason] = useState<string | null>(null);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
@@ -69,6 +72,7 @@ export default function VoiceCallModal({
     iceCandidate?: (data: any) => void;
     callAccepted?: (data: any) => void;
     callEnded?: (data: any) => void;
+    callFailed?: (data: any) => void;
   }>({});
 
   useEffect(() => {
@@ -78,6 +82,7 @@ export default function VoiceCallModal({
       // Reset state when modal opens
       setCallDuration(0);
       setCallStatus('ringing');
+      setCallFailedReason(null);
       remoteDescriptionSet.current = false;
       iceCandidatesQueue.current = [];
       isEndingCall.current = false;
@@ -89,6 +94,19 @@ export default function VoiceCallModal({
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
       onCallEnded(handleCallEndedByRemote);
+
+      // Listen for call failed (user offline or error)
+      const handleCallFailedEvent = (data: any) => {
+        console.log('📞 Call failed:', data);
+        setCallFailedReason(data.reason || 'Call failed');
+        setCallStatus('ended');
+        // Auto close after showing the error
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      };
+      handlersRef.current.callFailed = handleCallFailedEvent;
+      onCallFailed(handleCallFailedEvent);
 
       // For outgoing calls, listen for when other user accepts
       if (!isIncomingCall) {
@@ -198,6 +216,9 @@ export default function VoiceCallModal({
         }
         if (handlersRef.current.callEnded) {
           offCallEnded(handlersRef.current.callEnded);
+        }
+        if (handlersRef.current.callFailed) {
+          offCallFailed(handlersRef.current.callFailed);
         }
       };
     }
@@ -585,7 +606,11 @@ export default function VoiceCallModal({
               <p className="font-mono text-3xl tracking-widest">{formatDuration(callDuration)}</p>
             )}
 
-            {callStatus === 'ended' && <p className="text-lg">Call ended</p>}
+            {callStatus === 'ended' && (
+              <p className="text-lg">
+                {callFailedReason || 'Call ended'}
+              </p>
+            )}
           </div>
         </div>
 

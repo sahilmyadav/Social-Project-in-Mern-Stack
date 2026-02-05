@@ -12,13 +12,15 @@ import {
     offAnswer,
     offCallAccepted,
     offCallEnded,
+    offCallFailed,
     offIceCandidate,
     offOffer,
     onAnswer,
     onCallAccepted,
     onCallEnded,
+    onCallFailed,
     onIceCandidate,
-    onOffer,
+    onOffer
 } from '@/lib/socket';
 import { Mic, MicOff, PhoneOff, User, Video, VideoOff, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -53,6 +55,7 @@ export default function VideoCallModal({
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [currentCallId, setCurrentCallId] = useState(callId || '');
+  const [callFailedReason, setCallFailedReason] = useState<string | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -71,6 +74,7 @@ export default function VideoCallModal({
     iceCandidate?: (data: any) => void;
     callAccepted?: (data: any) => void;
     callEnded?: (data: any) => void;
+    callFailed?: (data: any) => void;
   }>({});
 
   // Format call duration
@@ -387,6 +391,7 @@ export default function VideoCallModal({
       // Reset state when modal opens
       setCallDuration(0);
       setCallStatus(isIncoming ? 'ringing' : 'connecting');
+      setCallFailedReason(null);
       remoteDescriptionSet.current = false;
       iceCandidatesQueue.current = [];
       isEndingCall.current = false;
@@ -397,6 +402,19 @@ export default function VideoCallModal({
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
       onCallEnded(handleCallEndedByRemote);
+
+      // Listen for call failed (user offline or error)
+      const handleCallFailedEvent = (data: any) => {
+        console.log('📞 Video call failed:', data);
+        setCallFailedReason(data.reason || 'Call failed');
+        setCallStatus('ended');
+        // Auto close after showing the error
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      };
+      handlersRef.current.callFailed = handleCallFailedEvent;
+      onCallFailed(handleCallFailedEvent);
 
       // For outgoing calls, listen for when other user accepts
       if (!isIncoming) {
@@ -506,6 +524,9 @@ export default function VideoCallModal({
         if (handlersRef.current.callEnded) {
           offCallEnded(handlersRef.current.callEnded);
         }
+        if (handlersRef.current.callFailed) {
+          offCallFailed(handlersRef.current.callFailed);
+        }
       };
     }
   }, [isOpen, isIncoming, recipientId]);
@@ -571,6 +592,7 @@ export default function VideoCallModal({
               {callStatus === 'ringing' && !isIncoming && 'Calling...'}
               {callStatus === 'ringing' && isIncoming && 'Incoming video call'}
               {callStatus === 'connecting' && 'Connecting...'}
+              {callStatus === 'ended' && (callFailedReason || 'Call ended')}
             </p>
           </div>
         </div>

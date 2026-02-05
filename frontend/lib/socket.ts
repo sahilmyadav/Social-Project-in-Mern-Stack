@@ -301,6 +301,15 @@ export const offCallEnded = (callback: (data: any) => void) => {
   socket?.off('callEnded', callback);
 };
 
+// Call failed event (user offline or error)
+export const onCallFailed = (callback: (data: any) => void) => {
+  socket?.on('callFailed', callback);
+};
+
+export const offCallFailed = (callback: (data: any) => void) => {
+  socket?.off('callFailed', callback);
+};
+
 // WebRTC signaling events
 export const onOffer = (callback: (data: any) => void) => {
   socket?.on('offer', callback);

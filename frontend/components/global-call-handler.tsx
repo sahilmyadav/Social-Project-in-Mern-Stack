@@ -1,6 +1,7 @@
 'use client'
 
 import { emitRejectCall, getSocket, initSocket } from '@/lib/socket'
+import { showToast } from '@/lib/toast'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import IncomingCallNotification from './incoming-call-notification'
 import IncomingVideoCallNotification from './incoming-video-call-notification'
@@ -54,6 +55,14 @@ export default function GlobalCallHandler() {
     setIsVideoCallOpen(false)
   }, [])
 
+  const handleCallFailed = useCallback((data: any) => {
+    console.log('📞 Global: Call failed:', data)
+    showToast.error('Call Failed', data.reason || 'Unable to connect the call')
+    setIncomingCall(null)
+    setIsVoiceCallOpen(false)
+    setIsVideoCallOpen(false)
+  }, [])
+
   // Function to attach listeners
   const attachListeners = useCallback((socket: any) => {
     if (!socket || listenersAttached.current) return
@@ -62,14 +71,16 @@ export default function GlobalCallHandler() {
     socket.off('incomingCall', handleIncomingCall)
     socket.off('callRejected', handleCallRejected)
     socket.off('callEnded', handleCallEnded)
+    socket.off('callFailed', handleCallFailed)
 
     // Attach fresh listeners
     socket.on('incomingCall', handleIncomingCall)
     socket.on('callRejected', handleCallRejected)
     socket.on('callEnded', handleCallEnded)
+    socket.on('callFailed', handleCallFailed)
 
     listenersAttached.current = true
-  }, [handleIncomingCall, handleCallRejected, handleCallEnded])
+  }, [handleIncomingCall, handleCallRejected, handleCallEnded, handleCallFailed])
 
   // Initialize socket and set up listeners
   useEffect(() => {
@@ -116,9 +127,10 @@ export default function GlobalCallHandler() {
       socket.off('incomingCall', handleIncomingCall)
       socket.off('callRejected', handleCallRejected)
       socket.off('callEnded', handleCallEnded)
+      socket.off('callFailed', handleCallFailed)
       listenersAttached.current = false
     }
-  }, [attachListeners, handleIncomingCall, handleCallRejected, handleCallEnded])
+  }, [attachListeners, handleIncomingCall, handleCallRejected, handleCallEnded, handleCallFailed])
 
   // Re-check socket periodically to ensure listeners are attached
   useEffect(() => {

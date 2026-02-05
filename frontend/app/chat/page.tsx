@@ -29,6 +29,7 @@ import {
     initSocket,
     joinThread,
     offCallEnded,
+    offCallFailed,
     offCallRejected,
     offIncomingCall,
     offMessageStatus,
@@ -39,6 +40,7 @@ import {
     offUserOffline,
     offUserOnline,
     onCallEnded,
+    onCallFailed,
     onCallRejected,
     onIncomingCall,
     onMessageStatus,
@@ -739,6 +741,38 @@ function ChatPageContent() {
         }
       };
 
+      const handleCallFailed = (data: any) => {
+        console.log('📞 Call failed:', data);
+        setIncomingCall(null);
+        setIsVoiceCallOpen(false);
+        setIsVideoCallOpen(false);
+
+        // Show toast notification for call failure
+        showToast.error('Call Failed', data.reason || 'Unable to connect the call');
+
+        // Add system message for failed call
+        if (
+          data.threadId === selectedThreadIdRef.current ||
+          data.threadId === selectedConversation?.threadId ||
+          data.recipientId
+        ) {
+          const systemMessage: Message = {
+            id: `call-failed-${Date.now()}`,
+            sender: 'System',
+            content: data.reason || 'Call failed',
+            timestamp: new Date().toISOString(),
+            isSent: false,
+            type: 'system',
+            senderId: 'system',
+            senderName: 'System',
+            status: 'sent' as const,
+            isSystemMessage: true,
+            systemMessageType: 'call-failed',
+          };
+          setMessages((prev) => [...prev, systemMessage]);
+        }
+      };
+
       onNewMessage(handleNewMessage);
       onMessageStatus(handleMessageStatus);
       onNewThread(handleNewThread);
@@ -749,6 +783,7 @@ function ChatPageContent() {
       onIncomingCall(handleIncomingCall);
       onCallRejected(handleCallRejected);
       onCallEnded(handleCallEnded);
+      onCallFailed(handleCallFailed);
 
       const currentSocket = getSocket();
       if (currentSocket) {
@@ -818,6 +853,7 @@ function ChatPageContent() {
         offIncomingCall(handleIncomingCall);
         offCallRejected(handleCallRejected);
         offCallEnded(handleCallEnded);
+        offCallFailed(handleCallFailed);
 
         // Clear typing timeout
         if (typingTimeoutRef.current) {
