@@ -114,6 +114,35 @@ const FILTERS = [
   { name: 'Vivid', value: 'vivid', icon: Aperture },
 ];
 
+// Filter CSS values map
+const FILTER_STYLES: Record<string, string> = {
+  normal: 'none',
+  clarendon: 'contrast(1.2) saturate(1.35) brightness(1.1)',
+  gingham: 'brightness(1.05) hue-rotate(-10deg)',
+  juno: 'contrast(1.2) saturate(1.4) brightness(1.1) sepia(0.2)',
+  lark: 'contrast(0.9) saturate(0.85) brightness(1.08)',
+  ludwig: 'contrast(1.05) brightness(1.05) saturate(2)',
+  valencia: 'contrast(1.08) brightness(1.08) sepia(0.08)',
+  xpro2: 'sepia(0.3) contrast(1.3) brightness(0.95) saturate(1.2)',
+  aden: 'contrast(0.9) brightness(1.2) saturate(0.85) hue-rotate(-20deg)',
+  brooklyn: 'contrast(0.9) brightness(1.1) sepia(0.1)',
+  earlybird: 'contrast(0.9) sepia(0.2) brightness(1.1)',
+  inkwell: 'grayscale(100%) contrast(1.1) brightness(1.1)',
+  nashville: 'sepia(0.2) contrast(1.2) brightness(1.05) saturate(1.2)',
+  perpetua: 'contrast(1.1) saturate(1.2)',
+  reyes: 'sepia(0.22) brightness(1.1) contrast(0.85) saturate(0.75)',
+  rise: 'brightness(1.05) sepia(0.2) contrast(0.9) saturate(0.9)',
+  slumber: 'saturate(0.66) brightness(1.05)',
+  toaster: 'contrast(1.5) brightness(0.9) sepia(0.1)',
+  walden: 'brightness(1.1) hue-rotate(-10deg) sepia(0.3) saturate(1.6)',
+  willow: 'grayscale(50%) contrast(0.95) brightness(0.9)',
+  vintage: 'sepia(0.5) contrast(1.2) brightness(0.9)',
+  cool: 'saturate(1.4) brightness(1.05) hue-rotate(-15deg)',
+  warm: 'saturate(1.2) brightness(1.1) hue-rotate(10deg) sepia(0.15)',
+  dramatic: 'contrast(1.5) saturate(0.8) brightness(0.95)',
+  vivid: 'saturate(1.5) contrast(1.1) brightness(1.05)',
+};
+
 export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
@@ -431,7 +460,9 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
       }
     } catch (err: any) {
       console.error('❌ Error uploading story:', err);
-      setError(err.message || 'Failed to upload story. Please try again.');
+      const errorMessage =
+        err?.response?.data?.message || err?.message || 'Failed to upload story. Please try again.';
+      setError(errorMessage);
     } finally {
       setIsUploading(false);
     }
@@ -457,7 +488,7 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-background rounded-3xl shadow-2xl max-w-xl w-full max-h-[95vh] overflow-hidden flex flex-col">
+      <div className="bg-background rounded-3xl shadow-2xl max-w-xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
           <h2 className="text-xl font-bold">Add to Story</h2>
@@ -471,7 +502,7 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
         </div>
 
         {/* Content - Scrollable */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 min-h-0">
           {!selectedFile ? (
             // Upload area
             <div
@@ -508,19 +539,22 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
             <div className="space-y-3">
               <div
                 ref={imageContainerRef}
-                className="relative rounded-2xl overflow-hidden bg-black aspect-[9/16] max-h-[400px] flex items-center justify-center"
+                className="relative rounded-2xl overflow-hidden bg-black aspect-[9/16] max-h-[300px] flex items-center justify-center"
               >
                 {fileType === 'image' ? (
                   <img
                     src={previewUrl}
                     alt="Story preview"
-                    className={`max-w-full max-h-full object-contain filter-${selectedFilter}`}
+                    className="max-w-full max-h-full object-contain"
+                    style={{
+                      filter: FILTER_STYLES[selectedFilter] || 'none',
+                    }}
                   />
                 ) : (
                   <video
                     src={previewUrl}
                     controls
-                    className={`max-w-full max-h-full object-contain filter-${selectedFilter}`}
+                    className="max-w-full max-h-full object-contain"
                   />
                 )}
 
@@ -621,7 +655,8 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                         >
                           {/* Gradient background with filter applied */}
                           <div
-                            className={`absolute inset-0 bg-gradient-to-br from-purple-400 via-pink-400 to-orange-400 filter-${filter.value}`}
+                            className="absolute inset-0 bg-gradient-to-br from-purple-400 via-pink-400 to-orange-400"
+                            style={{ filter: FILTER_STYLES[filter.value] || 'none' }}
                           />
                           {/* Icon overlay */}
                           <div className="absolute inset-0 flex items-center justify-center bg-black/10">

@@ -26,12 +26,14 @@ const storage = multer.diskStorage({
   },
 });
 
-// File filter to accept only images and videos
+// File filter to accept images, videos, and documents
 const fileFilter = (req, file, cb) => {
   // Allowed image formats
   const imageTypes = /jpeg|jpg|png|gif|webp|svg/;
   // Allowed video formats
   const videoTypes = /mp4|mov|avi|mkv|webm|flv/;
+  // Allowed document formats
+  const documentTypes = /pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf|odt|ods|odp|zip|rar|7z/;
 
   const extname = path.extname(file.originalname).toLowerCase();
   const mimetype = file.mimetype;
@@ -40,13 +42,28 @@ const fileFilter = (req, file, cb) => {
   const isImage = imageTypes.test(extname.replace('.', '')) && mimetype.startsWith('image/');
   // Check if file is video
   const isVideo = videoTypes.test(extname.replace('.', '')) && mimetype.startsWith('video/');
+  // Check if file is document
+  const isDocument =
+    documentTypes.test(extname.replace('.', '')) &&
+    (mimetype.startsWith('application/') ||
+      mimetype.startsWith('text/') ||
+      mimetype === 'application/pdf' ||
+      mimetype === 'application/msword' ||
+      mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      mimetype === 'application/vnd.ms-excel' ||
+      mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimetype === 'application/vnd.ms-powerpoint' ||
+      mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+      mimetype === 'application/zip' ||
+      mimetype === 'application/x-rar-compressed' ||
+      mimetype === 'application/x-7z-compressed');
 
-  if (isImage || isVideo) {
+  if (isImage || isVideo || isDocument) {
     cb(null, true);
   } else {
     cb(
       new Error(
-        'Invalid file type. Only images (jpeg, jpg, png, gif, webp, svg) and videos (mp4, mov, avi, mkv, webm, flv) are allowed.'
+        'Invalid file type. Allowed: images (jpeg, jpg, png, gif, webp, svg), videos (mp4, mov, avi, mkv, webm, flv), documents (pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, zip, rar).'
       ),
       false
     );

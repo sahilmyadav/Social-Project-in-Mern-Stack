@@ -139,12 +139,9 @@ export default function SignupPage() {
       return;
     }
 
-    // Password regex validation
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-    if (!passwordRegex.test(formData.password)) {
-      toast.error(
-        'Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number'
-      );
+    // Password validation - minimum 8 characters
+    if (formData.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
       setLoading(false);
       return;
     }
@@ -432,7 +429,7 @@ export default function SignupPage() {
               <Input
                 type="tel"
                 name="phone"
-                placeholder=" "
+                placeholder=""
                 value={formData.phone}
                 onChange={handleChange}
                 disabled={loading}
@@ -521,34 +518,29 @@ export default function SignupPage() {
                 <Input
                   type={showPassword ? 'text' : 'password'}
                   name="password"
-                  placeholder="Min 8 chars, 1 upper, 1 lower, 1 number"
+                  placeholder="Minimum 8 characters"
                   value={formData.password}
                   onChange={(e) => {
                     handleChange(e);
-                    // Calculate password strength
+                    // Calculate password strength based on length only
                     const pwd = e.target.value;
                     let score = 0;
-                    if (pwd.length >= 8) score++;
-                    if (/[a-z]/.test(pwd)) score++;
-                    if (/[A-Z]/.test(pwd)) score++;
-                    if (/\d/.test(pwd)) score++;
-                    if (/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) score++;
-
                     let label = '';
                     let color = '';
+
                     if (pwd.length === 0) {
                       label = '';
                       color = '';
-                    } else if (score <= 2) {
-                      label = 'Weak';
+                    } else if (pwd.length < 8) {
+                      score = 2;
+                      label = 'Too short';
                       color = 'bg-red-500';
-                    } else if (score === 3) {
-                      label = 'Fair';
-                      color = 'bg-yellow-500';
-                    } else if (score === 4) {
+                    } else if (pwd.length >= 8 && pwd.length < 12) {
+                      score = 3;
                       label = 'Good';
                       color = 'bg-blue-500';
                     } else {
+                      score = 5;
                       label = 'Strong';
                       color = 'bg-green-500';
                     }
@@ -578,30 +570,14 @@ export default function SignupPage() {
                     </div>
                     <span
                       className={`text-xs font-medium ${
-                        passwordStrength.label === 'Weak'
+                        passwordStrength.label === 'Too short'
                           ? 'text-red-500'
-                          : passwordStrength.label === 'Fair'
-                            ? 'text-yellow-500'
-                            : passwordStrength.label === 'Good'
-                              ? 'text-blue-500'
-                              : 'text-green-500'
+                          : passwordStrength.label === 'Good'
+                            ? 'text-blue-500'
+                            : 'text-green-500'
                       }`}
                     >
                       {passwordStrength.label}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
-                    <span className={formData.password.length >= 8 ? 'text-green-500' : ''}>
-                      • 8+ chars
-                    </span>
-                    <span className={/[a-z]/.test(formData.password) ? 'text-green-500' : ''}>
-                      • lowercase
-                    </span>
-                    <span className={/[A-Z]/.test(formData.password) ? 'text-green-500' : ''}>
-                      • uppercase
-                    </span>
-                    <span className={/\d/.test(formData.password) ? 'text-green-500' : ''}>
-                      • number
                     </span>
                   </div>
                 </div>

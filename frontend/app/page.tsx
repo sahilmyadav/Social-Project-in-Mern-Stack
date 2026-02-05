@@ -242,28 +242,6 @@ export default function Home() {
                   </Button>
                 </Link>
               </div>
-
-              {/* Stats */}
-              <div className="flex gap-8 justify-center lg:justify-start">
-                <div className="text-center">
-                  <div className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
-                    10M+
-                  </div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Active Users</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
-                    50M+
-                  </div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Posts Shared</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
-                    190+
-                  </div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Countries</div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

@@ -621,7 +621,10 @@ export const chatService = {
   },
 
   // Send Message (supports text and media)
-  sendMessage: async (threadId: string, data: { text: string } | FormData) => {
+  sendMessage: async (
+    threadId: string,
+    data: { text: string; reply_to?: string; isForwarded?: boolean } | FormData
+  ) => {
     if (data instanceof FormData) {
       return api.upload(API_ENDPOINTS.CHAT.SEND_MESSAGE(threadId), data);
     }

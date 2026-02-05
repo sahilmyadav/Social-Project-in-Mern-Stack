@@ -6,70 +6,75 @@ import Navigation from '@/components/navigation';
 import SharedContentPreview from '@/components/shared-content-preview';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import VideoCallModal from '@/components/video-call-modal';
 import VoiceCallModal from '@/components/voice-call-modal';
 import { authService, chatService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-    disconnectSocket,
-    emitInitiateCall,
-    emitMessageDelivered,
-    emitStopTyping,
-    emitTyping,
-    emitUserOffline,
-    emitUserOnline,
-    getSocket,
-    initSocket,
-    joinThread,
-    offCallEnded,
-    offCallFailed,
-    offCallRejected,
-    offIncomingCall,
-    offMessageStatus,
-    offNewMessage,
-    offNewThread,
-    offStopTyping,
-    offTyping,
-    offUserOffline,
-    offUserOnline,
-    onCallEnded,
-    onCallFailed,
-    onCallRejected,
-    onIncomingCall,
-    onMessageStatus,
-    onNewMessage,
-    onNewThread,
-    onStopTyping,
-    onTyping,
-    onUserOffline,
-    onUserOnline,
+  disconnectSocket,
+  emitInitiateCall,
+  emitMessageDelivered,
+  emitStopTyping,
+  emitTyping,
+  emitUserOffline,
+  emitUserOnline,
+  getSocket,
+  initSocket,
+  joinThread,
+  offCallEnded,
+  offCallFailed,
+  offCallRejected,
+  offIncomingCall,
+  offMessageStatus,
+  offNewMessage,
+  offNewThread,
+  offStopTyping,
+  offTyping,
+  offUserOffline,
+  offUserOnline,
+  onCallEnded,
+  onCallFailed,
+  onCallRejected,
+  onIncomingCall,
+  onMessageStatus,
+  onNewMessage,
+  onNewThread,
+  onStopTyping,
+  onTyping,
+  onUserOffline,
+  onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-    Ban,
-    Camera,
-    Edit2,
-    FileText,
-    Flag,
-    Image as ImageIcon,
-    Info,
-    MoreHorizontal,
-    Phone,
-    Plus,
-    Send,
-    Trash2,
-    User,
-    UserPlus,
-    Users,
-    Video,
-    X,
+  Ban,
+  Camera,
+  CornerUpLeft,
+  Edit2,
+  FileText,
+  Flag,
+  Forward,
+  Image as ImageIcon,
+  Info,
+  MoreHorizontal,
+  Phone,
+  Plus,
+  Reply,
+  Send,
+  Trash2,
+  User,
+  UserPlus,
+  Users,
+  Video,
+  X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -107,9 +112,19 @@ interface Message {
   systemMessageType?: string;
   media?: {
     url: string;
-    type: 'image' | 'video' | 'file';
+    type: 'image' | 'video' | 'file' | 'document';
     publicId?: string;
+    fileName?: string;
+    filename?: string; // Backend uses lowercase
+    size?: number;
   }[];
+  // Reply fields
+  replyTo?: {
+    _id: string;
+    content: string;
+    senderName: string;
+  };
+  isForwarded?: boolean;
 }
 
 function ChatPageContent() {
@@ -150,6 +165,12 @@ function ChatPageContent() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { confirm, dialogProps } = useConfirmDialog();
+
+  // Reply and Forward states
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  const [messageToForward, setMessageToForward] = useState<Message | null>(null);
+  const [forwardSearchQuery, setForwardSearchQuery] = useState('');
 
   const handleOpenProfile = (userId: string) => {
     router.push(`/profile/${userId}`);
@@ -237,7 +258,17 @@ function ChatPageContent() {
               thread.lastMessage.media.length > 0
             ) {
               const mediaType = thread.lastMessage.media[0].type || 'attachment';
-              lastMessageText = `📎 ${mediaType}`;
+              if (mediaType === 'image') {
+                lastMessageText = '📷 Image';
+              } else if (mediaType === 'video') {
+                lastMessageText = '📹 Video';
+              } else if (mediaType === 'document' || mediaType === 'file') {
+                lastMessageText = '📄 Document';
+              } else if (mediaType === 'audio') {
+                lastMessageText = '🎵 Audio';
+              } else {
+                lastMessageText = `📎 ${mediaType}`;
+              }
             }
 
             // If still no message, check if there's an encrypted content field
@@ -323,7 +354,7 @@ function ChatPageContent() {
           // Skip if this is our own message (we already added it optimistically)
           const isOwnMessage = data.message.senderId?._id === parsedUser._id;
 
-          const newMessage = {
+          const newMessage: Message = {
             id: data.message._id,
             sender:
               data.message.senderId?.firstName || data.message.senderId?.username || 'Unknown',
@@ -333,6 +364,18 @@ function ChatPageContent() {
               minute: '2-digit',
             }),
             isSent: isOwnMessage,
+            media: data.message.media || [],
+            isForwarded: data.message.isForwarded || false,
+            replyTo: data.message.replyTo
+              ? {
+                  _id: data.message.replyTo._id,
+                  content: data.message.replyTo.text || '',
+                  senderName:
+                    data.message.replyTo.senderName ||
+                    data.message.replyTo.senderId?.firstName ||
+                    'Unknown',
+                }
+              : undefined,
           };
 
           // Add message to chat if thread is currently open
@@ -360,6 +403,21 @@ function ChatPageContent() {
           setConversations((prev) => {
             const threadId = data.threadId?.toString();
 
+            // Determine display message
+            let displayMessage = data.message.text || '';
+            if (!displayMessage && data.message.media && data.message.media.length > 0) {
+              const mediaType = data.message.media[0].type;
+              if (mediaType === 'image') {
+                displayMessage = '📷 Image';
+              } else if (mediaType === 'video') {
+                displayMessage = '📹 Video';
+              } else if (mediaType === 'document' || mediaType === 'file') {
+                displayMessage = '📄 Document';
+              } else {
+                displayMessage = `📎 ${mediaType}`;
+              }
+            }
+
             const updatedConvs = prev.map((conv) => {
               const convId = conv.id.toString();
 
@@ -367,7 +425,7 @@ function ChatPageContent() {
               if (convId === threadId) {
                 return {
                   ...conv,
-                  lastMessage: data.message.text,
+                  lastMessage: displayMessage,
                   timestamp: 'Now',
                   unread: data.message.senderId?._id !== parsedUser._id,
                 };
@@ -666,12 +724,11 @@ function ChatPageContent() {
           setMessages((prev) => [...prev, callMessage]);
         }
 
-        // Show browser notification - only use avatar if it's a valid URL
+        // Show browser notification
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
-          const isValidAvatarUrl = callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') || callerAvatar?.startsWith('uploads');
           new Notification('Incoming Call', {
             body: `${callerName} is calling...`,
-            icon: isValidAvatarUrl ? callerAvatar : '/favicon.ico',
+            icon: callerAvatar,
             tag: 'incoming-call',
           });
         }
@@ -1001,18 +1058,32 @@ function ChatPageContent() {
         ? [
             {
               url: previewUrl || '',
-              type: selectedFile.type.startsWith('video') ? 'video' : 'image',
+              type: selectedFile.type.startsWith('video')
+                ? 'video'
+                : selectedFile.type.startsWith('image')
+                  ? 'image'
+                  : 'document',
+              fileName: selectedFile.name,
             },
           ]
+        : undefined,
+      replyTo: replyingTo
+        ? {
+            _id: replyingTo.id.toString(),
+            content: replyingTo.content,
+            senderName: replyingTo.sender,
+          }
         : undefined,
     };
 
     setMessages((prev) => [...prev, tempMessage]);
     const messageText = messageInput;
     const fileToSend = selectedFile;
+    const replyToId = replyingTo?.id?.toString();
 
     setMessageInput('');
     removeSelectedFile();
+    setReplyingTo(null);
 
     try {
       let response: any;
@@ -1020,6 +1091,7 @@ function ChatPageContent() {
       if (fileToSend) {
         const formData = new FormData();
         if (messageText) formData.append('text', messageText);
+        if (replyToId) formData.append('reply_to', replyToId);
 
         // Strictly use "media" key for backend
         formData.append('media', fileToSend);
@@ -1028,6 +1100,7 @@ function ChatPageContent() {
       } else {
         response = await chatService.sendMessage(selectedThreadId, {
           text: messageText,
+          reply_to: replyToId,
         });
       }
 
@@ -1054,7 +1127,9 @@ function ChatPageContent() {
                   lastMessage: fileToSend
                     ? fileToSend.type.startsWith('image')
                       ? '📷 Image'
-                      : '📹 Video'
+                      : fileToSend.type.startsWith('video')
+                        ? '📹 Video'
+                        : '📄 Document'
                     : messageText,
                   timestamp: 'Now',
                   unread: false,
@@ -1081,6 +1156,50 @@ function ChatPageContent() {
       // Note: we can't easily restore file selection programmatically for security reasons
     } finally {
       setIsSendingMessage(false);
+    }
+  };
+
+  // Handle forwarding a message to a conversation
+  const handleForwardMessage = async (targetConversation: Conversation) => {
+    if (!messageToForward) return;
+
+    try {
+      let targetThreadId: string | undefined = targetConversation.threadId;
+
+      // If no threadId exists, create/get the thread first
+      if (!targetThreadId) {
+        const threadResponse = await chatService.getThread(targetConversation.participantId);
+        if (threadResponse.success && threadResponse.data?.thread?._id) {
+          targetThreadId = threadResponse.data.thread._id;
+        } else {
+          showToast.error('Failed to get conversation thread');
+          return;
+        }
+      }
+
+      if (!targetThreadId) {
+        showToast.error('Failed to get conversation thread');
+        return;
+      }
+
+      // Send the forwarded message
+      const forwardedText = messageToForward.content;
+      const response = await chatService.sendMessage(targetThreadId, {
+        text: forwardedText,
+        isForwarded: true,
+      });
+
+      if (response.success) {
+        showToast.success(`Message forwarded to ${targetConversation.name}`);
+        setIsForwardModalOpen(false);
+        setMessageToForward(null);
+        setForwardSearchQuery('');
+      } else {
+        showToast.error('Failed to forward message');
+      }
+    } catch (error) {
+      console.error('Error forwarding message:', error);
+      showToast.error('Failed to forward message');
     }
   };
 
@@ -1173,10 +1292,6 @@ function ChatPageContent() {
         // Handle both direct _id and nested structure
         const threadId = response.data._id || response.data.thread?._id || response.data.threadId;
 
-        // Get participant data from the response
-        const participants = response.data.participants || [];
-        const otherParticipant = participants.find((p: any) => p._id?.toString() !== user?._id);
-
         if (threadId) {
           setSelectedThreadId(threadId);
           // Join thread room via socket
@@ -1185,37 +1300,6 @@ function ChatPageContent() {
           loadMessages(threadId);
           // Mark as seen
           markThreadAsRead(threadId, userId);
-
-          // Update selectedConversation with full participant data from API
-          if (otherParticipant) {
-            const updatedConversation: Conversation = {
-              id: threadId,
-              participantId: otherParticipant._id?.toString() || userId,
-              name: otherParticipant.firstName || otherParticipant.fullName || otherParticipant.username || 'Unknown',
-              avatar: otherParticipant.profilePicture || otherParticipant.profileImage || otherParticipant.avatar || '👤',
-              lastMessage: '',
-              timestamp: 'Now',
-              unread: false,
-              unreadCount: 0,
-              online: otherParticipant.isOnline || false,
-              threadId: threadId,
-            };
-
-            setSelectedConversation(updatedConversation);
-
-            // Also update in conversations list
-            setConversations((prev) => {
-              const existingIndex = prev.findIndex(
-                (c) => c.participantId === userId || c.threadId === threadId
-              );
-              if (existingIndex >= 0) {
-                const updated = [...prev];
-                updated[existingIndex] = { ...updated[existingIndex], ...updatedConversation, lastMessage: updated[existingIndex].lastMessage };
-                return updated;
-              }
-              return [updatedConversation, ...prev];
-            });
-          }
         } else {
           console.error('No thread ID in response');
         }
@@ -1276,6 +1360,14 @@ function ChatPageContent() {
           messageType: msg.messageType || 'text',
           sharedContent: msg.sharedContent,
           media: msg.media || [],
+          isForwarded: msg.isForwarded || false,
+          replyTo: msg.replyTo
+            ? {
+                _id: msg.replyTo._id,
+                content: msg.replyTo.text || '',
+                senderName: msg.replyTo.senderName || msg.replyTo.senderId?.firstName || 'Unknown',
+              }
+            : undefined,
         }));
 
         setMessages(formattedMessages);
@@ -1413,8 +1505,7 @@ function ChatPageContent() {
                             <div className="w-full h-full rounded-full bg-background p-[2px]">
                               <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center">
                                 {friend.avatar?.startsWith('http') ||
-                                friend.avatar?.startsWith('/') ||
-                                friend.avatar?.startsWith('uploads') ? (
+                                friend.avatar?.startsWith('/') ? (
                                   <img
                                     src={getMediaUrl(friend.avatar)}
                                     alt={friend.name}
@@ -1477,8 +1568,7 @@ function ChatPageContent() {
                       } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                     >
                       {conversation.avatar?.startsWith('http') ||
-                      conversation.avatar?.startsWith('/') ||
-                      conversation.avatar?.startsWith('uploads') ? (
+                      conversation.avatar?.startsWith('/') ? (
                         <img
                           src={getMediaUrl(conversation.avatar)}
                           alt={conversation.name}
@@ -1629,8 +1719,7 @@ function ChatPageContent() {
                   } overflow-hidden ${!selectedConversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                 >
                   {selectedConversation.avatar?.startsWith('http') ||
-                  selectedConversation.avatar?.startsWith('/') ||
-                  selectedConversation.avatar?.startsWith('uploads') ? (
+                  selectedConversation.avatar?.startsWith('/') ? (
                     <img
                       src={getMediaUrl(selectedConversation.avatar)}
                       alt={selectedConversation.name}
@@ -1841,6 +1930,19 @@ function ChatPageContent() {
                                 </button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setReplyingTo(message)}>
+                                  <Reply size={14} className="mr-2" />
+                                  Reply
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setMessageToForward(message);
+                                    setIsForwardModalOpen(true);
+                                  }}
+                                >
+                                  <Forward size={14} className="mr-2" />
+                                  Forward
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setEditingMessageId(message.id.toString());
@@ -1909,6 +2011,32 @@ function ChatPageContent() {
                                   : 'bg-muted rounded-bl-none'
                               }`}
                             >
+                              {/* Reply preview if this message is a reply */}
+                              {message.replyTo && (
+                                <div
+                                  className={`mb-2 pl-2 border-l-2 ${message.isSent ? 'border-primary-foreground/50' : 'border-primary/50'}`}
+                                >
+                                  <p
+                                    className={`text-xs font-medium ${message.isSent ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
+                                  >
+                                    {message.replyTo.senderName}
+                                  </p>
+                                  <p
+                                    className={`text-xs truncate max-w-[180px] ${message.isSent ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}
+                                  >
+                                    {message.replyTo.content}
+                                  </p>
+                                </div>
+                              )}
+                              {/* Forwarded indicator */}
+                              {message.isForwarded && (
+                                <div
+                                  className={`flex items-center gap-1 text-xs mb-1 ${message.isSent ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}
+                                >
+                                  <Forward size={10} />
+                                  <span>Forwarded</span>
+                                </div>
+                              )}
                               {message.media &&
                                 message.media.map((item, idx) => (
                                   <div
@@ -1917,13 +2045,36 @@ function ChatPageContent() {
                                   >
                                     {item.type === 'video' ? (
                                       <video
-                                        src={item.url}
+                                        src={getMediaUrl(item.url)}
                                         controls
                                         className="w-full max-h-[300px] object-cover"
                                       />
+                                    ) : item.type === 'document' ||
+                                      item.type === 'file' ||
+                                      (!item.type?.startsWith('image') &&
+                                        !item.type?.startsWith('video') &&
+                                        (item.fileName || item.filename)) ? (
+                                      <a
+                                        href={getMediaUrl(item.url)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-3 p-3 bg-muted rounded-lg hover:bg-muted/80 transition"
+                                      >
+                                        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                                          <FileText size={20} className="text-blue-500" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-medium truncate">
+                                            {item.fileName || item.filename || 'Document'}
+                                          </p>
+                                          <p className="text-xs text-muted-foreground">
+                                            Click to download
+                                          </p>
+                                        </div>
+                                      </a>
                                     ) : (
                                       <img
-                                        src={item.url}
+                                        src={getMediaUrl(item.url)}
                                         alt="Shared content"
                                         className="w-full max-h-[300px] object-cover"
                                       />
@@ -1958,6 +2109,38 @@ function ChatPageContent() {
                               </p>
                             </div>
                           )}
+
+                          {/* Dropdown for received messages */}
+                          {!message.isSent && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button className="opacity-0 group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
+                                  <MoreHorizontal size={16} className="text-muted-foreground" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem onClick={() => setReplyingTo(message)}>
+                                  <Reply size={14} className="mr-2" />
+                                  Reply
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setMessageToForward(message);
+                                    setIsForwardModalOpen(true);
+                                  }}
+                                >
+                                  <Forward size={14} className="mr-2" />
+                                  Forward
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteMessage(message.id.toString(), 'me')}
+                                >
+                                  <Trash2 size={14} className="mr-2" />
+                                  Delete for me
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </div>
                       </div>
                     );
@@ -1969,8 +2152,7 @@ function ChatPageContent() {
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
                           {selectedConversation?.avatar?.startsWith('http') ||
-                          selectedConversation?.avatar?.startsWith('/') ||
-                          selectedConversation?.avatar?.startsWith('uploads') ? (
+                          selectedConversation?.avatar?.startsWith('/') ? (
                             <img
                               src={getMediaUrl(selectedConversation.avatar)}
                               alt={selectedConversation.name}
@@ -2018,12 +2200,16 @@ function ChatPageContent() {
                   <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border bg-muted">
                     {selectedFile.type.startsWith('video') ? (
                       <video src={previewUrl || ''} className="w-full h-full object-cover" />
-                    ) : (
+                    ) : selectedFile.type.startsWith('image') ? (
                       <img
                         src={previewUrl || ''}
                         className="w-full h-full object-cover"
                         alt="Preview"
                       />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-muted">
+                        <FileText size={32} className="text-blue-500" />
+                      </div>
                     )}
                     <button
                       onClick={removeSelectedFile}
@@ -2039,6 +2225,33 @@ function ChatPageContent() {
                     <p className="text-xs text-muted-foreground">
                       {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Reply Preview */}
+              {replyingTo && (
+                <div className="px-4 py-2 border-t border-border bg-muted/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CornerUpLeft size={16} className="text-primary" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-primary">
+                          Replying to {replyingTo.isSent ? 'yourself' : replyingTo.sender}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate max-w-[250px]">
+                          {replyingTo.content || (replyingTo.media ? '📷 Media' : 'Message')}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setReplyingTo(null)}
+                    >
+                      <X size={14} />
+                    </Button>
                   </div>
                 </div>
               )}
@@ -2392,6 +2605,76 @@ function ChatPageContent() {
           loadConvs();
         }}
       />
+
+      {/* Forward Message Modal */}
+      <Dialog open={isForwardModalOpen} onOpenChange={setIsForwardModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Forward Message</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Message Preview */}
+            {messageToForward && (
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm text-muted-foreground mb-1">Message:</p>
+                <p className="text-sm truncate">
+                  {messageToForward.content || (messageToForward.media ? '📷 Media' : 'Message')}
+                </p>
+              </div>
+            )}
+
+            {/* Search */}
+            <Input
+              placeholder="Search conversations..."
+              value={forwardSearchQuery}
+              onChange={(e) => setForwardSearchQuery(e.target.value)}
+            />
+
+            {/* Conversations List */}
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-2">
+                {conversations
+                  .filter(
+                    (conv) =>
+                      conv.name.toLowerCase().includes(forwardSearchQuery.toLowerCase()) &&
+                      conv.id !== selectedConversation?.id
+                  )
+                  .map((conv) => (
+                    <button
+                      key={conv.id}
+                      onClick={() => handleForwardMessage(conv)}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg overflow-hidden">
+                        {conv.avatar?.startsWith('http') || conv.avatar?.startsWith('/') ? (
+                          <img
+                            src={getMediaUrl(conv.avatar)}
+                            alt={conv.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <User className="w-5 h-5 text-white" />
+                        )}
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="font-medium text-sm">{conv.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{conv.lastMessage}</p>
+                      </div>
+                      <Send size={16} className="text-primary" />
+                    </button>
+                  ))}
+                {conversations.filter(
+                  (conv) =>
+                    conv.name.toLowerCase().includes(forwardSearchQuery.toLowerCase()) &&
+                    conv.id !== selectedConversation?.id
+                ).length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">No conversations found</p>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmation Dialog */}
       <ConfirmDialog {...dialogProps} />

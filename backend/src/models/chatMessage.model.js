@@ -1,33 +1,33 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
 const chatMessageSchema = new mongoose.Schema(
   {
     threadId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "ChatThread",
+      ref: 'ChatThread',
       required: true,
       index: true,
     },
     senderId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
     receiverId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
     messageType: {
       type: String,
-      enum: ["text", "image", "video", "audio", "file", "reaction", "shared_post", "shared_reel"],
-      default: "text",
+      enum: ['text', 'image', 'video', 'audio', 'file', 'reaction', 'shared_post', 'shared_reel'],
+      default: 'text',
     },
     // Encrypted message content
     encryptedContent: {
       type: String,
       required: function () {
-        return this.messageType === "text" || this.messageType === "reaction";
+        return this.messageType === 'text' || this.messageType === 'reaction';
       },
     },
     // Media files (images, videos, audio, files)
@@ -35,7 +35,7 @@ const chatMessageSchema = new mongoose.Schema(
       {
         type: {
           type: String,
-          enum: ["image", "video", "audio", "file"],
+          enum: ['image', 'video', 'audio', 'file'],
         },
         url: String,
         filename: String,
@@ -49,11 +49,11 @@ const chatMessageSchema = new mongoose.Schema(
     sharedContent: {
       contentType: {
         type: String,
-        enum: ["post", "reel"],
+        enum: ['post', 'reel'],
       },
       contentId: {
         type: mongoose.Schema.Types.ObjectId,
-        refPath: "sharedContent.contentType",
+        refPath: 'sharedContent.contentType',
       },
       // Cached content data for preview (in case original is deleted)
       contentData: {
@@ -63,13 +63,13 @@ const chatMessageSchema = new mongoose.Schema(
     // Reply to another message
     replyTo: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "ChatMessage",
+      ref: 'ChatMessage',
     },
     // Message status
     status: {
       type: String,
-      enum: ["sending", "sent", "delivered", "seen", "failed"],
-      default: "sent",
+      enum: ['sending', 'sent', 'delivered', 'seen', 'failed'],
+      default: 'sent',
     },
     deliveredAt: {
       type: Date,
@@ -85,6 +85,11 @@ const chatMessageSchema = new mongoose.Schema(
     editedAt: {
       type: Date,
     },
+    // Forwarded message
+    isForwarded: {
+      type: Boolean,
+      default: false,
+    },
     // Deletion
     isDeleted: {
       type: Boolean,
@@ -95,12 +100,12 @@ const chatMessageSchema = new mongoose.Schema(
     },
     deletedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
     },
     deletedFor: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
+        ref: 'User',
       },
     ],
   },
@@ -114,4 +119,4 @@ chatMessageSchema.index({ threadId: 1, createdAt: -1 });
 chatMessageSchema.index({ senderId: 1, receiverId: 1 });
 chatMessageSchema.index({ status: 1 });
 
-export const ChatMessage = mongoose.model("ChatMessage", chatMessageSchema);
+export const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);

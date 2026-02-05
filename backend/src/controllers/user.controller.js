@@ -52,13 +52,9 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'First name, last name, and password are required');
   }
 
-  // Password validation (min 8 chars, 1 uppercase, 1 lowercase, 1 number)
-  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-  if (!passwordRegex.test(password)) {
-    throw new ApiError(
-      400,
-      'Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number'
-    );
+  // Password validation (min 8 chars)
+  if (!password || password.length < 8) {
+    throw new ApiError(400, 'Password must be at least 8 characters');
   }
 
   // At least one of email or phone must be provided
@@ -895,13 +891,9 @@ const resetPassword = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'New password is required');
   }
 
-  // Password validation (min 8 chars, 1 uppercase, 1 lowercase, 1 number)
-  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-  if (!passwordRegex.test(newPassword)) {
-    throw new ApiError(
-      400,
-      'Password must be at least 8 characters with 1 uppercase, 1 lowercase, and 1 number'
-    );
+  // Password validation (min 8 chars)
+  if (!newPassword || newPassword.length < 8) {
+    throw new ApiError(400, 'Password must be at least 8 characters');
   }
 
   // Verify the JWT token
