@@ -13,7 +13,8 @@ import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { deleteMultipleFiles, saveMultipleFilesLocally } from '../utils/localStorage.js';
 
-const MAX_FILES_PER_POST = 10;
+// Unlimited images per post (set very high limit)
+const MAX_FILES_PER_POST = 100;
 const MAX_CAPTION_LENGTH = 2000;
 
 export const uploadPost = asyncHandler(async (req, res) => {
@@ -805,6 +806,7 @@ export const getExplorePosts = asyncHandler(async (req, res) => {
         comments_count: post.comments_count || 0,
         shares_count: post.shares_count || 0,
         saves_count: post.saves_count || 0,
+        views_count: post.views_count || 0,
         isLiked: !!isLiked,
         isSaved: !!isSaved,
         canDownload: post.user_id?.allowDownloads !== false,
@@ -825,4 +827,62 @@ export const getExplorePosts = asyncHandler(async (req, res) => {
       'Explore posts fetched successfully'
     )
   );
+});
+
+// Track post view
+export const trackPostView = asyncHandler(async (req, res) => {
+  const { postId } = req.params;
+  const userId = req.user._id;
+
+  if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+    throw new ApiError(400, 'Valid post ID is required');
+  }
+
+  const post = await Post.findById(postId);
+
+  if (!post) {
+    throw new ApiError(404, 'Post not found');
+  }
+
+  if (post.is_deleted) {
+    throw new ApiError(404, 'Post has been deleted');
+  }
+
+  // Check if user has already viewed this post
+  const hasViewed = post.viewers?.some((viewerId) => viewerId.toString() === userId.toString());
+
+  if (!hasViewed) {
+    // Add user to viewers and increment view count
+    await Post.findByIdAndUpdate(postId, {
+      $addToSet: { viewers: userId },
+      $inc: { views_count: 1 },
+    });
+  }
+
+  return res.status(200).json(new ApiResponse(200, { success: true }, 'View tracked successfully'));
+});
+
+// Get post view count
+export const getPostViews = asyncHandler(async (req, res) => {
+  const { postId } = req.params;
+
+  if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+    throw new ApiError(400, 'Valid post ID is required');
+  }
+
+  const post = await Post.findById(postId).select('views_count').lean();
+
+  if (!post) {
+    throw new ApiError(404, 'Post not found');
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { views_count: post.views_count || 0 },
+        'View count fetched successfully'
+      )
+    );
 });

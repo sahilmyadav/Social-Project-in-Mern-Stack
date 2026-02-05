@@ -1184,17 +1184,32 @@ const getUserProfile = asyncHandler(async (req, res) => {
   }
 
   // ✅ OPTIMIZED: Run all count queries in parallel
-  const [followersCount, followingCount, postsCount, reelsCount, followRecord, reverseFollowRecord] = await Promise.all([
+  const [
+    followersCount,
+    followingCount,
+    postsCount,
+    reelsCount,
+    followRecord,
+    reverseFollowRecord,
+  ] = await Promise.all([
     Followers.countDocuments({ following_id: profileUserId, status: 'accepted' }),
     Followers.countDocuments({ follower_id: profileUserId, status: 'accepted' }),
     Post.countDocuments({ user_id: profileUserId, is_deleted: false }),
     Reel.countDocuments({ user_id: profileUserId, is_deleted: false }),
     currentUserId && currentUserId.toString() !== profileUserId.toString()
-      ? Followers.findOne({ follower_id: currentUserId, following_id: profileUserId }).select('status').lean()
+      ? Followers.findOne({ follower_id: currentUserId, following_id: profileUserId })
+          .select('status')
+          .lean()
       : null,
     // Check if profile user follows the current user (for "Follow Back" feature)
     currentUserId && currentUserId.toString() !== profileUserId.toString()
-      ? Followers.findOne({ follower_id: profileUserId, following_id: currentUserId, status: 'accepted' }).select('status').lean()
+      ? Followers.findOne({
+          follower_id: profileUserId,
+          following_id: currentUserId,
+          status: 'accepted',
+        })
+          .select('status')
+          .lean()
       : null,
   ]);
 
@@ -1297,6 +1312,36 @@ const updateCoverPhoto = asyncHandler(async (req, res) => {
   ).select('-password -refreshToken -otp');
 
   return res.status(200).json(new ApiResponse(200, user, 'Cover photo updated successfully'));
+});
+
+// Delete Profile Image
+const deleteProfileImage = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  if (!userId) {
+    throw new ApiError(400, 'Please provide user ID first');
+  }
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { profileImage: null, avatar: null },
+    { new: true }
+  ).select('-password -refreshToken -otp');
+
+  return res.status(200).json(new ApiResponse(200, user, 'Profile image deleted successfully'));
+});
+
+// Delete Cover Photo
+const deleteCoverPhoto = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  if (!userId) {
+    throw new ApiError(400, 'Please provide user ID first');
+  }
+
+  const user = await User.findByIdAndUpdate(userId, { coverPhoto: null }, { new: true }).select(
+    '-password -refreshToken -otp'
+  );
+
+  return res.status(200).json(new ApiResponse(200, user, 'Cover photo deleted successfully'));
 });
 
 // Block a user
@@ -1954,32 +1999,34 @@ const verifyPhoneChange = asyncHandler(async (req, res) => {
 });
 
 export {
-    blockUser,
-    changePassword,
-    checkUsernameAvailability,
-    completeProfile,
-    deleteUser,
-    forgotPassword,
-    getBlockedUsers,
-    getCurrentUser,
-    getUserProfile,
-    loginUser,
-    logOutUser,
-    refreshAccessToken,
-    registerUser,
-    requestEmailChange,
-    requestPhoneChange,
-    resendRegistrationOtp,
-    resetPassword,
-    resetPasswordForTesting,
-    unblockUser,
-    unlockAccount,
-    updateCoverPhoto,
-    updatePrivacySettings,
-    updateProfile,
-    updateProfileImage,
-    verifyEmailChange,
-    verifyLoginOtp,
-    verifyPhoneChange,
-    verifyRegisterOtp
+  blockUser,
+  changePassword,
+  checkUsernameAvailability,
+  completeProfile,
+  deleteCoverPhoto,
+  deleteProfileImage,
+  deleteUser,
+  forgotPassword,
+  getBlockedUsers,
+  getCurrentUser,
+  getUserProfile,
+  loginUser,
+  logOutUser,
+  refreshAccessToken,
+  registerUser,
+  requestEmailChange,
+  requestPhoneChange,
+  resendRegistrationOtp,
+  resetPassword,
+  resetPasswordForTesting,
+  unblockUser,
+  unlockAccount,
+  updateCoverPhoto,
+  updatePrivacySettings,
+  updateProfile,
+  updateProfileImage,
+  verifyEmailChange,
+  verifyLoginOtp,
+  verifyPhoneChange,
+  verifyRegisterOtp,
 };

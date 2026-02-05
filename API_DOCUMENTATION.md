@@ -16,12 +16,13 @@
 6. [Stories](#stories)
 7. [Feed](#feed)
 8. [Chat & Messaging](#chat--messaging)
-9. [Comments](#comments)
-10. [Notifications](#notifications)
-11. [Search](#search)
-12. [Live Streaming](#live-streaming)
-13. [Admin](#admin)
-14. [System](#system)
+9. [Group Chat & Calls](#group-chat--calls)
+10. [Comments](#comments)
+11. [Notifications](#notifications)
+12. [Search](#search)
+13. [Live Streaming](#live-streaming)
+14. [Admin](#admin)
+15. [System](#system)
 
 ---
 
@@ -2433,6 +2434,459 @@ Marks all messages in thread as seen.
   "statusCode": 200,
   "data": {},
   "message": "Call ended"
+}
+```
+
+---
+
+## Group Chat & Calls
+
+Full WhatsApp/Instagram-style group messaging and calling API.
+
+### Create Group
+
+**POST** `/group`
+
+🔒 **Auth Required**
+
+**Content-Type:** `multipart/form-data`
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| name | string | Yes | Group name |
+| description | string | No | Group description |
+| memberIds | string[] | Yes | Array of user IDs to add (JSON stringified) |
+| type | string | No | `private` or `public` (default: private) |
+| avatar | file | No | Group avatar image |
+
+**Response (201):**
+
+```json
+{
+  "success": true,
+  "statusCode": 201,
+  "data": {
+    "_id": "64f...",
+    "name": "My Group",
+    "description": "A cool group",
+    "avatar": "/uploads/groups/...",
+    "type": "private",
+    "members": [...],
+    "createdBy": {...},
+    "createdAt": "2024-01-15T10:00:00.000Z"
+  },
+  "message": "Group created successfully"
+}
+```
+
+---
+
+### Get My Groups
+
+**GET** `/group`
+
+🔒 **Auth Required**
+
+**Query Parameters:**
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| limit | number | 50 | Max groups to return |
+| skip | number | 0 | Offset for pagination |
+| search | string | - | Search by group name |
+
+---
+
+### Get Group Details
+
+**GET** `/group/:groupId`
+
+🔒 **Auth Required**
+
+---
+
+### Update Group
+
+**PUT** `/group/:groupId`
+
+🔒 **Auth Required** (Admin/Moderator only)
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| name | string | New group name |
+| description | string | New description |
+| settings | object | Group settings |
+| avatar | file | New avatar image |
+
+---
+
+### Delete Group
+
+**DELETE** `/group/:groupId`
+
+🔒 **Auth Required** (Admin only)
+
+---
+
+### Add Members
+
+**POST** `/group/:groupId/members`
+
+🔒 **Auth Required**
+
+**Request Body:**
+
+```json
+{
+  "memberIds": ["userId1", "userId2"]
+}
+```
+
+---
+
+### Remove Member / Leave Group
+
+**DELETE** `/group/:groupId/members/:memberId`
+
+🔒 **Auth Required**
+
+---
+
+### Update Member Role
+
+**PUT** `/group/:groupId/members/:memberId/role`
+
+🔒 **Auth Required** (Admin only)
+
+**Request Body:**
+
+```json
+{
+  "role": "admin" | "moderator" | "member"
+}
+```
+
+---
+
+### Generate Invite Link
+
+**POST** `/group/:groupId/invite`
+
+🔒 **Auth Required** (Admin only)
+
+**Request Body:**
+
+```json
+{
+  "expiresIn": 604800,
+  "usageLimit": 100
+}
+```
+
+**Response:**
+
+```json
+{
+  "code": "abc123...",
+  "inviteUrl": "https://app.com/join-group/abc123...",
+  "expiresAt": "2024-01-22T10:00:00.000Z"
+}
+```
+
+---
+
+### Join via Invite
+
+**POST** `/group/join/:code`
+
+🔒 **Auth Required**
+
+---
+
+### Send Group Message
+
+**POST** `/group/:groupId/messages`
+
+🔒 **Auth Required**
+
+**Content-Type:** `multipart/form-data`
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| text | string | Message text |
+| messageType | string | `text`, `image`, `video`, `audio`, etc. |
+| replyTo | string | Message ID to reply to |
+| mentions | string[] | User IDs to mention (JSON) |
+| sharedContent | object | Shared post/reel/story (JSON) |
+| location | object | Location data (JSON) |
+| poll | object | Poll data (JSON) |
+| files | file[] | Media files to upload |
+
+---
+
+### Get Group Messages
+
+**GET** `/group/:groupId/messages`
+
+🔒 **Auth Required**
+
+**Query Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| limit | number | Max messages (default: 50) |
+| before | string | ISO date for pagination |
+| after | string | ISO date for pagination |
+
+---
+
+### React to Message
+
+**POST** `/group/:groupId/messages/:messageId/react`
+
+**Request Body:**
+
+```json
+{
+  "emoji": "❤️"
+}
+```
+
+---
+
+### Delete Message
+
+**DELETE** `/group/:groupId/messages/:messageId`
+
+**Request Body:**
+
+```json
+{
+  "deleteForEveryone": true
+}
+```
+
+---
+
+### Forward Message
+
+**POST** `/group/messages/:messageId/forward`
+
+**Request Body:**
+
+```json
+{
+  "targetGroupIds": ["groupId1", "groupId2"]
+}
+```
+
+---
+
+### Pin/Unpin Message
+
+**PUT** `/group/:groupId/messages/:messageId/pin`
+
+🔒 **Auth Required** (Admin/Moderator only)
+
+---
+
+### Star Message
+
+**PUT** `/group/:groupId/messages/:messageId/star`
+
+---
+
+### Vote on Poll
+
+**POST** `/group/:groupId/messages/:messageId/vote`
+
+**Request Body:**
+
+```json
+{
+  "optionIds": ["opt_0", "opt_1"]
+}
+```
+
+---
+
+### Search Messages
+
+**GET** `/group/:groupId/search`
+
+**Query Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| query | string | Search text |
+| type | string | Message type filter |
+| from | string | Filter by sender ID |
+| limit | number | Max results |
+
+---
+
+### Get Starred Messages
+
+**GET** `/group/:groupId/starred`
+
+---
+
+### Get Media Gallery
+
+**GET** `/group/:groupId/media`
+
+**Query Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| type | string | `image`, `video`, `file`, `all` |
+| limit | number | Max items |
+| skip | number | Offset |
+
+---
+
+### Initiate Group Call
+
+**POST** `/group/:groupId/call`
+
+🔒 **Auth Required**
+
+**Request Body:**
+
+```json
+{
+  "callType": "video",
+  "settings": {
+    "maxParticipants": 8,
+    "waitingRoomEnabled": false,
+    "muteOnJoin": true,
+    "recordingEnabled": false,
+    "screenSharingAllowed": true
+  }
+}
+```
+
+---
+
+### Get Active Call
+
+**GET** `/group/:groupId/call/active`
+
+---
+
+### Get Call History
+
+**GET** `/group/:groupId/call/history`
+
+---
+
+### Join Group Call
+
+**POST** `/group/call/:callId/join`
+
+**Request Body:**
+
+```json
+{
+  "peerId": "peer-connection-id"
+}
+```
+
+---
+
+### Leave Group Call
+
+**POST** `/group/call/:callId/leave`
+
+---
+
+### End Group Call
+
+**POST** `/group/call/:callId/end`
+
+🔒 **Auth Required** (Host only)
+
+---
+
+### Get Call Info
+
+**GET** `/group/call/:callId`
+
+---
+
+### Toggle Media State
+
+**PUT** `/group/call/:callId/media`
+
+**Request Body:**
+
+```json
+{
+  "mediaType": "audio" | "video" | "screenShare",
+  "enabled": true
+}
+```
+
+---
+
+### Admit from Waiting Room
+
+**POST** `/group/call/:callId/admit`
+
+🔒 **Auth Required** (Host only)
+
+**Request Body:**
+
+```json
+{
+  "waitingUserId": "userId",
+  "admit": true
+}
+```
+
+---
+
+### Toggle Hand Raise
+
+**PUT** `/group/call/:callId/hand`
+
+**Request Body:**
+
+```json
+{
+  "raised": true
+}
+```
+
+---
+
+### Mute Participant
+
+**POST** `/group/call/:callId/mute`
+
+🔒 **Auth Required** (Host only)
+
+**Request Body:**
+
+```json
+{
+  "targetUserId": "userId",
+  "muted": true
+}
+```
+
+---
+
+### Toggle Recording
+
+**PUT** `/group/call/:callId/recording`
+
+🔒 **Auth Required** (Host only)
+
+**Request Body:**
+
+```json
+{
+  "record": true
 }
 ```
 

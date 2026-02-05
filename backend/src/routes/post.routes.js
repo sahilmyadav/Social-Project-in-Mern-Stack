@@ -6,12 +6,14 @@ import {
   getAllComments,
   getExplorePosts,
   getPostDetails,
+  getPostViews,
   getUserSavedPosts,
   likePost,
   reportPost,
   savePost,
   sharePost,
   totalPostCount,
+  trackPostView,
   unlikePost,
   unsavePost,
   uploadPost,
@@ -48,5 +50,9 @@ router.route('/comments/:postId').get(verifyJwt, getAllComments);
 
 // Explore posts - discover posts from users you're not following
 router.route('/explore').get(verifyJwt, getExplorePosts);
+
+// Post view tracking
+router.route('/view/:postId').post(verifyJwt, trackPostView);
+router.route('/views/:postId').get(verifyJwt, getPostViews);
 
 export default router;

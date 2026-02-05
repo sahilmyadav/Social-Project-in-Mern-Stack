@@ -4,7 +4,12 @@ import Navigation from '@/components/navigation';
 import PostCard from '@/components/post-card';
 import ReelCard from '@/components/reel-card';
 import ReelComments from '@/components/reel-comments';
-import { FeedSkeleton, InfiniteScrollTrigger, StoriesBarSkeleton, SuggestionSkeleton } from '@/components/skeletons';
+import {
+  FeedSkeleton,
+  InfiniteScrollTrigger,
+  StoriesBarSkeleton,
+  SuggestionSkeleton,
+} from '@/components/skeletons';
 import StoriesBar from '@/components/stories-bar';
 import { feedService, followService, reelService, searchService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
@@ -63,83 +68,90 @@ export default function HomePage() {
   }, []);
 
   // Load home feed - Progressive loading
-  const loadFeed = useCallback(async (isInitial: boolean = false) => {
-    try {
-      if (isInitial) {
-        setInitialLoading(true);
-      } else {
-        setLoadingMore(true);
-      }
-
-      const limit = isInitial ? INITIAL_LOAD : LOAD_MORE_COUNT;
-
-      // For initial load, fetch feed first (priority), then others in background
-      if (isInitial) {
-        // Priority: Load posts and reels first
-        const [postsResponse, reelsResponse] = await Promise.all([
-          feedService.getHomeFeed({ limit }).catch((err) => {
-            console.error('Posts API error:', err);
-            return { success: false, data: null };
-          }),
-          reelService.getReelsFeed({ limit, page: 1 }).catch((err) => {
-            console.error('Reels API error:', err);
-            return { success: false, data: null };
-          }),
-        ]);
-
-        const postsData = postsResponse.success && postsResponse.data ? postsResponse.data.posts || [] : [];
-        const reelsData = reelsResponse.success && reelsResponse.data ? reelsResponse.data.reels || [] : [];
-
-        // Store cursor for next page
-        if (postsResponse.data?.nextCursor) {
-          setPostsCursor(postsResponse.data.nextCursor);
+  const loadFeed = useCallback(
+    async (isInitial: boolean = false) => {
+      try {
+        if (isInitial) {
+          setInitialLoading(true);
+        } else {
+          setLoadingMore(true);
         }
 
-        // Mix posts and reels
-        const mixedFeed = mixFeedItems(postsData, reelsData);
-        setFeed(mixedFeed);
-        setHasMore(postsData.length >= limit || reelsData.length >= limit);
-        setInitialLoading(false);
+        const limit = isInitial ? INITIAL_LOAD : LOAD_MORE_COUNT;
 
-        // Load suggestions and trending in background (non-blocking)
-        loadSidebar();
-      } else {
-        // Load more - fetch next page using cursor for posts, page for reels
-        const nextReelsPage = reelsPage + 1;
+        // For initial load, fetch feed first (priority), then others in background
+        if (isInitial) {
+          // Priority: Load posts and reels first
+          const [postsResponse, reelsResponse] = await Promise.all([
+            feedService.getHomeFeed({ limit }).catch(() => ({ success: false, data: null })),
+            reelService
+              .getReelsFeed({ limit, page: 1 })
+              .catch(() => ({ success: false, data: null })),
+          ]);
 
-        const [postsResponse, reelsResponse] = await Promise.all([
-          postsCursor
-            ? feedService.getHomeFeed({ limit, cursor: postsCursor }).catch(() => ({ success: false, data: null }))
-            : Promise.resolve({ success: false, data: null }),
-          reelService.getReelsFeed({ limit, page: nextReelsPage }).catch(() => ({ success: false, data: null })),
-        ]);
+          const postsData =
+            postsResponse.success && postsResponse.data ? postsResponse.data.posts || [] : [];
+          const reelsData =
+            reelsResponse.success && reelsResponse.data ? reelsResponse.data.reels || [] : [];
 
-        const postsData = postsResponse.success && postsResponse.data ? postsResponse.data.posts || [] : [];
-        const reelsData = reelsResponse.success && reelsResponse.data ? reelsResponse.data.reels || [] : [];
+          // Store cursor for next page
+          if (postsResponse.data?.nextCursor) {
+            setPostsCursor(postsResponse.data.nextCursor);
+          }
 
-        // Update cursor for next page
-        if (postsResponse.data?.nextCursor) {
-          setPostsCursor(postsResponse.data.nextCursor);
-        } else {
-          setPostsCursor(null);
-        }
-        setReelsPage(nextReelsPage);
-
-        if (postsData.length === 0 && reelsData.length === 0) {
-          setHasMore(false);
-        } else {
+          // Mix posts and reels
           const mixedFeed = mixFeedItems(postsData, reelsData);
-          setFeed(prev => [...prev, ...mixedFeed]);
+          setFeed(mixedFeed);
           setHasMore(postsData.length >= limit || reelsData.length >= limit);
+          setInitialLoading(false);
+
+          // Load suggestions and trending in background (non-blocking)
+          loadSidebar();
+        } else {
+          // Load more - fetch next page using cursor for posts, page for reels
+          const nextReelsPage = reelsPage + 1;
+
+          const [postsResponse, reelsResponse] = await Promise.all([
+            postsCursor
+              ? feedService
+                  .getHomeFeed({ limit, cursor: postsCursor })
+                  .catch(() => ({ success: false, data: null }))
+              : Promise.resolve({ success: false, data: null }),
+            reelService
+              .getReelsFeed({ limit, page: nextReelsPage })
+              .catch(() => ({ success: false, data: null })),
+          ]);
+
+          const postsData =
+            postsResponse.success && postsResponse.data ? postsResponse.data.posts || [] : [];
+          const reelsData =
+            reelsResponse.success && reelsResponse.data ? reelsResponse.data.reels || [] : [];
+
+          // Update cursor for next page
+          if (postsResponse.data?.nextCursor) {
+            setPostsCursor(postsResponse.data.nextCursor);
+          } else {
+            setPostsCursor(null);
+          }
+          setReelsPage(nextReelsPage);
+
+          if (postsData.length === 0 && reelsData.length === 0) {
+            setHasMore(false);
+          } else {
+            const mixedFeed = mixFeedItems(postsData, reelsData);
+            setFeed((prev) => [...prev, ...mixedFeed]);
+            setHasMore(postsData.length >= limit || reelsData.length >= limit);
+          }
         }
+      } catch (error) {
+        console.error('Error loading feed:', error);
+      } finally {
+        setInitialLoading(false);
+        setLoadingMore(false);
       }
-    } catch (error) {
-      console.error('Error loading feed:', error);
-    } finally {
-      setInitialLoading(false);
-      setLoadingMore(false);
-    }
-  }, [postsCursor, reelsPage]);
+    },
+    [postsCursor, reelsPage]
+  );
   // Mix posts and reels together
   const mixFeedItems = (postsData: any[], reelsData: any[]) => {
     const mixedFeed: any[] = [];

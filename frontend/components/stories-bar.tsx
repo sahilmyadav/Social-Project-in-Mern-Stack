@@ -147,8 +147,8 @@ export default function StoriesBar({
         // Filter out streams where streamer might be null (e.g. deleted user)
         setLiveStreams(liveResponse.data.filter((s: any) => s.streamer));
       }
-    } catch (error) {
-      console.error('Error loading stories/live:', error);
+    } catch {
+      // Silently fail - no stories/live to show
     } finally {
       setLoading(false);
     }

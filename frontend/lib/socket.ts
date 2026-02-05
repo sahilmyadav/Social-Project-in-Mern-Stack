@@ -445,13 +445,30 @@ export const offAdminChanged = (callback: (data: any) => void) => {
   socket?.off('adminChanged', callback);
 };
 
+// Listen for group message events
+export const onGroupMessage = (callback: (data: any) => void) => {
+  socket?.on('groupMessage', callback);
+};
+
+export const offGroupMessage = (callback: (data: any) => void) => {
+  socket?.off('groupMessage', callback);
+};
+
+export const onGroupMessageNotification = (callback: (data: any) => void) => {
+  socket?.on('groupMessageNotification', callback);
+};
+
+export const offGroupMessageNotification = (callback: (data: any) => void) => {
+  socket?.off('groupMessageNotification', callback);
+};
+
 // Emit group events
 export const emitJoinGroup = (groupId: string) => {
-  socket?.emit('joinGroup', { groupId });
+  socket?.emit('joinGroup', groupId);
 };
 
 export const emitLeaveGroupRoom = (groupId: string) => {
-  socket?.emit('leaveGroup', { groupId });
+  socket?.emit('leaveGroup', groupId);
 };
 
 // ==================== LIVE STREAMING EVENTS ====================

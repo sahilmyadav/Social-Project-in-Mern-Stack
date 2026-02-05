@@ -4,6 +4,8 @@ import {
   changePassword,
   checkUsernameAvailability,
   completeProfile,
+  deleteCoverPhoto,
+  deleteProfileImage,
   deleteUser,
   forgotPassword,
   getBlockedUsers,
@@ -59,6 +61,8 @@ router.route('/change-password').post(verifyRoute, changePassword);
 router.route('/delete/:id').delete(verifyRoute, deleteUser);
 router.route('/update-profile-picture').put(verifyJwt, uploadSingle, updateProfileImage);
 router.route('/update-cover-photo').put(verifyJwt, uploadCoverPhoto, updateCoverPhoto);
+router.route('/delete-profile-picture').delete(verifyJwt, deleteProfileImage);
+router.route('/delete-cover-photo').delete(verifyJwt, deleteCoverPhoto);
 router.route('/update-profile').put(verifyRoute, updateProfile);
 router.route('/privacy-settings').put(verifyRoute, updatePrivacySettings);
 

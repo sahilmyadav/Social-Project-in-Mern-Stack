@@ -236,7 +236,15 @@ export const createOrGetThread = asyncHandler(async (req, res) => {
 export const sendMessage = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { threadId } = req.params;
-  const { text, media_ids = [], reply_to, messageType, sharedContent, isForwarded } = req.body;
+  const {
+    text,
+    media_ids = [],
+    reply_to,
+    messageType,
+    sharedContent,
+    isForwarded,
+    location,
+  } = req.body;
 
   // Validate thread
   const thread = await ChatThread.findOne({
@@ -261,8 +269,14 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const files = req.files || [];
 
   // Validate message content
-  if (!text && (!media_ids || media_ids.length === 0) && files.length === 0 && !sharedContent) {
-    throw new ApiError(400, 'Message must contain text, media, or shared content');
+  if (
+    !text &&
+    (!media_ids || media_ids.length === 0) &&
+    files.length === 0 &&
+    !sharedContent &&
+    !location
+  ) {
+    throw new ApiError(400, 'Message must contain text, media, shared content, or location');
   }
 
   // Prepare message data
@@ -389,6 +403,30 @@ export const sendMessage = asyncHandler(async (req, res) => {
     // Set default text if not provided
     if (!text) {
       const defaultText = `Shared a ${messageType === 'shared_post' ? 'post' : 'reel'}`;
+      messageData.encryptedContent = encryptMessage(defaultText);
+    }
+  }
+
+  // Handle location messages
+  if (messageType === 'location' && location) {
+    if (!location.latitude || !location.longitude) {
+      throw new ApiError(400, 'Location requires latitude and longitude');
+    }
+
+    messageData.location = {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      address: location.address || '',
+      name: location.name || '',
+      isLiveLocation: location.isLiveLocation || false,
+      expiresAt: location.isLiveLocation
+        ? new Date(Date.now() + (location.duration || 15) * 60 * 1000)
+        : null,
+    };
+
+    // Set default text for location
+    if (!text) {
+      const defaultText = location.isLiveLocation ? '📍 Live Location' : '📍 Location';
       messageData.encryptedContent = encryptMessage(defaultText);
     }
   }

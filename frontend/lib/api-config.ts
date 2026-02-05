@@ -24,6 +24,8 @@ export const API_ENDPOINTS = {
     GET_USER_PROFILE: (userId: string) => `/users/profile/${userId}`,
     UPDATE_PROFILE_PICTURE: '/users/update-profile-picture',
     UPDATE_COVER_PHOTO: '/users/update-cover-photo',
+    DELETE_PROFILE_PICTURE: '/users/delete-profile-picture',
+    DELETE_COVER_PHOTO: '/users/delete-cover-photo',
     BLOCK_USER: (userId: string) => `/users/block/${userId}`,
     UNBLOCK_USER: (userId: string) => `/users/unblock/${userId}`,
     GET_BLOCKED_USERS: '/users/blocked-list',
@@ -130,14 +132,14 @@ export const API_ENDPOINTS = {
     GET_UNREAD_COUNT: '/chat/unread-count',
 
     // Group Chat Endpoints
-    CREATE_GROUP: '/chat/group/create',
-    GET_GROUP_DETAILS: (groupId: string) => `/chat/group/${groupId}`,
-    UPDATE_GROUP: (groupId: string) => `/chat/group/${groupId}/update`,
-    ADD_MEMBERS: (groupId: string) => `/chat/group/${groupId}/members/add`,
-    REMOVE_MEMBER: (groupId: string) => `/chat/group/${groupId}/members/remove`,
-    LEAVE_GROUP: (groupId: string) => `/chat/group/${groupId}/leave`,
-    MAKE_ADMIN: (groupId: string) => `/chat/group/${groupId}/make-admin`,
-    UPDATE_GROUP_AVATAR: (groupId: string) => `/chat/group/${groupId}/avatar`,
+    CREATE_GROUP: '/group',
+    GET_GROUP_DETAILS: (groupId: string) => `/group/${groupId}`,
+    UPDATE_GROUP: (groupId: string) => `/group/${groupId}`,
+    ADD_MEMBERS: (groupId: string) => `/group/${groupId}/members`,
+    REMOVE_MEMBER: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}`,
+    LEAVE_GROUP: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}`,
+    MAKE_ADMIN: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}/role`,
+    UPDATE_GROUP_AVATAR: (groupId: string) => `/group/${groupId}`,
   },
 
   // Notifications
@@ -192,6 +194,58 @@ export const API_ENDPOINTS = {
     SEND_COMMENT: (streamId: string) => `/live/comment/${streamId}`,
     GET_COMMENTS: (streamId: string) => `/live/comments/${streamId}`,
     DELETE: (streamId: string) => `/live/delete/${streamId}`,
+  },
+
+  // Group Chat & Calls
+  GROUP: {
+    // Group Management
+    CREATE: '/group',
+    GET_MY_GROUPS: '/group',
+    GET_DETAILS: (groupId: string) => `/group/${groupId}`,
+    UPDATE: (groupId: string) => `/group/${groupId}`,
+    DELETE: (groupId: string) => `/group/${groupId}`,
+
+    // Members
+    ADD_MEMBERS: (groupId: string) => `/group/${groupId}/members`,
+    REMOVE_MEMBER: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}`,
+    UPDATE_ROLE: (groupId: string, memberId: string) =>
+      `/group/${groupId}/members/${memberId}/role`,
+
+    // Invite Links
+    GENERATE_INVITE: (groupId: string) => `/group/${groupId}/invite`,
+    JOIN_VIA_INVITE: (code: string) => `/group/join/${code}`,
+
+    // Messages
+    SEND_MESSAGE: (groupId: string) => `/group/${groupId}/messages`,
+    GET_MESSAGES: (groupId: string) => `/group/${groupId}/messages`,
+    REACT_TO_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/react`,
+    DELETE_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}`,
+    FORWARD_MESSAGE: (messageId: string) => `/group/messages/${messageId}/forward`,
+    PIN_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/pin`,
+    STAR_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/star`,
+    VOTE_POLL: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/vote`,
+    SEARCH_MESSAGES: (groupId: string) => `/group/${groupId}/search`,
+    GET_STARRED: (groupId: string) => `/group/${groupId}/starred`,
+    GET_MEDIA: (groupId: string) => `/group/${groupId}/media`,
+
+    // Calls
+    INITIATE_CALL: (groupId: string) => `/group/${groupId}/call`,
+    GET_ACTIVE_CALL: (groupId: string) => `/group/${groupId}/call/active`,
+    GET_CALL_HISTORY: (groupId: string) => `/group/${groupId}/call/history`,
+    JOIN_CALL: (callId: string) => `/group/call/${callId}/join`,
+    LEAVE_CALL: (callId: string) => `/group/call/${callId}/leave`,
+    END_CALL: (callId: string) => `/group/call/${callId}/end`,
+    GET_CALL_INFO: (callId: string) => `/group/call/${callId}`,
+    TOGGLE_MEDIA: (callId: string) => `/group/call/${callId}/media`,
+    ADMIT_USER: (callId: string) => `/group/call/${callId}/admit`,
+    TOGGLE_HAND: (callId: string) => `/group/call/${callId}/hand`,
+    MUTE_PARTICIPANT: (callId: string) => `/group/call/${callId}/mute`,
+    TOGGLE_RECORDING: (callId: string) => `/group/call/${callId}/recording`,
   },
 
   // System

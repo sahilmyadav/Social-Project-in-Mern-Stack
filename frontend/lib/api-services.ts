@@ -157,6 +157,16 @@ export const authService = {
     return data;
   },
 
+  // Delete Profile Picture
+  deleteProfilePicture: async () => {
+    return api.delete(API_ENDPOINTS.AUTH.DELETE_PROFILE_PICTURE);
+  },
+
+  // Delete Cover Photo
+  deleteCoverPhoto: async () => {
+    return api.delete(API_ENDPOINTS.AUTH.DELETE_COVER_PHOTO);
+  },
+
   // Update Profile
   updateProfile: async (data: {
     firstName?: string;
@@ -328,6 +338,16 @@ export const postService = {
   // Get Explore Posts
   getExplorePosts: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.POSTS.EXPLORE, params);
+  },
+
+  // Track Post View
+  trackView: async (postId: string) => {
+    return api.post(`/post/view/${postId}`);
+  },
+
+  // Get Post View Count
+  getViewCount: async (postId: string) => {
+    return api.get(`/post/views/${postId}`);
   },
 };
 
@@ -620,10 +640,26 @@ export const chatService = {
     return api.post(API_ENDPOINTS.CHAT.GET_THREAD(userId));
   },
 
-  // Send Message (supports text and media)
+  // Send Message (supports text, media, and location)
   sendMessage: async (
     threadId: string,
-    data: { text: string; reply_to?: string; isForwarded?: boolean } | FormData
+    data:
+      | {
+          text?: string;
+          reply_to?: string;
+          isForwarded?: boolean;
+          messageType?: string;
+          sharedContent?: { contentId: string };
+          location?: {
+            latitude: number;
+            longitude: number;
+            address?: string;
+            name?: string;
+            isLiveLocation?: boolean;
+            duration?: number;
+          };
+        }
+      | FormData
   ) => {
     if (data instanceof FormData) {
       return api.upload(API_ENDPOINTS.CHAT.SEND_MESSAGE(threadId), data);
@@ -704,7 +740,7 @@ export const chatService = {
   updateGroupAvatar: async (groupId: string, avatar: File) => {
     const formData = new FormData();
     formData.append('avatar', avatar);
-    return api.upload(API_ENDPOINTS.CHAT.UPDATE_GROUP_AVATAR(groupId), formData);
+    return api.put(API_ENDPOINTS.CHAT.UPDATE_GROUP_AVATAR(groupId), formData, true);
   },
 
   // Add Members to Group
@@ -714,17 +750,17 @@ export const chatService = {
 
   // Remove Member from Group
   removeMember: async (groupId: string, memberId: string) => {
-    return api.delete(API_ENDPOINTS.CHAT.REMOVE_MEMBER(groupId), { data: { memberId } });
+    return api.delete(API_ENDPOINTS.CHAT.REMOVE_MEMBER(groupId, memberId));
   },
 
   // Leave Group
-  leaveGroup: async (groupId: string) => {
-    return api.post(API_ENDPOINTS.CHAT.LEAVE_GROUP(groupId));
+  leaveGroup: async (groupId: string, userId: string) => {
+    return api.delete(API_ENDPOINTS.CHAT.LEAVE_GROUP(groupId, userId));
   },
 
   // Make Admin
   makeAdmin: async (groupId: string, memberId: string) => {
-    return api.post(API_ENDPOINTS.CHAT.MAKE_ADMIN(groupId), { memberId });
+    return api.put(API_ENDPOINTS.CHAT.MAKE_ADMIN(groupId, memberId), { role: 'admin' });
   },
 };
 
@@ -804,5 +840,283 @@ export const liveStreamService = {
   // Delete Live Stream
   deleteLiveStream: async (streamId: string) => {
     return api.delete(API_ENDPOINTS.LIVE.DELETE(streamId));
+  },
+};
+
+// Group Service (WhatsApp/Instagram-style group chat & calls)
+export const groupService = {
+  // ==================== GROUP MANAGEMENT ====================
+
+  // Create a new group
+  createGroup: async (data: {
+    name: string;
+    description?: string;
+    memberIds: string[];
+    type?: 'private' | 'public';
+    avatar?: File;
+  }) => {
+    const formData = new FormData();
+    formData.append('name', data.name);
+    if (data.description) formData.append('description', data.description);
+    formData.append('memberIds', JSON.stringify(data.memberIds));
+    if (data.type) formData.append('type', data.type);
+    if (data.avatar) formData.append('avatar', data.avatar);
+    return api.upload(API_ENDPOINTS.GROUP.CREATE, formData);
+  },
+
+  // Get user's groups
+  getMyGroups: async (params?: { limit?: number; skip?: number; search?: string }) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_MY_GROUPS, params);
+  },
+
+  // Get group details
+  getGroupDetails: async (groupId: string) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_DETAILS(groupId));
+  },
+
+  // Update group info
+  updateGroup: async (
+    groupId: string,
+    data: {
+      name?: string;
+      description?: string;
+      settings?: any;
+      avatar?: File;
+    }
+  ) => {
+    const formData = new FormData();
+    if (data.name) formData.append('name', data.name);
+    if (data.description !== undefined) formData.append('description', data.description);
+    if (data.settings) formData.append('settings', JSON.stringify(data.settings));
+    if (data.avatar) formData.append('avatar', data.avatar);
+    return api.upload(API_ENDPOINTS.GROUP.UPDATE(groupId), formData, 'PUT');
+  },
+
+  // Delete group
+  deleteGroup: async (groupId: string) => {
+    return api.delete(API_ENDPOINTS.GROUP.DELETE(groupId));
+  },
+
+  // ==================== MEMBER MANAGEMENT ====================
+
+  // Add members to group
+  addMembers: async (groupId: string, memberIds: string[]) => {
+    return api.post(API_ENDPOINTS.GROUP.ADD_MEMBERS(groupId), { memberIds });
+  },
+
+  // Remove member from group
+  removeMember: async (groupId: string, memberId: string) => {
+    return api.delete(API_ENDPOINTS.GROUP.REMOVE_MEMBER(groupId, memberId));
+  },
+
+  // Leave group (remove self)
+  leaveGroup: async (groupId: string, userId: string) => {
+    return api.delete(API_ENDPOINTS.GROUP.REMOVE_MEMBER(groupId, userId));
+  },
+
+  // Update member role
+  updateMemberRole: async (
+    groupId: string,
+    memberId: string,
+    role: 'admin' | 'moderator' | 'member'
+  ) => {
+    return api.put(API_ENDPOINTS.GROUP.UPDATE_ROLE(groupId, memberId), { role });
+  },
+
+  // ==================== INVITE LINKS ====================
+
+  // Generate invite link
+  generateInviteLink: async (
+    groupId: string,
+    options?: { expiresIn?: number; usageLimit?: number }
+  ) => {
+    return api.post(API_ENDPOINTS.GROUP.GENERATE_INVITE(groupId), options);
+  },
+
+  // Join via invite code
+  joinViaInvite: async (code: string) => {
+    return api.post(API_ENDPOINTS.GROUP.JOIN_VIA_INVITE(code));
+  },
+
+  // ==================== MESSAGING ====================
+
+  // Send message to group
+  sendGroupMessage: async (
+    groupId: string,
+    data: {
+      text?: string;
+      messageType?: string;
+      replyTo?: string;
+      mentions?: string[];
+      sharedContent?: { contentType: string; contentId: string };
+      location?: {
+        latitude: number;
+        longitude: number;
+        address?: string;
+        name?: string;
+        isLive?: boolean;
+        duration?: number;
+      };
+      contact?: { name: string; phone?: string; email?: string };
+      poll?: {
+        question: string;
+        options: string[];
+        allowMultiple?: boolean;
+        expiresAt?: Date;
+        isAnonymous?: boolean;
+      };
+      files?: File[];
+    }
+  ) => {
+    const formData = new FormData();
+    if (data.text) formData.append('text', data.text);
+    if (data.messageType) formData.append('messageType', data.messageType);
+    if (data.replyTo) formData.append('replyTo', data.replyTo);
+    if (data.mentions?.length) formData.append('mentions', JSON.stringify(data.mentions));
+    if (data.sharedContent) formData.append('sharedContent', JSON.stringify(data.sharedContent));
+    if (data.location) formData.append('location', JSON.stringify(data.location));
+    if (data.contact) formData.append('contact', JSON.stringify(data.contact));
+    if (data.poll) formData.append('poll', JSON.stringify(data.poll));
+    if (data.files?.length) {
+      data.files.forEach((file) => formData.append('files', file));
+    }
+    return api.upload(API_ENDPOINTS.GROUP.SEND_MESSAGE(groupId), formData);
+  },
+
+  // Get group messages
+  getGroupMessages: async (
+    groupId: string,
+    params?: { limit?: number; before?: string; after?: string }
+  ) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_MESSAGES(groupId), params);
+  },
+
+  // React to message
+  reactToMessage: async (groupId: string, messageId: string, emoji: string) => {
+    return api.post(API_ENDPOINTS.GROUP.REACT_TO_MESSAGE(groupId, messageId), { emoji });
+  },
+
+  // Delete message
+  deleteMessage: async (groupId: string, messageId: string, deleteForEveryone: boolean = false) => {
+    return api.delete(API_ENDPOINTS.GROUP.DELETE_MESSAGE(groupId, messageId), {
+      deleteForEveryone,
+    });
+  },
+
+  // Forward message
+  forwardMessage: async (messageId: string, targetGroupIds: string[]) => {
+    return api.post(API_ENDPOINTS.GROUP.FORWARD_MESSAGE(messageId), { targetGroupIds });
+  },
+
+  // Pin/Unpin message
+  togglePinMessage: async (groupId: string, messageId: string) => {
+    return api.put(API_ENDPOINTS.GROUP.PIN_MESSAGE(groupId, messageId));
+  },
+
+  // Star message
+  toggleStarMessage: async (groupId: string, messageId: string) => {
+    return api.put(API_ENDPOINTS.GROUP.STAR_MESSAGE(groupId, messageId));
+  },
+
+  // Vote on poll
+  voteOnPoll: async (groupId: string, messageId: string, optionIds: string[]) => {
+    return api.post(API_ENDPOINTS.GROUP.VOTE_POLL(groupId, messageId), { optionIds });
+  },
+
+  // Search messages
+  searchMessages: async (
+    groupId: string,
+    params?: { query?: string; type?: string; from?: string; limit?: number }
+  ) => {
+    return api.get(API_ENDPOINTS.GROUP.SEARCH_MESSAGES(groupId), params);
+  },
+
+  // Get starred messages
+  getStarredMessages: async (groupId: string, params?: { limit?: number }) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_STARRED(groupId), params);
+  },
+
+  // Get media gallery
+  getGroupMedia: async (
+    groupId: string,
+    params?: { type?: 'image' | 'video' | 'file' | 'all'; limit?: number; skip?: number }
+  ) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_MEDIA(groupId), params);
+  },
+
+  // ==================== GROUP CALLS ====================
+
+  // Initiate group call
+  initiateGroupCall: async (
+    groupId: string,
+    callType: 'audio' | 'video',
+    settings?: {
+      maxParticipants?: number;
+      waitingRoomEnabled?: boolean;
+      muteOnJoin?: boolean;
+      recordingEnabled?: boolean;
+      screenSharingAllowed?: boolean;
+    }
+  ) => {
+    return api.post(API_ENDPOINTS.GROUP.INITIATE_CALL(groupId), { callType, settings });
+  },
+
+  // Get active call in group
+  getActiveCall: async (groupId: string) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_ACTIVE_CALL(groupId));
+  },
+
+  // Get call history
+  getCallHistory: async (groupId: string, params?: { limit?: number; skip?: number }) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_CALL_HISTORY(groupId), params);
+  },
+
+  // Join group call
+  joinCall: async (callId: string, peerId?: string) => {
+    return api.post(API_ENDPOINTS.GROUP.JOIN_CALL(callId), { peerId });
+  },
+
+  // Leave group call
+  leaveCall: async (callId: string) => {
+    return api.post(API_ENDPOINTS.GROUP.LEAVE_CALL(callId));
+  },
+
+  // End group call (host only)
+  endCall: async (callId: string) => {
+    return api.post(API_ENDPOINTS.GROUP.END_CALL(callId));
+  },
+
+  // Get call info
+  getCallInfo: async (callId: string) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_CALL_INFO(callId));
+  },
+
+  // Toggle audio/video/screen share
+  toggleMediaState: async (
+    callId: string,
+    mediaType: 'audio' | 'video' | 'screenShare',
+    enabled: boolean
+  ) => {
+    return api.put(API_ENDPOINTS.GROUP.TOGGLE_MEDIA(callId), { mediaType, enabled });
+  },
+
+  // Admit user from waiting room
+  admitFromWaitingRoom: async (callId: string, waitingUserId: string, admit: boolean = true) => {
+    return api.post(API_ENDPOINTS.GROUP.ADMIT_USER(callId), { waitingUserId, admit });
+  },
+
+  // Raise/lower hand
+  toggleHandRaise: async (callId: string, raised: boolean) => {
+    return api.put(API_ENDPOINTS.GROUP.TOGGLE_HAND(callId), { raised });
+  },
+
+  // Mute participant (host only)
+  muteParticipant: async (callId: string, targetUserId: string, muted: boolean) => {
+    return api.post(API_ENDPOINTS.GROUP.MUTE_PARTICIPANT(callId), { targetUserId, muted });
+  },
+
+  // Toggle recording (host only)
+  toggleRecording: async (callId: string, record: boolean) => {
+    return api.put(API_ENDPOINTS.GROUP.TOGGLE_RECORDING(callId), { record });
   },
 };

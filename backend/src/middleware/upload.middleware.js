@@ -85,11 +85,14 @@ export const uploadSingle = upload.single('file');
 // Middleware for cover photo upload
 export const uploadCoverPhoto = upload.single('coverPhoto');
 
-// Middleware for multiple files upload (max 10 files)
-export const uploadMultiple = upload.array('files', 10);
+// Middleware for multiple files upload (unlimited - 100 max)
+export const uploadMultiple = upload.array('files', 100);
 
 // Middleware for chat media (field name 'media', max 5 files)
 export const uploadChatMedia = upload.array('media', 5);
+
+// Middleware for group avatar upload
+export const uploadGroupAvatar = upload.single('avatar');
 
 // Middleware for mixed uploads (single image + multiple images)
 export const uploadMixed = upload.fields([
@@ -111,7 +114,7 @@ export const handleUploadError = (err, req, res, next) => {
     if (err.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({
         success: false,
-        message: 'Too many files. Maximum is 10 files.',
+        message: 'Too many files. Maximum is 100 files.',
       });
     }
     return res.status(400).json({

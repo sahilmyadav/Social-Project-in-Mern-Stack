@@ -4,6 +4,7 @@ import { createClient } from 'redis';
 import { Server } from 'socket.io';
 import { ChatMessage } from '../models/chatMessage.model.js';
 import { User } from '../models/user.model.js';
+import groupSocket from './group.socket.js';
 import liveStreamSocket from './liveStream.socket.js';
 
 let io;
@@ -129,6 +130,9 @@ export const initializeSocket = async (server) => {
 
     // ==================== LIVE STREAMING HANDLERS ====================
     liveStreamSocket(io, socket, userId);
+
+    // ==================== GROUP CHAT & CALL HANDLERS ====================
+    groupSocket(io, socket, userId);
 
     // Join thread room
     socket.on('joinThread', (threadId) => {
@@ -400,7 +404,9 @@ export const initializeSocket = async (server) => {
 
       if (userSockets.size > 0) {
         // User still has other connections, don't mark as offline
-        console.log(`🔄 User ${userId} still has ${userSockets.size} other socket(s), staying online`);
+        console.log(
+          `🔄 User ${userId} still has ${userSockets.size} other socket(s), staying online`
+        );
         return;
       }
 

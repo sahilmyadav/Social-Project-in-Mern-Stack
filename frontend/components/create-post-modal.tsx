@@ -129,11 +129,19 @@ const BG_COLORS = [
   'rgba(255,0,255,0.5)',
 ];
 
+// Interface for selected files
+interface SelectedFile {
+  id: string;
+  file: File;
+  type: 'image' | 'video';
+  previewUrl: string;
+}
+
 export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePostModalProps) {
   const [caption, setCaption] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [fileType, setFileType] = useState<FileType>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
+  // Support multiple files (unlimited)
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
@@ -172,11 +180,14 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
 
   useEffect(() => {
     return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      // Cleanup all preview URLs
+      selectedFiles.forEach((sf) => {
+        if (sf.previewUrl) {
+          URL.revokeObjectURL(sf.previewUrl);
+        }
+      });
     };
-  }, [previewUrl]);
+  }, [selectedFiles]);
 
   // Text overlay functions
   const addTextOverlay = () => {
@@ -268,8 +279,8 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
   }, [draggingTextId, handleTextDrag, handleTextDragEnd]);
 
   // Apply filter and text to canvas for final image
-  const processImageWithEdits = async (): Promise<File | null> => {
-    if (!file || fileType !== 'image') return file;
+  const processImageWithEditsForFile = async (sf: SelectedFile): Promise<File | null> => {
+    if (sf.type !== 'image') return sf.file;
 
     return new Promise((resolve) => {
       const img = new Image();
@@ -278,7 +289,7 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve(file);
+          resolve(sf.file);
           return;
         }
 
@@ -356,78 +367,115 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
         canvas.toBlob(
           (blob) => {
             if (blob) {
-              const processedFile = new File([blob], file.name, { type: 'image/jpeg' });
+              const processedFile = new File([blob], sf.file.name, { type: 'image/jpeg' });
               resolve(processedFile);
             } else {
-              resolve(file);
+              resolve(sf.file);
             }
           },
           'image/jpeg',
           0.9
         );
       };
-      img.src = previewUrl;
+      img.src = sf.previewUrl;
     });
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const isImage = selectedFile.type.startsWith('image/');
-    const isVideo = selectedFile.type.startsWith('video/');
+    const newFiles: SelectedFile[] = [];
+    let hasError = false;
 
-    if (!isImage && !isVideo) {
-      setError('Please select an image or video file');
+    Array.from(files).forEach((file) => {
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+
+      if (!isImage && !isVideo) {
+        hasError = true;
+        return;
+      }
+
+      // No size limit - unlimited!
+      newFiles.push({
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file,
+        type: isImage ? 'image' : 'video',
+        previewUrl: URL.createObjectURL(file),
+      });
+    });
+
+    if (hasError && newFiles.length === 0) {
+      setError('Please select image or video files only');
       return;
     }
 
-    // Only check image size limit (10MB), videos have no limit
-    if (!isVideo && selectedFile.size > 10 * 1024 * 1024) {
-      setError('Image size must be less than 10MB');
-      return;
-    }
-
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
-    setFile(selectedFile);
-    setFileType(isImage ? 'image' : 'video');
-    setPreviewUrl(URL.createObjectURL(selectedFile));
+    setSelectedFiles((prev) => [...prev, ...newFiles]);
     setError('');
+    // Reset input to allow selecting same file again
+    e.target.value = '';
   };
 
-  const handleRemoveFile = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+  const handleRemoveFile = (fileId?: string) => {
+    if (fileId) {
+      // Remove specific file
+      setSelectedFiles((prev) => {
+        const fileToRemove = prev.find((f) => f.id === fileId);
+        if (fileToRemove?.previewUrl) {
+          URL.revokeObjectURL(fileToRemove.previewUrl);
+        }
+        const newFiles = prev.filter((f) => f.id !== fileId);
+        // Adjust current preview index if needed
+        if (currentPreviewIndex >= newFiles.length) {
+          setCurrentPreviewIndex(Math.max(0, newFiles.length - 1));
+        }
+        return newFiles;
+      });
+    } else {
+      // Remove all files
+      selectedFiles.forEach((sf) => {
+        if (sf.previewUrl) URL.revokeObjectURL(sf.previewUrl);
+      });
+      setSelectedFiles([]);
+      setCurrentPreviewIndex(0);
     }
-    setFile(null);
-    setFileType(null);
-    setPreviewUrl('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!file) {
-      setError('Please select an image or video to upload');
+    if (selectedFiles.length === 0) {
+      setError('Please select at least one image or video to upload');
       return;
     }
 
     setLoading(true);
 
     try {
-      // Process image with filters and text overlays
-      const processedFile = await processImageWithEdits();
-
       const formData = new FormData();
-      formData.append('files', processedFile || file);
+
+      // Append all selected files
+      for (const sf of selectedFiles) {
+        // For images, apply filters and text overlays to the first image only (current preview)
+        if (
+          sf.type === 'image' &&
+          selectedFiles[currentPreviewIndex]?.id === sf.id &&
+          (selectedFilter !== 'normal' || textOverlays.length > 0)
+        ) {
+          const processedFile = await processImageWithEditsForFile(sf);
+          formData.append('files', processedFile || sf.file);
+        } else {
+          formData.append('files', sf.file);
+        }
+      }
+
       formData.append('caption', caption.trim());
 
       // Add filter info for videos (processed server-side)
-      if (fileType === 'video' && selectedFilter !== 'normal') {
+      const hasVideo = selectedFiles.some((sf) => sf.type === 'video');
+      if (hasVideo && selectedFilter !== 'normal') {
         formData.append('filter', selectedFilter);
       }
 
@@ -491,6 +539,7 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
     setActiveTextId(null);
     handleRemoveFile();
     setError('');
+    setCurrentPreviewIndex(0);
   };
 
   const handleClose = () => {
@@ -554,10 +603,11 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground block">
-              Add Photo or Video <span className="text-red-500">*</span>
+              Add Photos or Videos <span className="text-red-500">*</span>
+              <span className="text-muted-foreground font-normal ml-1">(Unlimited)</span>
             </label>
 
-            {!previewUrl ? (
+            {selectedFiles.length === 0 ? (
               <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary transition cursor-pointer">
                 <input
                   type="file"
@@ -566,6 +616,7 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                   className="hidden"
                   id="file-upload"
                   disabled={loading}
+                  multiple
                 />
                 <label htmlFor="file-upload" className="cursor-pointer">
                   <div className="flex flex-col items-center gap-2">
@@ -573,99 +624,183 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       <ImageIcon size={32} className="text-muted-foreground" />
                       <Video size={32} className="text-muted-foreground" />
                     </div>
-                    <p className="text-muted-foreground">Click to upload</p>
-                    <p className="text-xs text-muted-foreground">
-                      Images up to 10MB, Videos (no size limit)
-                    </p>
+                    <p className="text-muted-foreground">Click to upload multiple files</p>
+                    <p className="text-xs text-muted-foreground">Images and Videos (no limit)</p>
                   </div>
                 </label>
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Preview with filter and text overlays */}
-                <div
-                  ref={imageContainerRef}
-                  className="relative rounded-lg overflow-hidden bg-black"
-                  style={{ minHeight: '256px' }}
-                >
-                  {fileType === 'image' ? (
-                    <img
-                      src={previewUrl}
-                      alt="Preview"
-                      className={`w-full h-64 object-cover filter-${selectedFilter}`}
-                    />
-                  ) : (
-                    <video
-                      src={previewUrl}
-                      className={`w-full h-64 object-cover filter-${selectedFilter}`}
-                      controls
-                      muted
-                    />
-                  )}
+                {/* Current file preview with filter and text overlays */}
+                {selectedFiles[currentPreviewIndex] && (
+                  <div
+                    ref={imageContainerRef}
+                    className="relative rounded-lg overflow-hidden bg-black"
+                    style={{ minHeight: '256px' }}
+                  >
+                    {selectedFiles[currentPreviewIndex].type === 'image' ? (
+                      <img
+                        src={selectedFiles[currentPreviewIndex].previewUrl}
+                        alt="Preview"
+                        className={`w-full h-64 object-cover filter-${selectedFilter}`}
+                      />
+                    ) : (
+                      <video
+                        src={selectedFiles[currentPreviewIndex].previewUrl}
+                        className={`w-full h-64 object-cover filter-${selectedFilter}`}
+                        controls
+                        muted
+                      />
+                    )}
 
-                  {/* Text Overlays */}
-                  {textOverlays.map((overlay) => (
-                    <div
-                      key={overlay.id}
-                      className={`absolute cursor-move select-none ${activeTextId === overlay.id ? 'ring-2 ring-primary ring-offset-2' : ''}`}
-                      style={{
-                        left: `${overlay.x}%`,
-                        top: `${overlay.y}%`,
-                        transform: 'translate(-50%, -50%)',
-                        fontSize: `${overlay.fontSize}px`,
-                        color: overlay.color,
-                        fontWeight: overlay.fontWeight,
-                        fontStyle: overlay.fontStyle,
-                        textAlign: overlay.textAlign,
-                        backgroundColor: overlay.backgroundColor,
-                        padding: overlay.backgroundColor !== 'transparent' ? '4px 8px' : '0',
-                        borderRadius: '4px',
-                        textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
-                        whiteSpace: 'nowrap',
-                      }}
-                      onMouseDown={(e) => handleTextDragStart(e, overlay.id)}
-                      onTouchStart={(e) => handleTextDragStart(e, overlay.id)}
-                      onClick={() => setActiveTextId(overlay.id)}
+                    {/* Text Overlays */}
+                    {textOverlays.map((overlay) => (
+                      <div
+                        key={overlay.id}
+                        className={`absolute cursor-move select-none ${activeTextId === overlay.id ? 'ring-2 ring-primary ring-offset-2' : ''}`}
+                        style={{
+                          left: `${overlay.x}%`,
+                          top: `${overlay.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                          fontSize: `${overlay.fontSize}px`,
+                          color: overlay.color,
+                          fontWeight: overlay.fontWeight,
+                          fontStyle: overlay.fontStyle,
+                          textAlign: overlay.textAlign,
+                          backgroundColor: overlay.backgroundColor,
+                          padding: overlay.backgroundColor !== 'transparent' ? '4px 8px' : '0',
+                          borderRadius: '4px',
+                          textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
+                          whiteSpace: 'nowrap',
+                        }}
+                        onMouseDown={(e) => handleTextDragStart(e, overlay.id)}
+                        onTouchStart={(e) => handleTextDragStart(e, overlay.id)}
+                        onClick={() => setActiveTextId(overlay.id)}
+                      >
+                        {overlay.text}
+                        {activeTextId === overlay.id && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteTextOverlay(overlay.id);
+                            }}
+                            className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 text-xs"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Remove current file button */}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(selectedFiles[currentPreviewIndex]?.id)}
+                      className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+                      disabled={loading}
                     >
-                      {overlay.text}
-                      {activeTextId === overlay.id && (
+                      <X size={20} />
+                    </button>
+
+                    {/* Add text button (only for images) */}
+                    {selectedFiles[currentPreviewIndex]?.type === 'image' && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTextEditor(true)}
+                        className="absolute top-2 left-2 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition"
+                        disabled={loading}
+                      >
+                        <Type size={20} />
+                      </button>
+                    )}
+
+                    {/* Navigation for multiple files */}
+                    {selectedFiles.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPreviewIndex((prev) => Math.max(0, prev - 1))}
+                          disabled={currentPreviewIndex === 0}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition disabled:opacity-30"
+                        >
+                          ←
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCurrentPreviewIndex((prev) =>
+                              Math.min(selectedFiles.length - 1, prev + 1)
+                            )
+                          }
+                          disabled={currentPreviewIndex === selectedFiles.length - 1}
+                          className="absolute right-12 top-1/2 -translate-y-1/2 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition disabled:opacity-30"
+                        >
+                          →
+                        </button>
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 px-2 py-1 rounded-full text-white text-xs">
+                          {currentPreviewIndex + 1} / {selectedFiles.length}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Thumbnails for all selected files */}
+                {selectedFiles.length > 0 && (
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {selectedFiles.map((sf, index) => (
+                      <div
+                        key={sf.id}
+                        className={`relative flex-shrink-0 cursor-pointer border-2 rounded-lg overflow-hidden ${
+                          currentPreviewIndex === index ? 'border-primary' : 'border-transparent'
+                        }`}
+                        onClick={() => setCurrentPreviewIndex(index)}
+                      >
+                        {sf.type === 'image' ? (
+                          <img src={sf.previewUrl} alt="" className="w-16 h-16 object-cover" />
+                        ) : (
+                          <div className="w-16 h-16 bg-muted flex items-center justify-center">
+                            <Video size={24} className="text-muted-foreground" />
+                          </div>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteTextOverlay(overlay.id);
+                            handleRemoveFile(sf.id);
                           }}
-                          className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 text-xs"
+                          className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full hover:bg-red-600 text-xs"
                         >
                           <X size={12} />
                         </button>
-                      )}
-                    </div>
-                  ))}
-
-                  {/* Remove file button */}
-                  <button
-                    type="button"
-                    onClick={handleRemoveFile}
-                    className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
-                    disabled={loading}
-                  >
-                    <X size={20} />
-                  </button>
-
-                  {/* Add text button */}
-                  <button
-                    type="button"
-                    onClick={() => setShowTextEditor(true)}
-                    className="absolute top-2 left-2 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition"
-                    disabled={loading}
-                  >
-                    <Type size={20} />
-                  </button>
-                </div>
+                      </div>
+                    ))}
+                    {/* Add more button */}
+                    <label
+                      htmlFor="file-upload-more"
+                      className="flex-shrink-0 w-16 h-16 border-2 border-dashed border-border rounded-lg flex items-center justify-center cursor-pointer hover:border-primary transition"
+                    >
+                      <span className="text-2xl text-muted-foreground">+</span>
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      id="file-upload-more"
+                      disabled={loading}
+                      multiple
+                    />
+                  </div>
+                )}
 
                 <p className="text-xs text-muted-foreground">
-                  {file?.name} ({(file!.size / 1024 / 1024).toFixed(2)} MB)
+                  {selectedFiles.length} file(s) selected • Total:{' '}
+                  {(selectedFiles.reduce((acc, sf) => acc + sf.file.size, 0) / 1024 / 1024).toFixed(
+                    2
+                  )}{' '}
+                  MB
                 </p>
 
                 {/* Filter Gallery */}
@@ -870,15 +1005,15 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
             <Button
               type="submit"
               className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
-              disabled={loading || !file}
+              disabled={loading || selectedFiles.length === 0}
             >
               {loading ? (
                 <span className="flex items-center gap-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Posting...
+                  Posting {selectedFiles.length} file(s)...
                 </span>
               ) : (
-                'Post'
+                `Post ${selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}`
               )}
             </Button>
           </div>

@@ -20,7 +20,17 @@ const chatMessageSchema = new mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'file', 'reaction', 'shared_post', 'shared_reel'],
+      enum: [
+        'text',
+        'image',
+        'video',
+        'audio',
+        'file',
+        'reaction',
+        'shared_post',
+        'shared_reel',
+        'location',
+      ],
       default: 'text',
     },
     // Encrypted message content
@@ -58,6 +68,28 @@ const chatMessageSchema = new mongoose.Schema(
       // Cached content data for preview (in case original is deleted)
       contentData: {
         type: mongoose.Schema.Types.Mixed,
+      },
+    },
+    // Location data for location messages
+    location: {
+      latitude: {
+        type: Number,
+      },
+      longitude: {
+        type: Number,
+      },
+      address: {
+        type: String,
+      },
+      name: {
+        type: String,
+      },
+      isLiveLocation: {
+        type: Boolean,
+        default: false,
+      },
+      expiresAt: {
+        type: Date,
       },
     },
     // Reply to another message

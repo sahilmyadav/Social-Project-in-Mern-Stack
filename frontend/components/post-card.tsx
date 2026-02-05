@@ -15,6 +15,7 @@ import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
   Download,
+  Eye,
   Heart,
   MessageCircle,
   MoreHorizontal,
@@ -192,6 +193,38 @@ function PostCard({
   const [repliesData, setRepliesData] = useState<Map<string, any[]>>(new Map());
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
   const [sharesCount, setSharesCount] = useState(post.shares_count || post.shares || 0);
+  const [viewCount, setViewCount] = useState(post.views_count || 0);
+  const [hasTrackedView, setHasTrackedView] = useState(false);
+  const postCardRef = useRef<HTMLDivElement>(null);
+
+  // Track view when post comes into view
+  useEffect(() => {
+    if (hasTrackedView || !post?._id) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !hasTrackedView) {
+            // Track the view
+            postService.trackView(post._id).catch(() => {});
+            setViewCount((prev) => prev + 1);
+            setHasTrackedView(true);
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+
+    if (postCardRef.current) {
+      observer.observe(postCardRef.current);
+    }
+
+    return () => {
+      if (postCardRef.current) {
+        observer.unobserve(postCardRef.current);
+      }
+    };
+  }, [post?._id, hasTrackedView]);
 
   // Sync with API data when it changes
   useEffect(() => {
@@ -734,7 +767,10 @@ function PostCard({
   };
 
   return (
-    <article className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto">
+    <article
+      ref={postCardRef}
+      className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto"
+    >
       {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-3">
@@ -928,6 +964,11 @@ function PostCard({
             <Share2 size={20} />
             <span className="text-sm">{sharesCount}</span>
           </button>
+          {/* View Count */}
+          <div className="flex items-center gap-1 text-muted-foreground ml-auto">
+            <Eye size={20} />
+            <span className="text-sm">{viewCount}</span>
+          </div>
         </div>
       </div>
 

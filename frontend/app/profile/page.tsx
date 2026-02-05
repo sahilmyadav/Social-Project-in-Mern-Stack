@@ -9,41 +9,41 @@ import ReelCard from '@/components/reel-card';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-    Dialog,
-    DialogContent,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { ApiError } from '@/lib/api-client';
 import {
-    authService,
-    feedService,
-    followService,
-    postService,
-    reelService,
+  authService,
+  feedService,
+  followService,
+  postService,
+  reelService,
 } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-    Bookmark,
-    Camera,
-    Clapperboard,
-    Edit2,
-    Eye,
-    Film,
-    Grid,
-    Heart,
-    ImageIcon,
-    Link as LinkIcon,
-    LogOut,
-    MessageCircle,
-    Moon,
-    MoreVertical,
-    Settings,
-    Sun,
-    Trash2,
-    User,
+  Bookmark,
+  Camera,
+  Clapperboard,
+  Edit2,
+  Eye,
+  Film,
+  Grid,
+  Heart,
+  ImageIcon,
+  Link as LinkIcon,
+  LogOut,
+  MessageCircle,
+  Moon,
+  MoreVertical,
+  Settings,
+  Sun,
+  Trash2,
+  User,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import dynamic from 'next/dynamic';
@@ -570,6 +570,84 @@ export default function ProfilePage() {
     }
   };
 
+  // Delete Profile Picture
+  const handleDeleteProfilePicture = async () => {
+    const confirmed = await confirm({
+      title: 'Delete Profile Picture',
+      description:
+        'Are you sure you want to delete your profile picture? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      setIsUploadingProfilePic(true);
+      const response = await authService.deleteProfilePicture();
+
+      if (response.success) {
+        setUser((prev: any) => {
+          const updatedUser = {
+            ...prev,
+            profileImage: null,
+            avatar: null,
+            profilePicture: null,
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          return updatedUser;
+        });
+        showToast.success('Profile picture deleted!', 'Your profile picture has been removed.');
+      } else {
+        showToast.error('Failed to delete profile picture', 'Please try again.');
+      }
+    } catch (err) {
+      console.error('Error deleting profile picture:', err);
+      showToast.error('Failed to delete profile picture', 'Please try again.');
+    } finally {
+      setIsUploadingProfilePic(false);
+    }
+  };
+
+  // Delete Cover Photo
+  const handleDeleteCoverPhoto = async () => {
+    const confirmed = await confirm({
+      title: 'Delete Cover Photo',
+      description:
+        'Are you sure you want to delete your cover photo? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      setIsUploadingCoverPhoto(true);
+      const response = await authService.deleteCoverPhoto();
+
+      if (response.success) {
+        setUser((prev: any) => {
+          const updatedUser = {
+            ...prev,
+            coverPhoto: null,
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          return updatedUser;
+        });
+        showToast.success('Cover photo deleted!', 'Your cover photo has been removed.');
+      } else {
+        showToast.error('Failed to delete cover photo', 'Please try again.');
+      }
+    } catch (err) {
+      console.error('Error deleting cover photo:', err);
+      showToast.error('Failed to delete cover photo', 'Please try again.');
+    } finally {
+      setIsUploadingCoverPhoto(false);
+    }
+  };
+
   const handleOpenPostDetails = (post: any) => {
     setSelectedPost(post);
     setShowPostDetails(true);
@@ -725,6 +803,19 @@ export default function ProfilePage() {
                     <Camera size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
                     <span>Change Profile</span>
                   </button>
+                  {(user?.profileImage || user?.avatar || user?.profilePicture) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSettingsMenu(false);
+                        handleDeleteProfilePicture();
+                      }}
+                      className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base text-red-500"
+                    >
+                      <Trash2 size={16} />
+                      <span>Delete Profile Photo</span>
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -739,6 +830,19 @@ export default function ProfilePage() {
                     />
                     <span>Change Cover</span>
                   </button>
+                  {user?.coverPhoto && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSettingsMenu(false);
+                        handleDeleteCoverPhoto();
+                      }}
+                      className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base text-red-500"
+                    >
+                      <Trash2 size={16} />
+                      <span>Delete Cover Photo</span>
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

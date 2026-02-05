@@ -627,8 +627,9 @@ const getFollowers = asyncHandler(async (req, res) => {
     .lean();
 
   // Map followers and check if current user follows them back
-  const followers = await Promise.all(
-    followerRecords.map(async (record) => {
+  const followerPromises = followerRecords
+    .filter((record) => record.follower_id != null) // Filter out records where user was deleted
+    .map(async (record) => {
       const follower = record.follower_id;
 
       // Check if current user follows this follower back
@@ -654,8 +655,9 @@ const getFollowers = asyncHandler(async (req, res) => {
         isFollowing: isFollowingBack,
         isPending: isPending,
       };
-    })
-  );
+    });
+
+  const followers = await Promise.all(followerPromises);
 
   return res.status(200).json(
     new ApiResponse(
@@ -709,8 +711,9 @@ const getFollowing = asyncHandler(async (req, res) => {
     .lean();
 
   // Map following users and check if current user follows them
-  const following = await Promise.all(
-    followingRecords.map(async (record) => {
+  const followingPromises = followingRecords
+    .filter((record) => record.following_id != null) // Filter out records where user was deleted
+    .map(async (record) => {
       const followedUser = record.following_id;
 
       // Check if current user follows this person
@@ -736,8 +739,9 @@ const getFollowing = asyncHandler(async (req, res) => {
         isFollowing: isFollowing,
         isPending: isPending,
       };
-    })
-  );
+    });
+
+  const following = await Promise.all(followingPromises);
 
   return res.status(200).json(
     new ApiResponse(

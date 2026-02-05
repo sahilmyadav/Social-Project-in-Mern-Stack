@@ -80,6 +80,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         likes_count: 1,
         comments_count: 1,
         shares_count: 1,
+        views_count: 1,
         is_deleted: 1,
         createdAt: 1,
         updatedAt: 1,
@@ -120,6 +121,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         likes_count: post.likes_count || 0,
         comments_count: commentsCount,
         shares_count: post.shares_count || 0,
+        views_count: post.views_count || 0,
         // Mark as suggested if NOT in validUserIds
         isSuggested: !validUserIds.map((id) => id.toString()).includes(post.user_id._id.toString()),
       };

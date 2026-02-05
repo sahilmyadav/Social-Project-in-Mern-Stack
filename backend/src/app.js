@@ -106,16 +106,21 @@ app.get('/uploads/:folder/:filename', (req, res, next) => {
   const range = req.headers.range;
 
   // Set content type
-  const contentType = ext === '.mp4' ? 'video/mp4' :
-                      ext === '.webm' ? 'video/webm' :
-                      ext === '.mov' ? 'video/quicktime' : 'video/mp4';
+  const contentType =
+    ext === '.mp4'
+      ? 'video/mp4'
+      : ext === '.webm'
+        ? 'video/webm'
+        : ext === '.mov'
+          ? 'video/quicktime'
+          : 'video/mp4';
 
   if (range) {
     // Parse range header
     const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunkSize = (end - start) + 1;
+    const chunkSize = end - start + 1;
 
     // Create read stream for the requested range
     const file = fs.createReadStream(filePath, { start, end });
@@ -179,6 +184,7 @@ import chatRoutes from './routes/chat.routes.js';
 import { commentRoutes } from './routes/comment.routes.js';
 import feedRoutes from './routes/feed.routes.js';
 import { followRoutes } from './routes/follow.routes.js';
+import groupRoutes from './routes/group.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
 import liveStreamRoutes from './routes/liveStream.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
@@ -203,6 +209,7 @@ app.use('/api/v1/story', storyRoutes);
 app.use('/api/v1/reel', reelRoutes);
 app.use('/api/v1/feed', feedRoutes);
 app.use('/api/v1/chat', chatRoutes);
+app.use('/api/v1/group', groupRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/system', systemRoutes);
 app.use('/api/v1/admin', adminRoutes);

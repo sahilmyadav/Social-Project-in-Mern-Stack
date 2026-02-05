@@ -1,6 +1,7 @@
 'use client';
 
 import CreateGroupModal from '@/components/create-group-modal';
+import EmojiPicker from '@/components/emoji-picker';
 import GroupInfoModal from '@/components/group-info-modal';
 import Navigation from '@/components/navigation';
 import SharedContentPreview from '@/components/shared-content-preview';
@@ -17,11 +18,12 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import VideoCallModal from '@/components/video-call-modal';
 import VoiceCallModal from '@/components/voice-call-modal';
-import { authService, chatService } from '@/lib/api-services';
+import { authService, chatService, groupService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
   disconnectSocket,
   emitInitiateCall,
+  emitJoinGroup,
   emitMessageDelivered,
   emitStopTyping,
   emitTyping,
@@ -33,6 +35,8 @@ import {
   offCallEnded,
   offCallFailed,
   offCallRejected,
+  offGroupMessage,
+  offGroupMessageNotification,
   offIncomingCall,
   offMessageStatus,
   offNewMessage,
@@ -44,6 +48,8 @@ import {
   onCallEnded,
   onCallFailed,
   onCallRejected,
+  onGroupMessage,
+  onGroupMessageNotification,
   onIncomingCall,
   onMessageStatus,
   onNewMessage,
@@ -63,8 +69,11 @@ import {
   Flag,
   Forward,
   Image as ImageIcon,
-  Info,
+  LogOut,
+  MapPin,
+  Mic,
   MoreHorizontal,
+  Navigation2,
   Phone,
   Plus,
   Reply,
@@ -90,9 +99,11 @@ interface Conversation {
   online: boolean;
   participantId: string; // The other user's ID for matching online/offline events
   isGroup?: boolean;
-  members?: number;
+  members?: any[]; // Array of member objects
+  memberCount?: number; // Number of members for display
   threadId?: string;
   hasStory?: boolean; // Whether the user has an active story
+  createdBy?: string; // Group owner ID
 }
 
 interface Message {
@@ -118,6 +129,15 @@ interface Message {
     filename?: string; // Backend uses lowercase
     size?: number;
   }[];
+  // Location fields
+  location?: {
+    latitude: number;
+    longitude: number;
+    address?: string;
+    name?: string;
+    isLiveLocation?: boolean;
+    expiresAt?: string;
+  };
   // Reply fields
   replyTo?: {
     _id: string;
@@ -137,7 +157,7 @@ function ChatPageContent() {
   const [activeTab, setActiveTab] = useState<'messages' | 'groups'>('messages');
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [groups] = useState<Conversation[]>([]);
+  const [groups, setGroups] = useState<Conversation[]>([]);
 
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -172,11 +192,28 @@ function ChatPageContent() {
   const [messageToForward, setMessageToForward] = useState<Message | null>(null);
   const [forwardSearchQuery, setForwardSearchQuery] = useState('');
 
+  // Location states
+  const [showLocationMenu, setShowLocationMenu] = useState(false);
+  const [isSendingLocation, setIsSendingLocation] = useState(false);
+
+  // Voice recording states
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleOpenProfile = (userId: string) => {
     router.push(`/profile/${userId}`);
   };
 
   const selectedThreadIdRef = useRef<string | null>(null);
+  const groupsRef = useRef<Conversation[]>([]);
+
+  // Keep groupsRef in sync with groups state
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
 
   // Helper function to format call duration
   const formatCallDuration = (seconds: number) => {
@@ -279,14 +316,19 @@ function ChatPageContent() {
             // Instagram style - show message or empty
             const displayMessage = lastMessageText || '';
 
+            // Build full name from firstName and lastName
+            const fullName =
+              otherParticipant?.firstName && otherParticipant?.lastName
+                ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
+                : otherParticipant?.firstName ||
+                  otherParticipant?.fullName ||
+                  otherParticipant?.username ||
+                  'Unknown';
+
             const conversationObj = {
               id: thread._id, // Use threadId as unique identifier, not participant ID
               participantId: otherParticipant?._id?.toString() || otherParticipant?._id, // Ensure string conversion
-              name:
-                otherParticipant?.firstName ||
-                otherParticipant?.fullName ||
-                otherParticipant?.username ||
-                'Unknown',
+              name: fullName,
               avatar:
                 otherParticipant?.profileImage ||
                 otherParticipant?.profilePicture ||
@@ -329,7 +371,58 @@ function ChatPageContent() {
       }
     };
 
+    // Load groups
+    const loadGroups = async () => {
+      try {
+        console.log('📦 Loading groups...');
+        const response = await groupService.getMyGroups({ limit: 50 });
+        console.log('📦 Groups response:', response);
+
+        if (response.success && response.data) {
+          const groupsArray = response.data.groups || response.data || [];
+          console.log('📦 Groups array:', groupsArray);
+
+          const groupsList = groupsArray.map((group: any) => ({
+            id: group._id,
+            threadId: group._id,
+            name: group.name || 'Unnamed Group',
+            avatar: group.avatar || '👥',
+            // Use decrypted text field, NOT encryptedContent
+            lastMessage: group.lastMessage?.text || '',
+            timestamp: group.lastMessageAt
+              ? new Date(group.lastMessageAt).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : 'Just now',
+            unread: (group.unreadCount || 0) > 0,
+            unreadCount: group.unreadCount || 0,
+            online: false,
+            isGroup: true,
+            memberCount: group.members?.length || 0,
+            members: group.members || [],
+            createdBy: group.createdBy?._id || group.createdBy,
+          }));
+
+          setGroups(groupsList);
+          console.log('📦 Groups loaded successfully:', groupsList.length);
+
+          // Join all group socket rooms to receive real-time messages
+          groupsArray.forEach((group: any) => {
+            emitJoinGroup(group._id);
+          });
+        } else {
+          console.log('📦 Groups response not successful or no data:', response);
+          setGroups([]);
+        }
+      } catch (error) {
+        console.error('📦 Error loading groups:', error);
+        setGroups([]);
+      }
+    };
+
     loadConvs();
+    loadGroups();
 
     // Initialize socket connection FIRST
     const token = localStorage.getItem('accessToken');
@@ -439,11 +532,16 @@ function ChatPageContent() {
             // If thread is not in conversations, add it
             // This should be rare since newThread event should handle new threads
             if (!conversationUpdated && data.message.senderId?._id !== parsedUser._id) {
+              const senderFullName =
+                data.message.senderId?.firstName && data.message.senderId?.lastName
+                  ? `${data.message.senderId.firstName} ${data.message.senderId.lastName}`
+                  : data.message.senderId?.firstName ||
+                    data.message.senderId?.username ||
+                    'Unknown';
               const newConv: Conversation = {
                 id: threadId, // Use threadId as unique identifier
                 participantId: data.message.senderId._id,
-                name:
-                  data.message.senderId?.firstName || data.message.senderId?.username || 'Unknown',
+                name: senderFullName,
                 avatar:
                   data.message.senderId?.profileImage ||
                   data.message.senderId?.profilePicture ||
@@ -467,6 +565,53 @@ function ChatPageContent() {
             }
 
             return updatedConvs;
+          });
+
+          // Also update groups list if this is a group message
+          setGroups((prev) => {
+            const threadId = data.threadId?.toString();
+            const isGroupMessage = prev.some((g) => g.id === threadId);
+
+            if (!isGroupMessage) return prev;
+
+            // Determine display message
+            let displayMessage = data.message.text || '';
+            if (!displayMessage && data.message.media && data.message.media.length > 0) {
+              const mediaType = data.message.media[0].type;
+              if (mediaType === 'image') {
+                displayMessage = '📷 Image';
+              } else if (mediaType === 'video') {
+                displayMessage = '📹 Video';
+              } else if (mediaType === 'document' || mediaType === 'file') {
+                displayMessage = '📄 Document';
+              } else {
+                displayMessage = `📎 ${mediaType}`;
+              }
+            }
+
+            const updatedGroups = prev.map((group) => {
+              if (group.id === threadId) {
+                const isOwnMessage = data.message.senderId?._id === parsedUser._id;
+                return {
+                  ...group,
+                  lastMessage: displayMessage,
+                  timestamp: 'Now',
+                  // Only mark as unread if it's not our own message and we're not viewing this chat
+                  unread: !isOwnMessage,
+                  unreadCount: !isOwnMessage ? (group.unreadCount || 0) + 1 : group.unreadCount,
+                };
+              }
+              return group;
+            });
+
+            // Move updated group to top
+            const groupIndex = updatedGroups.findIndex((g) => g.id === threadId);
+            if (groupIndex > 0) {
+              const [movedGroup] = updatedGroups.splice(groupIndex, 1);
+              return [movedGroup, ...updatedGroups];
+            }
+
+            return updatedGroups;
           });
 
           // Show browser notification and play sound if not focused
@@ -640,15 +785,20 @@ function ChatPageContent() {
               return prev;
             }
 
+            // Build full name
+            const participantFullName =
+              data.participant.firstName && data.participant.lastName
+                ? `${data.participant.firstName} ${data.participant.lastName}`
+                : data.participant.firstName ||
+                  data.participant.fullName ||
+                  data.participant.username ||
+                  'Unknown';
+
             // Create new conversation from thread data
             const newConv: Conversation = {
               id: data.threadId, // Use threadId as unique identifier
               participantId: data.participant._id, // Store participant ID for online/offline matching
-              name:
-                data.participant.firstName ||
-                data.participant.fullName ||
-                data.participant.username ||
-                'Unknown',
+              name: participantFullName,
               avatar:
                 data.participant.profileImage ||
                 data.participant.profilePicture ||
@@ -842,17 +992,179 @@ function ChatPageContent() {
       onCallEnded(handleCallEnded);
       onCallFailed(handleCallFailed);
 
+      // Handle group messages from socket
+      const handleGroupMessage = (data: { groupId: string; message: any }) => {
+        const { groupId, message } = data;
+
+        // Check if this message is from the current user
+        const currentUserId = (parsedUser._id || parsedUser.id || '').toString();
+        const messageSenderId = (message.senderId?._id || message.senderId || '').toString();
+        const isOwnMessage = currentUserId && messageSenderId && currentUserId === messageSenderId;
+
+        // Update messages if we're viewing this group
+        if (selectedThreadIdRef.current === groupId) {
+          const newMessage = {
+            id: message._id,
+            content: message.text || message.content || '',
+            sender: isOwnMessage
+              ? 'You'
+              : message.senderId?.firstName
+                ? `${message.senderId.firstName} ${message.senderId.lastName || ''}`.trim()
+                : 'Unknown',
+            isSent: isOwnMessage,
+            messageType: message.messageType || 'text',
+            senderId: message.senderId?._id || message.senderId,
+            senderName: message.senderId?.firstName
+              ? `${message.senderId.firstName} ${message.senderId.lastName || ''}`.trim()
+              : 'Unknown',
+            senderAvatar: message.senderId?.profileImage || message.senderId?.avatar,
+            timestamp: new Date(message.createdAt || Date.now()).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            status: 'sent' as const,
+            media: message.media,
+            location: message.location,
+            sharedContent: message.sharedContent,
+          };
+
+          // Only add message if it's from another user (we already added our own optimistically)
+          if (!isOwnMessage) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMessage.id)) return prev;
+              return [...prev, newMessage];
+            });
+          }
+        }
+
+        // Update groups list (reuse isOwnMessage from above)
+        setGroups((prev) => {
+          const displayMessage =
+            message.text || message.content || (message.media?.length > 0 ? '📎 Media' : '');
+
+          const updatedGroups = prev.map((group) => {
+            if (group.id === groupId) {
+              return {
+                ...group,
+                lastMessage: displayMessage,
+                timestamp: 'Now',
+                unread: !isOwnMessage && selectedThreadIdRef.current !== groupId,
+                unreadCount:
+                  !isOwnMessage && selectedThreadIdRef.current !== groupId
+                    ? (group.unreadCount || 0) + 1
+                    : group.unreadCount,
+              };
+            }
+            return group;
+          });
+
+          // Move updated group to top
+          const groupIndex = updatedGroups.findIndex((g) => g.id === groupId);
+          if (groupIndex > 0) {
+            const [movedGroup] = updatedGroups.splice(groupIndex, 1);
+            return [movedGroup, ...updatedGroups];
+          }
+
+          return updatedGroups;
+        });
+      };
+
+      // Handle group message notifications (when not in the group chat room)
+      const handleGroupMessageNotification = (data: {
+        groupId: string;
+        groupName: string;
+        message: any;
+      }) => {
+        const { groupId, message, groupName } = data;
+
+        // Update groups list with unread
+        setGroups((prev) => {
+          const displayMessage = message.text || (message.media?.length > 0 ? '📎 Media' : '');
+
+          const updatedGroups = prev.map((group) => {
+            if (group.id === groupId) {
+              return {
+                ...group,
+                lastMessage: displayMessage,
+                timestamp: 'Now',
+                unread: selectedThreadIdRef.current !== groupId,
+                unreadCount:
+                  selectedThreadIdRef.current !== groupId
+                    ? (group.unreadCount || 0) + 1
+                    : group.unreadCount,
+              };
+            }
+            return group;
+          });
+
+          // Move updated group to top
+          const groupIndex = updatedGroups.findIndex((g) => g.id === groupId);
+          if (groupIndex > 0) {
+            const [movedGroup] = updatedGroups.splice(groupIndex, 1);
+            return [movedGroup, ...updatedGroups];
+          }
+
+          return updatedGroups;
+        });
+
+        // Show notification if not focused
+        if (!document.hasFocus()) {
+          if (Notification.permission === 'granted') {
+            new Notification(groupName, {
+              body: `${message.senderId?.firstName || 'Someone'}: ${message.text || 'Sent a message'}`,
+              icon: '👥',
+            });
+          }
+        }
+      };
+
+      onGroupMessage(handleGroupMessage);
+      onGroupMessageNotification(handleGroupMessageNotification);
+
       const currentSocket = getSocket();
       if (currentSocket) {
         currentSocket.on('messagesSeen', handleMessagesSeen);
         currentSocket.on('messageEdited', handleMessageEdited);
         currentSocket.on('messageDeleted', handleMessageDeleted);
 
-        // Handle reconnection - re-emit online status
+        // Handle group created event (when you or others create a group)
+        currentSocket.on('groupCreated', (data: any) => {
+          if (data?.group) {
+            const group = data.group;
+            const newGroup = {
+              id: group._id,
+              threadId: group._id,
+              name: group.name || 'Unnamed Group',
+              avatar: group.avatar || '👥',
+              lastMessage: '',
+              timestamp: 'Just now',
+              unread: false,
+              unreadCount: 0,
+              online: false,
+              isGroup: true,
+              memberCount: group.members?.length || 0,
+              members: group.members || [],
+              participantId: '',
+            };
+
+            // Add to groups if not already there
+            setGroups((prev) => {
+              const exists = prev.some((g) => g.id === group._id);
+              if (exists) return prev;
+              return [newGroup, ...prev];
+            });
+          }
+        });
+
+        // Handle reconnection - re-emit online status and rejoin group rooms
         currentSocket.on('connect', () => {
           emitUserOnline(parsedUser._id);
           // Request online users list on connect
           currentSocket.emit('getOnlineUsers');
+          // Rejoin all group rooms after reconnection
+          groupsRef.current.forEach((group) => {
+            emitJoinGroup(group.id);
+          });
         });
 
         // Listen for initial online users list
@@ -899,6 +1211,7 @@ function ChatPageContent() {
         const currentSocket = getSocket();
         if (currentSocket) {
           currentSocket.off('messagesSeen');
+          currentSocket.off('groupCreated');
         }
         offNewMessage(handleNewMessage);
         offMessageStatus(handleMessageStatus);
@@ -911,6 +1224,8 @@ function ChatPageContent() {
         offCallRejected(handleCallRejected);
         offCallEnded(handleCallEnded);
         offCallFailed(handleCallFailed);
+        offGroupMessage(handleGroupMessage);
+        offGroupMessageNotification(handleGroupMessageNotification);
 
         // Clear typing timeout
         if (typingTimeoutRef.current) {
@@ -941,7 +1256,7 @@ function ChatPageContent() {
         if (existingConv.threadId) {
           setSelectedThreadId(existingConv.threadId);
           joinThread(existingConv.threadId);
-          loadMessages(existingConv.threadId);
+          loadMessages(existingConv.threadId, existingConv.isGroup);
         } else {
           handleGetThread(userId);
         }
@@ -1034,6 +1349,174 @@ function ChatPageContent() {
     }
   };
 
+  // Voice Recording Handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4',
+      });
+
+      audioChunksRef.current = [];
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: mediaRecorder.mimeType || 'audio/webm',
+        });
+        const audioFile = new File([audioBlob], `voice_message_${Date.now()}.webm`, {
+          type: audioBlob.type,
+        });
+
+        // Stop all tracks
+        stream.getTracks().forEach((track) => track.stop());
+
+        // Send the voice message
+        await sendVoiceMessage(audioFile);
+      };
+
+      mediaRecorder.start(100); // Collect data every 100ms
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      // Start duration timer
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      showToast.error(
+        'Microphone access denied',
+        'Please allow microphone access to record voice messages'
+      );
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current) {
+      const stream = mediaRecorderRef.current.stream;
+      stream.getTracks().forEach((track) => track.stop());
+      mediaRecorderRef.current = null;
+    }
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingDuration(0);
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+  };
+
+  const sendVoiceMessage = async (audioFile: File) => {
+    if (!selectedThreadId || isSendingMessage) return;
+
+    const isGroup = selectedConversation?.isGroup;
+    const replyToId = replyingTo?._id || replyingTo?.id;
+
+    setIsSendingMessage(true);
+    setReplyingTo(null);
+
+    // Create optimistic message
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      senderId: user?._id,
+      senderName: user?.firstName || 'You',
+      senderAvatar: user?.profileImage || user?.avatar,
+      text: '',
+      timestamp: 'Sending...',
+      type: 'audio',
+      media: [{ type: 'audio', url: URL.createObjectURL(audioFile) }],
+      isOwn: true,
+      replyTo: replyingTo
+        ? { _id: replyingTo.id, content: replyingTo.text, senderName: replyingTo.senderName }
+        : undefined,
+    };
+
+    setMessages((prev) => [...prev, tempMessage]);
+
+    try {
+      let response;
+
+      if (isGroup) {
+        response = await groupService.sendGroupMessage(selectedThreadId, {
+          text: undefined,
+          replyTo: replyToId,
+          files: [audioFile],
+        });
+      } else {
+        const formData = new FormData();
+        if (replyToId) formData.append('reply_to', replyToId);
+        formData.append('media', audioFile);
+        response = await chatService.sendMessage(selectedThreadId, formData);
+      }
+
+      if (response.success && response.data) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === tempMessage.id
+              ? {
+                  ...msg,
+                  id: response.data._id,
+                  timestamp: new Date().toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }),
+                  media: response.data.media || msg.media,
+                }
+              : msg
+          )
+        );
+
+        // Update conversation last message
+        setConversations((prev) => {
+          const updated = prev.map((conv) =>
+            conv.id === selectedConversation?.id
+              ? { ...conv, lastMessage: '🎤 Voice message', timestamp: 'Now', unread: false }
+              : conv
+          );
+          const updatedConv = updated.find((c) => c.id === selectedConversation?.id);
+          const others = updated.filter((c) => c.id !== selectedConversation?.id);
+          return updatedConv ? [updatedConv, ...others] : updated;
+        });
+      }
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      setMessages((prev) => prev.filter((msg) => msg.id !== tempMessage.id));
+      showToast.error('Failed to send voice message', 'Please try again');
+    } finally {
+      setIsSendingMessage(false);
+      setRecordingDuration(0);
+    }
+  };
+
+  const formatRecordingDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Handle emoji selection
+  const handleEmojiSelect = (emoji: string) => {
+    setMessageInput((prev) => prev + emoji);
+  };
+
   const handleSendMessage = async () => {
     // Allow sending if there is text OR a file
     if ((!messageInput.trim() && !selectedFile) || !selectedThreadId || isSendingMessage) return;
@@ -1087,21 +1570,39 @@ function ChatPageContent() {
 
     try {
       let response: any;
+      const isGroup = selectedConversation?.isGroup || false;
 
-      if (fileToSend) {
-        const formData = new FormData();
-        if (messageText) formData.append('text', messageText);
-        if (replyToId) formData.append('reply_to', replyToId);
-
-        // Strictly use "media" key for backend
-        formData.append('media', fileToSend);
-
-        response = await chatService.sendMessage(selectedThreadId, formData);
+      if (isGroup) {
+        // Use group messaging API
+        if (fileToSend) {
+          response = await groupService.sendGroupMessage(selectedThreadId, {
+            text: messageText || undefined,
+            replyTo: replyToId,
+            files: [fileToSend],
+          });
+        } else {
+          response = await groupService.sendGroupMessage(selectedThreadId, {
+            text: messageText,
+            replyTo: replyToId,
+          });
+        }
       } else {
-        response = await chatService.sendMessage(selectedThreadId, {
-          text: messageText,
-          reply_to: replyToId,
-        });
+        // Use direct message API
+        if (fileToSend) {
+          const formData = new FormData();
+          if (messageText) formData.append('text', messageText);
+          if (replyToId) formData.append('reply_to', replyToId);
+
+          // Strictly use "media" key for backend
+          formData.append('media', fileToSend);
+
+          response = await chatService.sendMessage(selectedThreadId, formData);
+        } else {
+          response = await chatService.sendMessage(selectedThreadId, {
+            text: messageText,
+            reply_to: replyToId,
+          });
+        }
       }
 
       if (response.success && response.data) {
@@ -1184,10 +1685,19 @@ function ChatPageContent() {
 
       // Send the forwarded message
       const forwardedText = messageToForward.content;
-      const response = await chatService.sendMessage(targetThreadId, {
-        text: forwardedText,
-        isForwarded: true,
-      });
+      let response;
+
+      if (targetConversation.isGroup) {
+        response = await groupService.sendGroupMessage(targetThreadId, {
+          text: forwardedText,
+          // Note: Group API may handle forwarding differently
+        });
+      } else {
+        response = await chatService.sendMessage(targetThreadId, {
+          text: forwardedText,
+          isForwarded: true,
+        });
+      }
 
       if (response.success) {
         showToast.success(`Message forwarded to ${targetConversation.name}`);
@@ -1200,6 +1710,194 @@ function ChatPageContent() {
     } catch (error) {
       console.error('Error forwarding message:', error);
       showToast.error('Failed to forward message');
+    }
+  };
+
+  // Handle sending current location
+  const handleSendCurrentLocation = async () => {
+    if (!selectedThreadId || isSendingLocation) return;
+
+    setIsSendingLocation(true);
+    setShowAttachmentMenu(false);
+    setShowLocationMenu(false);
+
+    try {
+      // Get current position
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Geolocation is not supported by your browser'));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+
+      // Try to get address using reverse geocoding (free API)
+      let address = '';
+      try {
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+        );
+        const geoData = await geoResponse.json();
+        address = geoData.display_name || '';
+      } catch (geoError) {
+        console.log('Could not fetch address:', geoError);
+      }
+
+      // Create temp message for optimistic UI
+      const tempMessage: Message = {
+        id: Date.now(),
+        sender: 'You',
+        content: '📍 Location',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isSent: true,
+        type: 'location',
+        location: {
+          latitude,
+          longitude,
+          address,
+          isLiveLocation: false,
+        },
+      };
+
+      setMessages((prev) => [...prev, tempMessage]);
+
+      // Send to server - use appropriate API based on conversation type
+      const isGroup = selectedConversation?.isGroup || false;
+      let response;
+
+      if (isGroup) {
+        response = await groupService.sendGroupMessage(selectedThreadId, {
+          messageType: 'location',
+          location: {
+            latitude,
+            longitude,
+            address,
+            isLive: false,
+          },
+        });
+      } else {
+        response = await chatService.sendMessage(selectedThreadId, {
+          messageType: 'location',
+          location: {
+            latitude,
+            longitude,
+            address,
+            isLiveLocation: false,
+          },
+        });
+      }
+
+      if (response.success && response.data) {
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === tempMessage.id ? { ...msg, id: response.data._id } : msg))
+        );
+        showToast.success('Location sent');
+      }
+    } catch (error: any) {
+      console.error('Error sending location:', error);
+      if (error.code === 1) {
+        showToast.error('Location permission denied');
+      } else if (error.code === 2) {
+        showToast.error('Unable to get your location');
+      } else if (error.code === 3) {
+        showToast.error('Location request timed out');
+      } else {
+        showToast.error(error.message || 'Failed to send location');
+      }
+    } finally {
+      setIsSendingLocation(false);
+    }
+  };
+
+  // Handle sending live location
+  const handleSendLiveLocation = async (durationMinutes: number = 15) => {
+    if (!selectedThreadId || isSendingLocation) return;
+
+    setIsSendingLocation(true);
+    setShowAttachmentMenu(false);
+    setShowLocationMenu(false);
+
+    try {
+      // Get current position
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Geolocation is not supported by your browser'));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+
+      // Create temp message
+      const tempMessage: Message = {
+        id: Date.now(),
+        sender: 'You',
+        content: '📍 Live Location',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isSent: true,
+        type: 'location',
+        location: {
+          latitude,
+          longitude,
+          isLiveLocation: true,
+          expiresAt: new Date(Date.now() + durationMinutes * 60 * 1000).toISOString(),
+        },
+      };
+
+      setMessages((prev) => [...prev, tempMessage]);
+
+      // Send to server - use appropriate API based on conversation type
+      const isGroup = selectedConversation?.isGroup || false;
+      let response;
+
+      if (isGroup) {
+        response = await groupService.sendGroupMessage(selectedThreadId, {
+          messageType: 'location',
+          location: {
+            latitude,
+            longitude,
+            isLive: true,
+            duration: durationMinutes,
+          },
+        });
+      } else {
+        response = await chatService.sendMessage(selectedThreadId, {
+          messageType: 'location',
+          location: {
+            latitude,
+            longitude,
+            isLiveLocation: true,
+            duration: durationMinutes,
+          },
+        });
+      }
+
+      if (response.success && response.data) {
+        setMessages((prev) =>
+          prev.map((msg) => (msg.id === tempMessage.id ? { ...msg, id: response.data._id } : msg))
+        );
+        showToast.success(`Live location shared for ${durationMinutes} minutes`);
+      }
+    } catch (error: any) {
+      console.error('Error sending live location:', error);
+      if (error.code === 1) {
+        showToast.error('Location permission denied');
+      } else {
+        showToast.error(error.message || 'Failed to send live location');
+      }
+    } finally {
+      setIsSendingLocation(false);
     }
   };
 
@@ -1296,10 +1994,10 @@ function ChatPageContent() {
           setSelectedThreadId(threadId);
           // Join thread room via socket
           joinThread(threadId);
-          // Load messages for this thread
-          loadMessages(threadId);
-          // Mark as seen
-          markThreadAsRead(threadId, userId);
+          // Load messages for this thread (direct message, not group)
+          loadMessages(threadId, false);
+          // Mark as seen (direct message, not group)
+          markThreadAsRead(threadId, userId, false);
         } else {
           console.error('No thread ID in response');
         }
@@ -1309,9 +2007,12 @@ function ChatPageContent() {
     }
   };
 
-  const markThreadAsRead = async (threadId: string, userId: string) => {
+  const markThreadAsRead = async (threadId: string, userId: string, isGroup: boolean = false) => {
     try {
-      await chatService.markThreadAsRead(threadId);
+      // For now, groups don't have a mark-as-read endpoint, but we can add it later
+      if (!isGroup) {
+        await chatService.markThreadAsRead(threadId);
+      }
       // Update conversation to mark as read and reset unread count
       setConversations((prev) =>
         prev.map((conv) =>
@@ -1320,15 +2021,28 @@ function ChatPageContent() {
             : conv
         )
       );
-    } catch (error) {
-      console.error('Error marking thread as read:', error);
+      // Also update groups list if it's a group
+      if (isGroup) {
+        setGroups((prev) =>
+          prev.map((group) =>
+            group.id === threadId || group.threadId === threadId
+              ? { ...group, unread: false, unreadCount: 0 }
+              : group
+          )
+        );
+      }
+    } catch {
+      // Silently handle error
     }
   };
 
-  const loadMessages = async (threadId: string) => {
+  const loadMessages = async (threadId: string, isGroup: boolean = false) => {
     setIsLoadingMessages(true);
     try {
-      const response = await chatService.getMessages(threadId);
+      // Use group endpoint for group chats, chat endpoint for direct messages
+      const response = isGroup
+        ? await groupService.getGroupMessages(threadId)
+        : await chatService.getMessages(threadId);
 
       if (response.success && response.data) {
         // Handle both array and object responses
@@ -1361,6 +2075,15 @@ function ChatPageContent() {
           sharedContent: msg.sharedContent,
           media: msg.media || [],
           isForwarded: msg.isForwarded || false,
+          location: msg.location
+            ? {
+                latitude: msg.location.coordinates?.[1] || msg.location.latitude,
+                longitude: msg.location.coordinates?.[0] || msg.location.longitude,
+                address: msg.location.address,
+                name: msg.location.name,
+                isLiveLocation: msg.location.isLive,
+              }
+            : undefined,
           replyTo: msg.replyTo
             ? {
                 _id: msg.replyTo._id,
@@ -1375,8 +2098,8 @@ function ChatPageContent() {
         // No messages yet
         setMessages([]);
       }
-    } catch (error) {
-      console.error('Error loading messages:', error);
+    } catch {
+      // Silently handle error - messages will show as empty
       setMessages([]);
     } finally {
       setIsLoadingMessages(false);
@@ -1486,7 +2209,7 @@ function ChatPageContent() {
                           if (friend.threadId) {
                             setSelectedThreadId(friend.threadId);
                             joinThread(friend.threadId);
-                            loadMessages(friend.threadId);
+                            loadMessages(friend.threadId, false);
                           } else {
                             handleGetThread(friend.participantId);
                           }
@@ -1546,8 +2269,12 @@ function ChatPageContent() {
                       // Use threadId directly if available
                       setSelectedThreadId(conversation.threadId);
                       joinThread(conversation.threadId);
-                      loadMessages(conversation.threadId);
-                      markThreadAsRead(conversation.threadId, conversation.id.toString());
+                      loadMessages(conversation.threadId, conversation.isGroup);
+                      markThreadAsRead(
+                        conversation.threadId,
+                        conversation.id.toString(),
+                        conversation.isGroup
+                      );
                     } else {
                       // Fallback: create/get thread
                       handleGetThread(conversation.id.toString());
@@ -1585,7 +2312,7 @@ function ChatPageContent() {
                     )}
                     {conversation.isGroup && (
                       <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold border-2 border-card">
-                        {conversation.members}
+                        {conversation.memberCount}
                       </div>
                     )}
                   </div>
@@ -1605,7 +2332,7 @@ function ChatPageContent() {
                       </p>
                       {conversation.isGroup && (
                         <span className="text-xs text-muted-foreground">
-                          ({conversation.members})
+                          ({conversation.memberCount})
                         </span>
                       )}
                     </div>
@@ -1636,43 +2363,144 @@ function ChatPageContent() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        confirm({
-                          title: 'Delete Conversation',
-                          message: `Are you sure you want to delete this conversation with ${conversation.name}? This action cannot be undone.`,
-                          confirmText: 'Delete',
-                          variant: 'danger',
-                          onConfirm: async () => {
-                            try {
-                              const threadId = conversation.threadId || conversation.id;
-                              const response = await chatService.deleteThread(threadId);
+                    {conversation.isGroup ? (
+                      // For groups - Check if user is owner
+                      conversation.createdBy === user?._id ? (
+                        // Owner sees Delete Group option
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirm({
+                              title: 'Delete Group',
+                              message: `Are you sure you want to delete "${conversation.name}"? This will remove the group for all members and cannot be undone.`,
+                              confirmText: 'Delete',
+                              variant: 'danger',
+                              onConfirm: async () => {
+                                try {
+                                  const groupId = conversation.threadId || conversation.id;
+                                  const response = await groupService.deleteGroup(groupId);
 
-                              if (response.success) {
-                                // Remove from conversations list
-                                setConversations((prev) =>
-                                  prev.filter((c) => c.id !== conversation.id)
-                                );
+                                  if (response.success) {
+                                    // Remove from groups list
+                                    setGroups((prev) =>
+                                      prev.filter((g) => g.id !== conversation.id)
+                                    );
 
-                                // Clear selected conversation if it was deleted
-                                if (selectedConversation?.id === conversation.id) {
-                                  setSelectedConversation(null);
-                                  setSelectedThreadId(null);
-                                  setMessages([]);
+                                    // Clear selected conversation if it was this group
+                                    if (selectedConversation?.id === conversation.id) {
+                                      setSelectedConversation(null);
+                                      setSelectedThreadId(null);
+                                      setMessages([]);
+                                    }
+                                    showToast.success('Group deleted successfully');
+                                  } else {
+                                    showToast.error(response.message || 'Failed to delete group');
+                                  }
+                                } catch (error: any) {
+                                  console.error('Error deleting group:', error);
+                                  showToast.error(error.message || 'Failed to delete group');
                                 }
+                              },
+                            });
+                          }}
+                          className="text-red-600 dark:text-red-400"
+                        >
+                          <Trash2 size={14} className="mr-2" />
+                          Delete Group
+                        </DropdownMenuItem>
+                      ) : (
+                        // Members see Leave Group option
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirm({
+                              title: 'Leave Group',
+                              message: `Are you sure you want to leave "${conversation.name}"? You will no longer receive messages from this group.`,
+                              confirmText: 'Leave',
+                              variant: 'danger',
+                              onConfirm: async () => {
+                                try {
+                                  const groupId = conversation.threadId || conversation.id;
+                                  const response = await groupService.leaveGroup(
+                                    groupId,
+                                    user?._id || ''
+                                  );
+
+                                  if (response.success) {
+                                    // Remove from groups list
+                                    setGroups((prev) =>
+                                      prev.filter((g) => g.id !== conversation.id)
+                                    );
+
+                                    // Clear selected conversation if it was this group
+                                    if (selectedConversation?.id === conversation.id) {
+                                      setSelectedConversation(null);
+                                      setSelectedThreadId(null);
+                                      setMessages([]);
+                                    }
+                                    showToast.success('Left group successfully');
+                                  } else {
+                                    showToast.error(response.message || 'Failed to leave group');
+                                  }
+                                } catch (error: any) {
+                                  console.error('Error leaving group:', error);
+                                  showToast.error(error.message || 'Failed to leave group');
+                                }
+                              },
+                            });
+                          }}
+                          className="text-red-600 dark:text-red-400"
+                        >
+                          <LogOut size={14} className="mr-2" />
+                          Leave Group
+                        </DropdownMenuItem>
+                      )
+                    ) : (
+                      // For DMs - Delete Conversation option
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          confirm({
+                            title: 'Delete Conversation',
+                            message: `Are you sure you want to delete this conversation with ${conversation.name}? This action cannot be undone.`,
+                            confirmText: 'Delete',
+                            variant: 'danger',
+                            onConfirm: async () => {
+                              try {
+                                const threadId = conversation.threadId || conversation.id;
+                                const response = await chatService.deleteThread(threadId);
+
+                                if (response.success) {
+                                  // Remove from conversations list
+                                  setConversations((prev) =>
+                                    prev.filter((c) => c.id !== conversation.id)
+                                  );
+
+                                  // Clear selected conversation if it was deleted
+                                  if (selectedConversation?.id === conversation.id) {
+                                    setSelectedConversation(null);
+                                    setSelectedThreadId(null);
+                                    setMessages([]);
+                                  }
+                                  showToast.success('Conversation deleted');
+                                } else {
+                                  showToast.error(
+                                    response.message || 'Failed to delete conversation'
+                                  );
+                                }
+                              } catch (error: any) {
+                                console.error('Error deleting thread:', error);
+                                showToast.error(error.message || 'Failed to delete conversation');
                               }
-                            } catch (error: any) {
-                              console.error('Error deleting thread:', error);
-                            }
-                          },
-                        });
-                      }}
-                      className=""
-                    >
-                      <Trash2 size={14} className="mr-2 " />
-                      Delete Conversation
-                    </DropdownMenuItem>
+                            },
+                          });
+                        }}
+                        className="text-red-600 dark:text-red-400"
+                      >
+                        <Trash2 size={14} className="mr-2" />
+                        Delete Conversation
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -1711,12 +2539,13 @@ function ChatPageContent() {
 
                 <div
                   onClick={() =>
-                    !selectedConversation.isGroup &&
-                    handleOpenProfile(selectedConversation.participantId)
+                    selectedConversation.isGroup
+                      ? setIsGroupInfoOpen(true)
+                      : handleOpenProfile(selectedConversation.participantId)
                   }
                   className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${
                     selectedConversation.isGroup ? 'text-2xl' : ''
-                  } overflow-hidden ${!selectedConversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                  } overflow-hidden cursor-pointer hover:opacity-80 transition`}
                 >
                   {selectedConversation.avatar?.startsWith('http') ||
                   selectedConversation.avatar?.startsWith('/') ? (
@@ -1735,22 +2564,23 @@ function ChatPageContent() {
                   <div className="flex items-center gap-2">
                     <p
                       onClick={() =>
-                        !selectedConversation.isGroup &&
-                        handleOpenProfile(selectedConversation.participantId)
+                        selectedConversation.isGroup
+                          ? setIsGroupInfoOpen(true)
+                          : handleOpenProfile(selectedConversation.participantId)
                       }
-                      className={`font-semibold text-foreground ${!selectedConversation.isGroup ? 'cursor-pointer hover:text-primary transition' : ''}`}
+                      className="font-semibold text-foreground cursor-pointer hover:text-primary transition"
                     >
                       {selectedConversation.name}
                     </p>
                     {selectedConversation.isGroup && (
                       <span className="text-xs text-muted-foreground">
-                        ({selectedConversation.members} members)
+                        ({selectedConversation.memberCount} members)
                       </span>
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     {selectedConversation.isGroup
-                      ? `${selectedConversation.members} members`
+                      ? `${selectedConversation.memberCount} members`
                       : selectedConversation.online
                         ? 'Active now'
                         : 'Offline'}
@@ -1759,18 +2589,6 @@ function ChatPageContent() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Group Info Button */}
-                {selectedConversation.isGroup && (
-                  <button
-                    type="button"
-                    onClick={() => setIsGroupInfoOpen(true)}
-                    className="p-2 hover:bg-muted rounded-full transition cursor-pointer"
-                    title="Group Info"
-                  >
-                    <Info size={20} className="text-foreground" />
-                  </button>
-                )}
-
                 {/* Voice/Video calls - available for both direct messages and groups */}
                 <>
                   <button
@@ -1854,42 +2672,42 @@ function ChatPageContent() {
                   </button>
                 </>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
-                      title="More options"
-                    >
-                      <MoreHorizontal size={20} className="text-muted-foreground" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() =>
-                        !selectedConversation.isGroup &&
-                        handleOpenProfile(selectedConversation.participantId)
-                      }
-                      className="cursor-pointer"
-                    >
-                      <User size={16} className="mr-2" />
-                      View Profile
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={handleReportUser}
-                      className="text-orange-500 cursor-pointer"
-                    >
-                      <Flag size={16} className="mr-2" />
-                      Report User
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={handleBlockUser}
-                      className="text-destructive cursor-pointer"
-                    >
-                      <Ban size={16} className="mr-2" />
-                      Block User
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* Only show dropdown menu for direct messages */}
+                {!selectedConversation.isGroup && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                        title="More options"
+                      >
+                        <MoreHorizontal size={20} className="text-muted-foreground" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => handleOpenProfile(selectedConversation.participantId)}
+                        className="cursor-pointer"
+                      >
+                        <User size={16} className="mr-2" />
+                        View Profile
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={handleReportUser}
+                        className="text-orange-500 cursor-pointer"
+                      >
+                        <Flag size={16} className="mr-2" />
+                        Report User
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={handleBlockUser}
+                        className="text-destructive cursor-pointer"
+                      >
+                        <Ban size={16} className="mr-2" />
+                        Block User
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </div>
             </div>
 
@@ -2011,6 +2829,12 @@ function ChatPageContent() {
                                   : 'bg-muted rounded-bl-none'
                               }`}
                             >
+                              {/* Show sender name for group messages (when not your own message) */}
+                              {selectedConversation?.isGroup && !message.isSent && (
+                                <p className="text-xs font-semibold text-primary mb-1">
+                                  {message.sender}
+                                </p>
+                              )}
                               {/* Reply preview if this message is a reply */}
                               {message.replyTo && (
                                 <div
@@ -2095,6 +2919,63 @@ function ChatPageContent() {
                                     messageType={(message as any).messageType}
                                     contentData={(message as any).sharedContent.contentData}
                                   />
+                                )}
+
+                              {/* Location Message */}
+                              {(message.location || (message as any).messageType === 'location') &&
+                                message.location && (
+                                  <a
+                                    href={`https://www.google.com/maps?q=${message.location.latitude},${message.location.longitude}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block mt-2 rounded-lg overflow-hidden border border-border hover:border-primary/50 transition"
+                                  >
+                                    {/* Map Preview */}
+                                    <div className="relative w-[250px] h-[150px] bg-muted">
+                                      <img
+                                        src={`https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-s+ef4444(${message.location.longitude},${message.location.latitude})/${message.location.longitude},${message.location.latitude},14,0/250x150@2x?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw`}
+                                        alt="Location"
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          // Fallback to OpenStreetMap static image
+                                          (e.target as HTMLImageElement).src =
+                                            `https://staticmap.openstreetmap.de/staticmap.php?center=${message.location!.latitude},${message.location!.longitude}&zoom=14&size=250x150&markers=${message.location!.latitude},${message.location!.longitude},red-pushpin`;
+                                        }}
+                                      />
+                                      {message.location.isLiveLocation && (
+                                        <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+                                          Live
+                                        </div>
+                                      )}
+                                    </div>
+                                    {/* Location Info */}
+                                    <div className="p-2 bg-card">
+                                      <div className="flex items-center gap-2">
+                                        <MapPin
+                                          size={14}
+                                          className={
+                                            message.location.isLiveLocation
+                                              ? 'text-green-500'
+                                              : 'text-red-500'
+                                          }
+                                        />
+                                        <span className="text-sm font-medium">
+                                          {message.location.isLiveLocation
+                                            ? 'Live Location'
+                                            : 'Location'}
+                                        </span>
+                                      </div>
+                                      {message.location.address && (
+                                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                          {message.location.address}
+                                        </p>
+                                      )}
+                                      <p className="text-xs text-primary mt-1">
+                                        Tap to open in Maps
+                                      </p>
+                                    </div>
+                                  </a>
                                 )}
 
                               <p
@@ -2335,29 +3216,122 @@ function ChatPageContent() {
                         </div>
                         <span>Document</span>
                       </button>
+
+                      {/* Location Options */}
+                      <div className="border-t border-border my-1"></div>
+                      <button
+                        onClick={handleSendCurrentLocation}
+                        disabled={isSendingLocation}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm disabled:opacity-50"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center">
+                          <MapPin size={16} className="text-green-500" />
+                        </div>
+                        <span>
+                          {isSendingLocation ? 'Getting location...' : 'Current Location'}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => setShowLocationMenu(!showLocationMenu)}
+                        disabled={isSendingLocation}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm disabled:opacity-50"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-orange-500/10 flex items-center justify-center">
+                          <Navigation2 size={16} className="text-orange-500" />
+                        </div>
+                        <span>Live Location</span>
+                      </button>
+
+                      {/* Live Location Duration Options */}
+                      {showLocationMenu && (
+                        <div className="ml-11 space-y-1 mt-1">
+                          <button
+                            onClick={() => handleSendLiveLocation(15)}
+                            className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
+                          >
+                            Share for 15 minutes
+                          </button>
+                          <button
+                            onClick={() => handleSendLiveLocation(60)}
+                            className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
+                          >
+                            Share for 1 hour
+                          </button>
+                          <button
+                            onClick={() => handleSendLiveLocation(480)}
+                            className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
+                          >
+                            Share for 8 hours
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
-                <div className="flex-1">
-                  <Input
-                    type="text"
-                    placeholder={selectedFile ? 'Add a caption...' : 'Type a message...'}
-                    value={messageInput}
-                    onChange={(e) => handleMessageInputChange(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    disabled={isSendingMessage}
-                    className="w-full"
-                  />
-                </div>
+                {/* Emoji Picker */}
+                <EmojiPicker onEmojiSelect={handleEmojiSelect} showQuickReactions={true} />
 
-                <Button
-                  onClick={handleSendMessage}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer mb-0.5"
-                  disabled={isSendingMessage || (!messageInput.trim() && !selectedFile)}
-                >
-                  <Send size={20} />
-                </Button>
+                {/* Message Input or Recording UI */}
+                {isRecording ? (
+                  <div className="flex-1 flex items-center gap-3 px-4 py-2 bg-red-500/10 rounded-lg border border-red-500/30">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+                      <span className="text-red-500 font-medium">
+                        {formatRecordingDuration(recordingDuration)}
+                      </span>
+                    </div>
+                    <span className="text-sm text-muted-foreground flex-1">Recording...</span>
+                    <button
+                      onClick={cancelRecording}
+                      className="p-2 rounded-full hover:bg-red-500/20 transition text-red-500"
+                      title="Cancel"
+                    >
+                      <X size={20} />
+                    </button>
+                    <button
+                      onClick={stopRecording}
+                      className="p-2 rounded-full bg-red-500 hover:bg-red-600 transition text-white"
+                      title="Send"
+                    >
+                      <Send size={20} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex-1">
+                      <Input
+                        type="text"
+                        placeholder={selectedFile ? 'Add a caption...' : 'Type a message...'}
+                        value={messageInput}
+                        onChange={(e) => handleMessageInputChange(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                        disabled={isSendingMessage}
+                        className="w-full"
+                      />
+                    </div>
+
+                    {/* Send or Mic Button */}
+                    {messageInput.trim() || selectedFile ? (
+                      <Button
+                        onClick={handleSendMessage}
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer mb-0.5"
+                        disabled={isSendingMessage}
+                      >
+                        <Send size={20} />
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={startRecording}
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer mb-0.5"
+                        disabled={isSendingMessage}
+                        title="Hold to record voice message"
+                      >
+                        <Mic size={20} />
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </section>
@@ -2414,62 +3388,25 @@ function ChatPageContent() {
         isOpen={isCreateGroupOpen}
         onClose={() => setIsCreateGroupOpen(false)}
         onGroupCreated={(group) => {
-          // Reload conversations to show new group
-          const loadConvs = async () => {
-            try {
-              const response = await chatService.getThreads();
-              if (response.success && response.data) {
-                const threadsArray = response.data.threads || response.data || [];
-                const convList = threadsArray.map((thread: any) => {
-                  if (thread.isGroup) {
-                    return {
-                      id: thread._id,
-                      name: thread.groupName || 'Group',
-                      avatar: thread.groupAvatar || '👥',
-                      lastMessage: thread.lastMessage?.text || '',
-                      timestamp: thread.lastMessageAt
-                        ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : 'Just now',
-                      unread: (thread.unreadCount || 0) > 0,
-                      unreadCount: thread.unreadCount || 0,
-                      online: false,
-                      isGroup: true,
-                      members: thread.participants?.length || 0,
-                      threadId: thread._id,
-                      participantId: '',
-                    };
-                  } else {
-                    const otherParticipant = thread.participant;
-                    return {
-                      id: thread._id,
-                      participantId: otherParticipant?._id,
-                      name: otherParticipant?.firstName || otherParticipant?.username || 'Unknown',
-                      avatar:
-                        otherParticipant?.profileImage || otherParticipant?.profilePicture || '👤',
-                      lastMessage: thread.lastMessage?.text || '',
-                      timestamp: thread.lastMessageAt
-                        ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : 'Just now',
-                      unread: (thread.unreadCount || 0) > 0,
-                      unreadCount: thread.unreadCount || 0,
-                      online: otherParticipant?.isOnline || false,
-                      threadId: thread._id,
-                    };
-                  }
-                });
-                setConversations(convList);
-              }
-            } catch (error) {
-              console.error('Error reloading conversations:', error);
-            }
+          // Add new group to groups list
+          const newGroup = {
+            id: group._id,
+            threadId: group._id,
+            name: group.name || 'Unnamed Group',
+            avatar: group.avatar || '👥',
+            lastMessage: '',
+            timestamp: 'Just now',
+            unread: false,
+            unreadCount: 0,
+            online: false,
+            isGroup: true,
+            memberCount: group.members?.length || 0,
+            members: group.members || [],
+            participantId: '',
           };
-          loadConvs();
+          setGroups((prev) => [newGroup, ...prev]);
+          // Switch to groups tab to show the new group
+          setActiveTab('groups');
         }}
       />
 
@@ -2509,10 +3446,14 @@ function ChatPageContent() {
                     };
                   } else {
                     const otherParticipant = thread.participant;
+                    const fullName =
+                      otherParticipant?.firstName && otherParticipant?.lastName
+                        ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
+                        : otherParticipant?.firstName || otherParticipant?.username || 'Unknown';
                     return {
                       id: thread._id,
                       participantId: otherParticipant?._id,
-                      name: otherParticipant?.firstName || otherParticipant?.username || 'Unknown',
+                      name: fullName,
                       avatar:
                         otherParticipant?.profileImage || otherParticipant?.profilePicture || '👤',
                       lastMessage: thread.lastMessage?.text || '',
@@ -2576,10 +3517,14 @@ function ChatPageContent() {
                     };
                   } else {
                     const otherParticipant = thread.participant;
+                    const fullName =
+                      otherParticipant?.firstName && otherParticipant?.lastName
+                        ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
+                        : otherParticipant?.firstName || otherParticipant?.username || 'Unknown';
                     return {
                       id: thread._id,
                       participantId: otherParticipant?._id,
-                      name: otherParticipant?.firstName || otherParticipant?.username || 'Unknown',
+                      name: fullName,
                       avatar:
                         otherParticipant?.profileImage || otherParticipant?.profilePicture || '👤',
                       lastMessage: thread.lastMessage?.text || '',
@@ -2603,6 +3548,14 @@ function ChatPageContent() {
             }
           };
           loadConvs();
+        }}
+        onDeleteGroup={() => {
+          // Close modal, clear selection, remove group from list
+          setIsGroupInfoOpen(false);
+          setGroups((prev) => prev.filter((g) => g.id !== selectedConversation?.id));
+          setSelectedConversation(null);
+          setSelectedThreadId(null);
+          setMessages([]);
         }}
       />
 

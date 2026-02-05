@@ -1,10 +1,10 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
 const postSchema = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
       index: true,
     },
@@ -16,7 +16,7 @@ const postSchema = new mongoose.Schema(
       {
         type: {
           type: String,
-          enum: ["image", "video"],
+          enum: ['image', 'video'],
           required: true,
         },
         url: {
@@ -32,7 +32,7 @@ const postSchema = new mongoose.Schema(
     tags: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
+        ref: 'User',
       },
     ],
     location: {
@@ -42,8 +42,8 @@ const postSchema = new mongoose.Schema(
     },
     visibility: {
       type: String,
-      enum: ["public", "followers", "private"],
-      default: "public",
+      enum: ['public', 'followers', 'private'],
+      default: 'public',
     },
     likes_count: {
       type: Number,
@@ -61,6 +61,16 @@ const postSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    views_count: {
+      type: Number,
+      default: 0,
+    },
+    viewers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     is_deleted: {
       type: Boolean,
       default: false,
@@ -76,4 +86,4 @@ postSchema.index({ visibility: 1, createdAt: -1 });
 postSchema.index({ is_deleted: 1, createdAt: -1 }); // Feed queries
 postSchema.index({ user_id: 1, is_deleted: 1 }); // User post count
 
-export const Post = mongoose.model("Post", postSchema);
+export const Post = mongoose.model('Post', postSchema);
