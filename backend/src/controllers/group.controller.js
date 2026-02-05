@@ -945,16 +945,42 @@ export const sendGroupMessage = asyncHandler(async (req, res) => {
   // Populate message for response
   const populatedMessage = await GroupMessage.findById(message._id)
     .populate('senderId', 'firstName lastName username profileImage avatar')
-    .populate('replyTo', 'encryptedContent messageType senderId')
+    .populate({
+      path: 'replyTo',
+      select: 'encryptedContent messageType senderId',
+      populate: {
+        path: 'senderId',
+        select: 'firstName lastName username',
+      },
+    })
     .populate('mentions', 'firstName lastName username');
 
   // Emit to all group members
   const io = getIO();
   if (io) {
     // Decrypt for sending via socket
+    const msgObj = populatedMessage.toObject();
+
+    // Decrypt replyTo content if present
+    let replyToData = msgObj.replyTo;
+    if (replyToData && replyToData.encryptedContent) {
+      try {
+        replyToData = {
+          ...replyToData,
+          text: decryptMessage(replyToData.encryptedContent),
+          senderName: replyToData.senderId?.firstName
+            ? `${replyToData.senderId.firstName} ${replyToData.senderId.lastName || ''}`.trim()
+            : 'Unknown',
+        };
+      } catch {
+        replyToData = { ...replyToData, text: '[Unable to decrypt]', senderName: 'Unknown' };
+      }
+    }
+
     const decryptedMessage = {
-      ...populatedMessage.toObject(),
+      ...msgObj,
       text: text || null,
+      replyTo: replyToData,
     };
 
     group.members.forEach((member) => {
@@ -1011,14 +1037,21 @@ export const getGroupMessages = asyncHandler(async (req, res) => {
 
   const messages = await GroupMessage.find(query)
     .populate('senderId', 'firstName lastName username profileImage avatar')
-    .populate('replyTo', 'encryptedContent messageType senderId')
+    .populate({
+      path: 'replyTo',
+      select: 'encryptedContent messageType senderId',
+      populate: {
+        path: 'senderId',
+        select: 'firstName lastName username',
+      },
+    })
     .populate('mentions', 'firstName lastName username')
     .populate('reactions.user', 'firstName lastName username profileImage')
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
     .lean();
 
-  // Decrypt messages
+  // Decrypt messages and replyTo content
   const decryptedMessages = messages.map((msg) => {
     let text = null;
     if (msg.encryptedContent) {
@@ -1028,7 +1061,24 @@ export const getGroupMessages = asyncHandler(async (req, res) => {
         text = '[Unable to decrypt]';
       }
     }
-    return { ...msg, text };
+
+    // Also decrypt replyTo content
+    let replyTo = msg.replyTo;
+    if (replyTo && replyTo.encryptedContent) {
+      try {
+        replyTo = {
+          ...replyTo,
+          text: decryptMessage(replyTo.encryptedContent),
+          senderName: replyTo.senderId?.firstName
+            ? `${replyTo.senderId.firstName} ${replyTo.senderId.lastName || ''}`.trim()
+            : 'Unknown',
+        };
+      } catch {
+        replyTo = { ...replyTo, text: '[Unable to decrypt]', senderName: 'Unknown' };
+      }
+    }
+
+    return { ...msg, text, replyTo };
   });
 
   // Mark as read

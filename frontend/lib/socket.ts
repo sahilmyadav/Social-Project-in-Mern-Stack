@@ -348,6 +348,14 @@ export const emitInitiateCall = (
   });
 };
 
+// Emit group call event - notifies all online group members
+export const emitInitiateGroupCall = (groupId: string, callType: 'voice' | 'video' = 'voice') => {
+  socket?.emit('initiateGroupCall', {
+    groupId,
+    callType,
+  });
+};
+
 export const emitAcceptCall = (callerId: string, threadId: string) => {
   socket?.emit('acceptCall', {
     callerId,

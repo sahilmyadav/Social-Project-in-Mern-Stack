@@ -26,12 +26,14 @@ const storage = multer.diskStorage({
   },
 });
 
-// File filter to accept images, videos, and documents
+// File filter to accept images, videos, audio, and documents
 const fileFilter = (req, file, cb) => {
   // Allowed image formats
   const imageTypes = /jpeg|jpg|png|gif|webp|svg/;
   // Allowed video formats
   const videoTypes = /mp4|mov|avi|mkv|webm|flv/;
+  // Allowed audio formats
+  const audioTypes = /mp3|wav|ogg|webm|m4a|aac|flac/;
   // Allowed document formats
   const documentTypes = /pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|rtf|odt|ods|odp|zip|rar|7z/;
 
@@ -42,6 +44,8 @@ const fileFilter = (req, file, cb) => {
   const isImage = imageTypes.test(extname.replace('.', '')) && mimetype.startsWith('image/');
   // Check if file is video
   const isVideo = videoTypes.test(extname.replace('.', '')) && mimetype.startsWith('video/');
+  // Check if file is audio
+  const isAudio = audioTypes.test(extname.replace('.', '')) && mimetype.startsWith('audio/');
   // Check if file is document
   const isDocument =
     documentTypes.test(extname.replace('.', '')) &&
@@ -58,12 +62,12 @@ const fileFilter = (req, file, cb) => {
       mimetype === 'application/x-rar-compressed' ||
       mimetype === 'application/x-7z-compressed');
 
-  if (isImage || isVideo || isDocument) {
+  if (isImage || isVideo || isAudio || isDocument) {
     cb(null, true);
   } else {
     cb(
       new Error(
-        'Invalid file type. Allowed: images (jpeg, jpg, png, gif, webp, svg), videos (mp4, mov, avi, mkv, webm, flv), documents (pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, zip, rar).'
+        'Invalid file type. Allowed: images (jpeg, jpg, png, gif, webp, svg), videos (mp4, mov, avi, mkv, webm, flv), audio (mp3, wav, ogg, webm, m4a, aac, flac), documents (pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, zip, rar).'
       ),
       false
     );

@@ -24,6 +24,22 @@ const MAX_FILE_SIZE = {
 const ALLOWED_EXTENSIONS = {
   image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'],
   video: ['.mp4', '.mov', '.avi', '.mkv', '.webm'],
+  audio: ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.aac', '.flac'],
+  document: [
+    '.pdf',
+    '.doc',
+    '.docx',
+    '.xls',
+    '.xlsx',
+    '.ppt',
+    '.pptx',
+    '.txt',
+    '.csv',
+    '.rtf',
+    '.zip',
+    '.rar',
+    '.7z',
+  ],
 };
 
 // Image compression settings by content type
@@ -49,9 +65,13 @@ const ensureDirectoryExists = (dir) => {
 const generateUniqueFileName = (userId, originalName, type) => {
   const timestamp = Date.now();
   const randomStr = crypto.randomBytes(8).toString('hex');
-  // Always output as .jpg for compressed images, keep original for videos
   const originalExt = path.extname(originalName).toLowerCase();
-  const ext = ALLOWED_EXTENSIONS.video.includes(originalExt) ? originalExt : '.jpg';
+  // Keep original extension for videos, audio, and documents; convert images to .jpg for compression
+  const isCompressibleImage =
+    ALLOWED_EXTENSIONS.image.includes(originalExt) &&
+    originalExt !== '.gif' &&
+    originalExt !== '.svg';
+  const ext = isCompressibleImage ? '.jpg' : originalExt;
   const safeUserId = String(userId).replace(/[^a-zA-Z0-9]/g, '');
   return `${type}_${safeUserId}_${timestamp}_${randomStr}${ext}`;
 };
@@ -153,7 +173,10 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
     }
 
     const originalExt = path.extname(originalName).toLowerCase();
-    const isImage = ALLOWED_EXTENSIONS.image.includes(originalExt) && originalExt !== '.gif' && originalExt !== '.svg';
+    const isImage =
+      ALLOWED_EXTENSIONS.image.includes(originalExt) &&
+      originalExt !== '.gif' &&
+      originalExt !== '.svg';
     const isVideo = ALLOWED_EXTENSIONS.video.includes(originalExt);
 
     const fileName = generateUniqueFileName(userId, originalName, contentType);
@@ -360,19 +383,19 @@ const delteOnCloudinray = async (publicId) => {
 };
 
 export {
-    AVATARS_DIR,
-    deleteLocalFile,
-    deleteMultipleFiles,
-    delteOnCloudinray,
-    generateUniqueFileName,
-    getFileType,
-    getStorageStats,
-    POSTS_DIR,
-    REELS_DIR,
-    saveFileLocally,
-    saveMultipleFilesLocally,
-    STORIES_DIR,
-    uploadOnCloudinary,
-    UPLOADS_DIR,
-    validateFile
+  AVATARS_DIR,
+  deleteLocalFile,
+  deleteMultipleFiles,
+  delteOnCloudinray,
+  generateUniqueFileName,
+  getFileType,
+  getStorageStats,
+  POSTS_DIR,
+  REELS_DIR,
+  saveFileLocally,
+  saveMultipleFilesLocally,
+  STORIES_DIR,
+  uploadOnCloudinary,
+  UPLOADS_DIR,
+  validateFile,
 };

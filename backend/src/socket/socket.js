@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { createClient } from 'redis';
 import { Server } from 'socket.io';
 import { ChatMessage } from '../models/chatMessage.model.js';
+import { GroupChat } from '../models/groupChat.model.js';
 import { User } from '../models/user.model.js';
 import groupSocket from './group.socket.js';
 import liveStreamSocket from './liveStream.socket.js';
@@ -322,6 +323,320 @@ export const initializeSocket = async (server) => {
       }
     });
 
+    // Initiate GROUP call - User A calls ALL online members in a group
+    socket.on('initiateGroupCall', async ({ groupId, callType = 'voice' }) => {
+      try {
+        console.log(`📞 Group call initiated by ${userId} in group ${groupId}, type: ${callType}`);
+
+        // Fetch the group and its members
+        const group = await GroupChat.findById(groupId).select('name avatar members').lean();
+
+        if (!group) {
+          console.log(`❌ Group ${groupId} not found`);
+          socket.emit('callFailed', {
+            groupId,
+            reason: 'Group not found',
+          });
+          return;
+        }
+
+        // Get all member IDs except the caller
+        const memberIds = group.members.map((m) => m.user.toString()).filter((id) => id !== userId);
+
+        if (memberIds.length === 0) {
+          console.log(`❌ No other members in group ${groupId}`);
+          socket.emit('callFailed', {
+            groupId,
+            reason: 'No other members in this group',
+          });
+          return;
+        }
+
+        // Fetch caller's user info to send with the notification
+        const callerUser = await User.findById(userId).select(
+          'firstName lastName username profilePicture avatar'
+        );
+
+        // Construct proper caller name
+        let callerName = 'Unknown User';
+        if (callerUser?.firstName && callerUser?.lastName) {
+          callerName = `${callerUser.firstName} ${callerUser.lastName}`;
+        } else if (callerUser?.username) {
+          callerName = callerUser.username;
+        }
+
+        // Track how many online members we found
+        let onlineMembersCount = 0;
+
+        // Send incoming call notification to each online member
+        for (const memberId of memberIds) {
+          const memberSockets = await io.in(memberId).allSockets();
+
+          if (memberSockets.size > 0) {
+            onlineMembersCount++;
+            console.log(`📞 Sending group call notification to ${memberId}`);
+
+            io.to(memberId).emit('incomingCall', {
+              callerId: userId,
+              threadId: groupId, // Use groupId as threadId
+              callType: callType,
+              isGroupCall: true, // Flag to indicate this is a group call
+              groupInfo: {
+                groupId: groupId,
+                groupName: group.name,
+                groupAvatar: group.avatar,
+              },
+              callerInfo: {
+                avatar: callerUser?.profilePicture || callerUser?.avatar || '👤',
+                name: callerName,
+              },
+              timestamp: new Date(),
+              name: `${callerName} (${group.name})`, // Show caller name and group name
+            });
+          }
+        }
+
+        if (onlineMembersCount === 0) {
+          console.log(`❌ No online members in group ${groupId}`);
+          socket.emit('callFailed', {
+            groupId,
+            reason: 'No group members are online',
+          });
+          return;
+        }
+
+        console.log(`✅ Group call notification sent to ${onlineMembersCount} online members`);
+      } catch (error) {
+        console.error('❌ Error initiating group call:', error);
+        socket.emit('callFailed', {
+          groupId,
+          reason: 'Internal server error',
+        });
+      }
+    });
+
+    // ============================================
+    // GROUP CALL MANAGEMENT
+    // ============================================
+
+    // Track active group calls: groupId -> Set of participant userIds
+    // Note: This is a simple in-memory store for now
+    if (!global.activeGroupCalls) {
+      global.activeGroupCalls = new Map();
+    }
+
+    // Join a group call
+    socket.on('joinGroupCall', async ({ groupId, callType }) => {
+      try {
+        console.log(`📞 User ${userId} joining group call ${groupId}`);
+
+        // Get or create the group call session
+        if (!global.activeGroupCalls.has(groupId)) {
+          global.activeGroupCalls.set(groupId, new Set());
+        }
+
+        const participants = global.activeGroupCalls.get(groupId);
+
+        // Get existing participants before adding new one
+        const existingParticipantIds = Array.from(participants);
+
+        participants.add(userId);
+
+        // Join the group call room
+        socket.join(`group-call:${groupId}`);
+
+        // Get user info for the joining user
+        const user = await User.findById(userId).select(
+          'firstName lastName username avatar profilePicture'
+        );
+        const userName =
+          user?.firstName && user?.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user?.username || 'Unknown';
+
+        // Notify all OTHER participants in the call that this user joined
+        socket.to(`group-call:${groupId}`).emit('groupCallParticipantJoined', {
+          userId: userId,
+          userName: userName,
+          avatar: user?.profilePicture || user?.avatar,
+          callType: callType,
+        });
+
+        // Send the list of existing participants to the joining user
+        if (existingParticipantIds.length > 0) {
+          const existingUsers = await User.find({ _id: { $in: existingParticipantIds } }).select(
+            'firstName lastName username avatar profilePicture'
+          );
+
+          for (const existingUser of existingUsers) {
+            const existingUserName =
+              existingUser?.firstName && existingUser?.lastName
+                ? `${existingUser.firstName} ${existingUser.lastName}`
+                : existingUser?.username || 'Unknown';
+
+            socket.emit('groupCallParticipantJoined', {
+              userId: existingUser._id.toString(),
+              userName: existingUserName,
+              avatar: existingUser?.profilePicture || existingUser?.avatar,
+            });
+          }
+        }
+
+        console.log(
+          `✅ User ${userId} joined group call ${groupId}, total participants: ${participants.size}`
+        );
+      } catch (error) {
+        console.error('❌ Error joining group call:', error);
+      }
+    });
+
+    // Accept a group call (for incoming calls)
+    socket.on('acceptGroupCall', async ({ groupId, callerId }) => {
+      try {
+        console.log(`📞 User ${userId} accepting group call ${groupId}`);
+
+        // Get or create the group call session
+        if (!global.activeGroupCalls.has(groupId)) {
+          global.activeGroupCalls.set(groupId, new Set());
+        }
+
+        const participants = global.activeGroupCalls.get(groupId);
+
+        // Get existing participants before adding new one
+        const existingParticipantIds = Array.from(participants);
+
+        participants.add(userId);
+
+        // Join the group call room
+        socket.join(`group-call:${groupId}`);
+
+        // Get user info for the joining user
+        const user = await User.findById(userId).select(
+          'firstName lastName username avatar profilePicture'
+        );
+        const userName =
+          user?.firstName && user?.lastName
+            ? `${user.firstName} ${user.lastName}`
+            : user?.username || 'Unknown';
+
+        // Notify all OTHER participants in the call that this user joined
+        socket.to(`group-call:${groupId}`).emit('groupCallParticipantJoined', {
+          userId: userId,
+          userName: userName,
+          avatar: user?.profilePicture || user?.avatar,
+        });
+
+        // Send the list of existing participants to the joining user
+        if (existingParticipantIds.length > 0) {
+          const existingUsers = await User.find({ _id: { $in: existingParticipantIds } }).select(
+            'firstName lastName username avatar profilePicture'
+          );
+
+          for (const existingUser of existingUsers) {
+            const existingUserName =
+              existingUser?.firstName && existingUser?.lastName
+                ? `${existingUser.firstName} ${existingUser.lastName}`
+                : existingUser?.username || 'Unknown';
+
+            socket.emit('groupCallParticipantJoined', {
+              userId: existingUser._id.toString(),
+              userName: existingUserName,
+              avatar: existingUser?.profilePicture || existingUser?.avatar,
+            });
+          }
+        }
+
+        // Notify the caller that this user accepted
+        io.to(callerId?.toString()).emit('groupCallAccepted', {
+          userId: userId,
+          userName: userName,
+          avatar: user?.profilePicture || user?.avatar,
+          groupId: groupId,
+        });
+
+        console.log(`✅ User ${userId} accepted group call ${groupId}`);
+      } catch (error) {
+        console.error('❌ Error accepting group call:', error);
+      }
+    });
+
+    // Reject a group call
+    socket.on('rejectGroupCall', ({ groupId, callerId }) => {
+      console.log(`📞 User ${userId} rejected group call ${groupId}`);
+
+      // Notify the caller (optional)
+      io.to(callerId?.toString()).emit('groupCallRejected', {
+        userId: userId,
+        groupId: groupId,
+      });
+    });
+
+    // Leave a group call
+    socket.on('leaveGroupCall', async ({ groupId }) => {
+      try {
+        console.log(`📞 User ${userId} leaving group call ${groupId}`);
+
+        // Remove from participants
+        if (global.activeGroupCalls.has(groupId)) {
+          const participants = global.activeGroupCalls.get(groupId);
+          participants.delete(userId);
+
+          // If no participants left, clean up the call
+          if (participants.size === 0) {
+            global.activeGroupCalls.delete(groupId);
+            console.log(`📞 Group call ${groupId} ended (no participants)`);
+          }
+        }
+
+        // Leave the group call room
+        socket.leave(`group-call:${groupId}`);
+
+        // Notify remaining participants
+        io.to(`group-call:${groupId}`).emit('groupCallParticipantLeft', {
+          userId: userId,
+        });
+
+        console.log(`✅ User ${userId} left group call ${groupId}`);
+      } catch (error) {
+        console.error('❌ Error leaving group call:', error);
+      }
+    });
+
+    // Toggle mute in group call
+    socket.on('groupCallMuteToggle', ({ groupId, isMuted }) => {
+      io.to(`group-call:${groupId}`).emit('groupCallParticipantMuted', {
+        userId: userId,
+        isMuted: isMuted,
+      });
+    });
+
+    // Toggle video in group call
+    socket.on('groupCallVideoToggle', ({ groupId, isVideoOff }) => {
+      io.to(`group-call:${groupId}`).emit('groupCallParticipantVideoToggle', {
+        userId: userId,
+        isVideoOff: isVideoOff,
+      });
+    });
+
+    // End group call (host only)
+    socket.on('endGroupCall', async ({ groupId }) => {
+      try {
+        console.log(`📞 Group call ${groupId} ended by ${userId}`);
+
+        // Notify all participants
+        io.to(`group-call:${groupId}`).emit('groupCallEnded', {
+          endedBy: userId,
+        });
+
+        // Clean up
+        if (global.activeGroupCalls.has(groupId)) {
+          global.activeGroupCalls.delete(groupId);
+        }
+      } catch (error) {
+        console.error('❌ Error ending group call:', error);
+      }
+    });
+
     // Accept call - User B accepts the incoming call
     socket.on('acceptCall', ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
@@ -366,22 +681,52 @@ export const initializeSocket = async (server) => {
     // ============================================
 
     // WebRTC offer - Send WebRTC offer for peer connection
-    socket.on('offer', ({ recipientId, offer }) => {
-      console.log(`🔄 WebRTC offer: ${socket.userId} -> ${recipientId}`);
+    socket.on('offer', async ({ recipientId, offer, callType }) => {
+      console.log(`🔄 WebRTC offer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
+
+      // Get caller info to send with offer
+      const caller = await User.findById(socket.userId).select(
+        'firstName lastName username avatar profilePicture'
+      );
+      const callerName =
+        caller?.firstName && caller?.lastName
+          ? `${caller.firstName} ${caller.lastName}`
+          : caller?.username || 'Unknown';
 
       io.to(recipientId).emit('offer', {
         callerId: socket.userId,
         offer: offer,
+        callType: callType,
+        callerInfo: {
+          odgoId: socket.userId,
+          odgoName: callerName,
+          odgoAvatar: caller?.profilePicture || caller?.avatar,
+        },
       });
     });
 
     // WebRTC answer - Send WebRTC answer back to caller
-    socket.on('answer', ({ callerId, answer }) => {
-      console.log(`🔄 WebRTC answer: ${socket.userId} -> ${callerId}`);
+    socket.on('answer', async ({ recipientId, answer, callType }) => {
+      console.log(`🔄 WebRTC answer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
 
-      io.to(callerId).emit('answer', {
-        receiverId: socket.userId,
+      // Get answerer info to send with answer
+      const answerer = await User.findById(socket.userId).select(
+        'firstName lastName username avatar profilePicture'
+      );
+      const answererName =
+        answerer?.firstName && answerer?.lastName
+          ? `${answerer.firstName} ${answerer.lastName}`
+          : answerer?.username || 'Unknown';
+
+      io.to(recipientId).emit('answer', {
+        recipientId: socket.userId,
         answer: answer,
+        callType: callType,
+        answererInfo: {
+          odgoId: socket.userId,
+          odgoName: answererName,
+          odgoAvatar: answerer?.profilePicture || answerer?.avatar,
+        },
       });
     });
 

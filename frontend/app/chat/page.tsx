@@ -3,6 +3,8 @@
 import CreateGroupModal from '@/components/create-group-modal';
 import EmojiPicker from '@/components/emoji-picker';
 import GroupInfoModal from '@/components/group-info-modal';
+import GroupVideoCallModal from '@/components/group-video-call-modal';
+import GroupVoiceCallModal from '@/components/group-voice-call-modal';
 import Navigation from '@/components/navigation';
 import SharedContentPreview from '@/components/shared-content-preview';
 import { Button } from '@/components/ui/button';
@@ -23,6 +25,7 @@ import { getMediaUrl } from '@/lib/media-utils';
 import {
   disconnectSocket,
   emitInitiateCall,
+  emitInitiateGroupCall,
   emitJoinGroup,
   emitMessageDelivered,
   emitStopTyping,
@@ -123,11 +126,12 @@ interface Message {
   systemMessageType?: string;
   media?: {
     url: string;
-    type: 'image' | 'video' | 'file' | 'document';
+    type: 'image' | 'video' | 'file' | 'document' | 'audio';
     publicId?: string;
     fileName?: string;
     filename?: string; // Backend uses lowercase
     size?: number;
+    duration?: number; // For audio/video
   }[];
   // Location fields
   location?: {
@@ -167,12 +171,20 @@ function ChatPageContent() {
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false);
   const [isVideoCallOpen, setIsVideoCallOpen] = useState(false);
+  const [isGroupVoiceCallOpen, setIsGroupVoiceCallOpen] = useState(false);
+  const [isGroupVideoCallOpen, setIsGroupVideoCallOpen] = useState(false);
   const [incomingCall, setIncomingCall] = useState<{
     callerId: string;
     callerName: string;
     callerAvatar: string;
     threadId: string;
     callType?: 'voice' | 'video';
+    isGroupCall?: boolean;
+    groupInfo?: {
+      groupId: string;
+      groupName: string;
+      groupAvatar: string;
+    };
   } | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
@@ -826,8 +838,11 @@ function ChatPageContent() {
         const threadId = data?.threadId;
         const callerInfo = data?.callerInfo;
         const callType = data?.callType || 'voice'; // Default to voice if not specified
+        const isGroupCall = data?.isGroupCall || false;
+        const groupInfo = data?.groupInfo;
 
-        console.log('📞 Call details:', { callerId, threadId, callType });
+        console.log('📞 Call details:', { callerId, threadId, callType, isGroupCall, groupInfo });
+        console.log('📞 Raw isGroupCall value:', data?.isGroupCall, typeof data?.isGroupCall);
 
         if (!callerId || !threadId) {
           console.warn('❌ Invalid incoming call data:', data);
@@ -851,7 +866,34 @@ function ChatPageContent() {
           callerAvatar,
           threadId,
           callType,
+          isGroupCall,
+          groupInfo: isGroupCall
+            ? {
+                groupId: groupInfo?.groupId || threadId,
+                groupName: groupInfo?.groupName || 'Group Call',
+                groupAvatar: groupInfo?.groupAvatar || '👥',
+              }
+            : undefined,
         });
+
+        // Open the appropriate call modal for group calls
+        console.log('📞 Opening modal - isGroupCall:', isGroupCall, 'callType:', callType);
+        if (isGroupCall) {
+          console.log('📞 Opening GROUP call modal');
+          if (callType === 'video') {
+            setIsGroupVideoCallOpen(true);
+          } else {
+            setIsGroupVoiceCallOpen(true);
+          }
+        } else {
+          console.log('📞 Opening 1-to-1 call modal');
+          // For 1-to-1 calls, the existing modals will handle it
+          if (callType === 'video') {
+            setIsVideoCallOpen(true);
+          } else {
+            setIsVoiceCallOpen(true);
+          }
+        }
 
         // Add system message for incoming call if it's the selected conversation
         if (
@@ -1026,6 +1068,14 @@ function ChatPageContent() {
             media: message.media,
             location: message.location,
             sharedContent: message.sharedContent,
+            replyTo: message.replyTo
+              ? {
+                  _id: message.replyTo._id,
+                  content: message.replyTo.text || message.replyTo.content || '',
+                  senderName:
+                    message.replyTo.senderName || message.replyTo.senderId?.firstName || 'Unknown',
+                }
+              : undefined,
           };
 
           // Only add message if it's from another user (we already added our own optimistically)
@@ -1436,16 +1486,20 @@ function ChatPageContent() {
     // Create optimistic message
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
+      sender: 'You',
       senderId: user?._id,
       senderName: user?.firstName || 'You',
-      senderAvatar: user?.profileImage || user?.avatar,
-      text: '',
+      content: '',
       timestamp: 'Sending...',
+      isSent: true,
       type: 'audio',
       media: [{ type: 'audio', url: URL.createObjectURL(audioFile) }],
-      isOwn: true,
       replyTo: replyingTo
-        ? { _id: replyingTo.id, content: replyingTo.text, senderName: replyingTo.senderName }
+        ? {
+            _id: replyingTo.id?.toString() || '',
+            content: replyingTo.content || '',
+            senderName: replyingTo.sender || '',
+          }
         : undefined,
     };
 
@@ -2590,87 +2644,120 @@ function ChatPageContent() {
 
               <div className="flex items-center gap-2">
                 {/* Voice/Video calls - available for both direct messages and groups */}
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const socket = getSocket();
-
-                      if (selectedConversation?.participantId && selectedConversation?.threadId) {
-                        // Add system message for outgoing call
-                        const callMessage: Message = {
-                          id: `call-initiated-${Date.now()}`,
-                          sender: 'System',
-                          content: '📞 Outgoing voice call',
-                          timestamp: new Date().toISOString(),
-                          isSent: true,
-                          type: 'system',
-                          senderId: 'system',
-                          senderName: 'System',
-                          status: 'sent' as const,
-                          isSystemMessage: true,
-                          systemMessageType: 'call-initiated',
-                        };
-                        setMessages((prev) => [...prev, callMessage]);
-
-                        // Initiate the call via socket
-                        emitInitiateCall(
-                          selectedConversation.participantId,
-                          selectedConversation.threadId,
-                          'voice'
-                        );
-                        // Open the modal
-                        setIsVoiceCallOpen(true);
-                      } else {
-                        console.error('Cannot initiate call: Missing participant or thread info');
-                        console.error('Conversation object:', selectedConversation);
-                      }
-                    }}
-                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
-                    title="Start voice call"
-                  >
-                    <Phone size={20} className="text-primary" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedConversation?.participantId && selectedConversation?.threadId) {
-                        // Add system message for outgoing video call
-                        const callMessage: Message = {
-                          id: `call-initiated-${Date.now()}`,
-                          sender: 'System',
-                          content: '📹 Outgoing video call',
-                          timestamp: new Date().toISOString(),
-                          isSent: true,
-                          type: 'system',
-                          senderId: 'system',
-                          senderName: 'System',
-                          status: 'sent' as const,
-                          isSystemMessage: true,
-                          systemMessageType: 'call-initiated',
-                        };
-                        setMessages((prev) => [...prev, callMessage]);
-
-                        // Initiate the video call via socket
-                        emitInitiateCall(
-                          selectedConversation.participantId,
-                          selectedConversation.threadId,
-                          'video'
-                        );
-                        // Open the modal
-                        setIsVideoCallOpen(true);
-                      } else {
-                        console.error(
-                          'Cannot initiate video call: Missing participant or thread info'
-                        );
-                      }
-                    }}
-                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
-                    title="Start video call"
-                  >
-                    <Video size={20} className="text-primary" />
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedConversation?.isGroup && selectedConversation?.id) {
+                      // Group voice call - notify all online group members
+                      const callMessage: Message = {
+                        id: `call-initiated-${Date.now()}`,
+                        sender: 'System',
+                        content: '📞 Starting group voice call',
+                        timestamp: new Date().toISOString(),
+                        isSent: true,
+                        type: 'system',
+                        senderId: 'system',
+                        senderName: 'System',
+                        status: 'sent' as const,
+                        isSystemMessage: true,
+                        systemMessageType: 'call-initiated',
+                      };
+                      setMessages((prev) => [...prev, callMessage]);
+                      // Emit group call to notify all online members
+                      emitInitiateGroupCall(selectedConversation.id, 'voice');
+                      setIsGroupVoiceCallOpen(true);
+                    } else if (
+                      selectedConversation?.participantId &&
+                      selectedConversation?.threadId
+                    ) {
+                      // Direct message voice call
+                      const callMessage: Message = {
+                        id: `call-initiated-${Date.now()}`,
+                        sender: 'System',
+                        content: '📞 Outgoing voice call',
+                        timestamp: new Date().toISOString(),
+                        isSent: true,
+                        type: 'system',
+                        senderId: 'system',
+                        senderName: 'System',
+                        status: 'sent' as const,
+                        isSystemMessage: true,
+                        systemMessageType: 'call-initiated',
+                      };
+                      setMessages((prev) => [...prev, callMessage]);
+                      emitInitiateCall(
+                        selectedConversation.participantId,
+                        selectedConversation.threadId,
+                        'voice'
+                      );
+                      setIsVoiceCallOpen(true);
+                    } else {
+                      console.error('Cannot initiate call: Missing participant or thread info');
+                    }
+                  }}
+                  className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                  title="Start voice call"
+                >
+                  <Phone size={20} className="text-primary" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedConversation?.isGroup && selectedConversation?.id) {
+                      // Group video call - notify all online group members
+                      const callMessage: Message = {
+                        id: `call-initiated-${Date.now()}`,
+                        sender: 'System',
+                        content: '📹 Starting group video call',
+                        timestamp: new Date().toISOString(),
+                        isSent: true,
+                        type: 'system',
+                        senderId: 'system',
+                        senderName: 'System',
+                        status: 'sent' as const,
+                        isSystemMessage: true,
+                        systemMessageType: 'call-initiated',
+                      };
+                      setMessages((prev) => [...prev, callMessage]);
+                      // Emit group call to notify all online members
+                      emitInitiateGroupCall(selectedConversation.id, 'video');
+                      setIsGroupVideoCallOpen(true);
+                    } else if (
+                      selectedConversation?.participantId &&
+                      selectedConversation?.threadId
+                    ) {
+                      // Direct message video call
+                      const callMessage: Message = {
+                        id: `call-initiated-${Date.now()}`,
+                        sender: 'System',
+                        content: '📹 Outgoing video call',
+                        timestamp: new Date().toISOString(),
+                        isSent: true,
+                        type: 'system',
+                        senderId: 'system',
+                        senderName: 'System',
+                        status: 'sent' as const,
+                        isSystemMessage: true,
+                        systemMessageType: 'call-initiated',
+                      };
+                      setMessages((prev) => [...prev, callMessage]);
+                      emitInitiateCall(
+                        selectedConversation.participantId,
+                        selectedConversation.threadId,
+                        'video'
+                      );
+                      setIsVideoCallOpen(true);
+                    } else {
+                      console.error(
+                        'Cannot initiate video call: Missing participant or thread info'
+                      );
+                    }
+                  }}
+                  className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                  title="Start video call"
+                >
+                  <Video size={20} className="text-primary" />
+                </button>
 
                 {/* Only show dropdown menu for direct messages */}
                 {!selectedConversation.isGroup && (
@@ -2823,7 +2910,8 @@ function ChatPageContent() {
                             </div>
                           ) : (
                             <div
-                              className={`px-4 py-2 rounded-2xl ${
+                              id={`message-${message.id}`}
+                              className={`px-4 py-2 rounded-2xl transition-colors duration-500 ${
                                 message.isSent
                                   ? 'bg-primary text-primary-foreground rounded-br-none'
                                   : 'bg-muted rounded-bl-none'
@@ -2838,17 +2926,37 @@ function ChatPageContent() {
                               {/* Reply preview if this message is a reply */}
                               {message.replyTo && (
                                 <div
-                                  className={`mb-2 pl-2 border-l-2 ${message.isSent ? 'border-primary-foreground/50' : 'border-primary/50'}`}
+                                  onClick={() => {
+                                    // Scroll to the original message
+                                    const replyId = message.replyTo?._id;
+                                    if (replyId) {
+                                      const originalMessage = document.getElementById(
+                                        `message-${replyId}`
+                                      );
+                                      if (originalMessage) {
+                                        originalMessage.scrollIntoView({
+                                          behavior: 'smooth',
+                                          block: 'center',
+                                        });
+                                        originalMessage.classList.add('bg-primary/20');
+                                        setTimeout(
+                                          () => originalMessage.classList.remove('bg-primary/20'),
+                                          2000
+                                        );
+                                      }
+                                    }
+                                  }}
+                                  className={`mb-2 pl-2 border-l-2 cursor-pointer hover:opacity-80 transition ${message.isSent ? 'border-primary-foreground/50' : 'border-primary/50'}`}
                                 >
                                   <p
                                     className={`text-xs font-medium ${message.isSent ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
                                   >
-                                    {message.replyTo.senderName}
+                                    {message.replyTo.senderName || 'Unknown'}
                                   </p>
                                   <p
                                     className={`text-xs truncate max-w-[180px] ${message.isSent ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}
                                   >
-                                    {message.replyTo.content}
+                                    {message.replyTo.content || '[Message]'}
                                   </p>
                                 </div>
                               )}
@@ -2867,7 +2975,19 @@ function ChatPageContent() {
                                     key={idx}
                                     className="mb-2 rounded-lg overflow-hidden max-w-[240px]"
                                   >
-                                    {item.type === 'video' ? (
+                                    {item.type === 'audio' ? (
+                                      <div className="flex items-center gap-3 p-3 bg-muted rounded-lg min-w-[200px]">
+                                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                          <Mic size={18} className="text-primary" />
+                                        </div>
+                                        <audio
+                                          src={getMediaUrl(item.url)}
+                                          controls
+                                          className="flex-1 h-8"
+                                          style={{ minWidth: '120px' }}
+                                        />
+                                      </div>
+                                    ) : item.type === 'video' ? (
                                       <video
                                         src={getMediaUrl(item.url)}
                                         controls
@@ -2875,17 +2995,31 @@ function ChatPageContent() {
                                       />
                                     ) : item.type === 'document' ||
                                       item.type === 'file' ||
+                                      (item.url &&
+                                        /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|7z)$/i.test(
+                                          item.url
+                                        )) ||
                                       (!item.type?.startsWith('image') &&
                                         !item.type?.startsWith('video') &&
+                                        !item.type?.startsWith('audio') &&
                                         (item.fileName || item.filename)) ? (
                                       <a
                                         href={getMediaUrl(item.url)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
+                                        download={item.fileName || item.filename || 'document'}
                                         className="flex items-center gap-3 p-3 bg-muted rounded-lg hover:bg-muted/80 transition"
                                       >
                                         <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                                          <FileText size={20} className="text-blue-500" />
+                                          {/\.pdf$/i.test(item.url || '') ? (
+                                            <FileText size={20} className="text-red-500" />
+                                          ) : /\.(doc|docx)$/i.test(item.url || '') ? (
+                                            <FileText size={20} className="text-blue-600" />
+                                          ) : /\.(xls|xlsx)$/i.test(item.url || '') ? (
+                                            <FileText size={20} className="text-green-600" />
+                                          ) : /\.(zip|rar|7z)$/i.test(item.url || '') ? (
+                                            <FileText size={20} className="text-yellow-600" />
+                                          ) : (
+                                            <FileText size={20} className="text-blue-500" />
+                                          )}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                           <p className="text-sm font-medium truncate">
@@ -3381,6 +3515,54 @@ function ChatPageContent() {
         callId={incomingCall?.threadId || selectedConversation?.threadId}
         callerId={incomingCall?.callerId}
         threadId={incomingCall?.threadId || selectedConversation?.threadId}
+      />
+
+      {/* Group Voice Call Modal */}
+      <GroupVoiceCallModal
+        isOpen={isGroupVoiceCallOpen}
+        onClose={() => {
+          setIsGroupVoiceCallOpen(false);
+          setIncomingCall(null);
+        }}
+        groupId={incomingCall?.groupInfo?.groupId || selectedConversation?.id || ''}
+        groupName={incomingCall?.groupInfo?.groupName || selectedConversation?.name || 'Group'}
+        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || '👥'}
+        currentUserId={user?._id || ''}
+        currentUserName={
+          user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.username || ''
+        }
+        currentUserAvatar={user?.avatar || user?.profilePicture || ''}
+        isIncomingCall={!!incomingCall?.isGroupCall && incomingCall?.callType === 'voice'}
+        callerId={incomingCall?.callerId}
+        callerInfo={
+          incomingCall
+            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar }
+            : undefined
+        }
+      />
+
+      {/* Group Video Call Modal */}
+      <GroupVideoCallModal
+        isOpen={isGroupVideoCallOpen}
+        onClose={() => {
+          setIsGroupVideoCallOpen(false);
+          setIncomingCall(null);
+        }}
+        groupId={incomingCall?.groupInfo?.groupId || selectedConversation?.id || ''}
+        groupName={incomingCall?.groupInfo?.groupName || selectedConversation?.name || 'Group'}
+        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || '👥'}
+        currentUserId={user?._id || ''}
+        currentUserName={
+          user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.username || ''
+        }
+        currentUserAvatar={user?.avatar || user?.profilePicture || ''}
+        isIncomingCall={!!incomingCall?.isGroupCall && incomingCall?.callType === 'video'}
+        callerId={incomingCall?.callerId}
+        callerInfo={
+          incomingCall
+            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar }
+            : undefined
+        }
       />
 
       {/* Create Group Modal */}
