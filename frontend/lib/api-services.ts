@@ -689,7 +689,7 @@ export const chatService = {
 
   // Delete Message
   deleteMessage: async (messageId: string, deleteFor: 'me' | 'everyone' = 'me') => {
-    return api.delete(API_ENDPOINTS.CHAT.DELETE_MESSAGE(messageId), { data: { deleteFor } });
+    return api.delete(API_ENDPOINTS.CHAT.DELETE_MESSAGE(messageId), { deleteFor });
   },
 
   // Edit Message

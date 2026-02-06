@@ -56,6 +56,37 @@ export const setRefreshToken = (token: string): void => {
   }
 };
 
+// Helper function to get specific error message based on error type
+const getNetworkErrorMessage = (error: any): string => {
+  // Check for specific error types
+  if (error instanceof TypeError) {
+    if (error.message === 'Failed to fetch') {
+      // This could be CORS, server down, or network issue
+      return 'Unable to connect to server. The server may be down or there may be a connection issue.';
+    }
+    if (error.message.includes('NetworkError')) {
+      return 'Network connection failed. Please check if you have internet access.';
+    }
+    if (error.message.includes('CORS')) {
+      return 'Server configuration error (CORS). Please try again later.';
+    }
+  }
+
+  // Check for specific error properties
+  if (error.code === 'ECONNREFUSED') {
+    return 'Server is not responding. Please try again later.';
+  }
+  if (error.code === 'ENOTFOUND') {
+    return 'Server not found. Please check your internet connection.';
+  }
+  if (error.code === 'ETIMEDOUT') {
+    return 'Connection timed out. Please try again.';
+  }
+
+  // Default message with more context
+  return 'Connection error. Please check your internet and try again.';
+};
+
 // API Client class
 class ApiClient {
   private baseURL: string;
@@ -184,16 +215,14 @@ class ApiClient {
         } as ApiError;
       }
       // Handle network errors (Failed to fetch, connection refused, etc.)
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        throw {
-          success: false,
-          statusCode: 0,
-          message: 'Network error - please check your connection',
-          error: 'Network error',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
+      console.error('[API GET] Network error:', error);
+      throw {
+        success: false,
+        statusCode: 0,
+        message: getNetworkErrorMessage(error),
+        error: 'Network error',
+        errors: [],
+      } as ApiError;
     }
   }
 
@@ -231,16 +260,14 @@ class ApiClient {
         } as ApiError;
       }
       // Handle network errors (Failed to fetch, connection refused, etc.)
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        throw {
-          success: false,
-          statusCode: 0,
-          message: 'Network error - please check your connection',
-          error: 'Network error',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
+      console.error('[API POST] Network error:', error);
+      throw {
+        success: false,
+        statusCode: 0,
+        message: getNetworkErrorMessage(error),
+        error: 'Network error',
+        errors: [],
+      } as ApiError;
     }
   }
 
@@ -278,16 +305,14 @@ class ApiClient {
         } as ApiError;
       }
       // Handle network errors (Failed to fetch, connection refused, etc.)
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        throw {
-          success: false,
-          statusCode: 0,
-          message: 'Network error - please check your connection',
-          error: 'Network error',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
+      console.error('[API PUT] Network error:', error);
+      throw {
+        success: false,
+        statusCode: 0,
+        message: getNetworkErrorMessage(error),
+        error: 'Network error',
+        errors: [],
+      } as ApiError;
     }
   }
 
@@ -319,23 +344,21 @@ class ApiClient {
         } as ApiError;
       }
       // Handle network errors (Failed to fetch, connection refused, etc.)
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        throw {
-          success: false,
-          statusCode: 0,
-          message: 'Network error - please check your connection',
-          error: 'Network error',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
+      console.error('[API DELETE] Network error:', error);
+      throw {
+        success: false,
+        statusCode: 0,
+        message: getNetworkErrorMessage(error),
+        error: 'Network error',
+        errors: [],
+      } as ApiError;
     }
   }
 
   // Upload file (multipart/form-data)
   async upload<T = any>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds for file uploads
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds for file uploads (2 minutes for mobile networks)
 
     try {
       const token = getToken();
@@ -361,22 +384,21 @@ class ApiClient {
         throw {
           success: false,
           statusCode: 408,
-          message: 'Upload timeout',
+          message:
+            'Upload is taking too long. Please try with a smaller file or check your connection.',
           error: 'Upload timeout',
           errors: [],
         } as ApiError;
       }
       // Handle network errors (Failed to fetch, connection refused, etc.)
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        throw {
-          success: false,
-          statusCode: 0,
-          message: 'Network error - please check your connection',
-          error: 'Network error',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
+      console.error('[API UPLOAD] Network error:', error);
+      throw {
+        success: false,
+        statusCode: 0,
+        message: getNetworkErrorMessage(error),
+        error: 'Network error',
+        errors: [],
+      } as ApiError;
     }
   }
 }

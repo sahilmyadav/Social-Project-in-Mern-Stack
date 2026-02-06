@@ -460,8 +460,24 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
       }
     } catch (err: any) {
       console.error('❌ Error uploading story:', err);
-      const errorMessage =
-        err?.response?.data?.message || err?.message || 'Failed to upload story. Please try again.';
+
+      // Provide more specific error messages based on error type
+      let errorMessage = 'Failed to upload story. Please try again.';
+
+      if (err?.statusCode === 408) {
+        errorMessage = 'Upload timed out. Please try with a smaller file or check your connection.';
+      } else if (err?.statusCode === 413) {
+        errorMessage = 'File is too large. Please try a smaller file.';
+      } else if (err?.statusCode === 401) {
+        errorMessage = 'Session expired. Please log in again.';
+      } else if (err?.statusCode === 0 || err?.error === 'Network error') {
+        errorMessage = err?.message || 'Unable to connect to server. Please try again.';
+      } else if (err?.message) {
+        errorMessage = err.message;
+      } else if (err?.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      }
+
       setError(errorMessage);
     } finally {
       setIsUploading(false);

@@ -17,7 +17,7 @@ import { deleteLocalFile, saveFileLocally } from '../utils/localStorage.js';
 const MAX_CAPTION_LENGTH = 2000;
 
 export const uploadReel = asyncHandler(async (req, res) => {
-  const { caption, music_id, tags, thumbnail, duration, width, height } = req.body;
+  const { caption, music_id, music, tags, thumbnail, duration, width, height } = req.body;
   const userId = req.user?._id;
 
   if (!userId) {
@@ -71,6 +71,17 @@ export const uploadReel = asyncHandler(async (req, res) => {
     return false;
   });
 
+  // Parse music data if provided
+  let musicData = null;
+  if (music) {
+    try {
+      musicData = typeof music === 'string' ? JSON.parse(music) : music;
+    } catch (error) {
+      console.error('Error parsing music data:', error);
+      // Don't throw error, just log it and continue without music
+    }
+  }
+
   let reel;
   try {
     reel = await Reel.create({
@@ -78,6 +89,7 @@ export const uploadReel = asyncHandler(async (req, res) => {
       media,
       caption: caption?.trim() || '',
       music_id: music_id || null,
+      music: musicData,
       tags: validTags,
     });
 
@@ -769,7 +781,13 @@ export const viewReel = asyncHandler(async (req, res) => {
   if (reel.user_id.toString() === userId.toString()) {
     return res
       .status(200)
-      .json(new ApiResponse(200, { viewed: false, views_count: reel.views_count }, 'Own reel - view not tracked'));
+      .json(
+        new ApiResponse(
+          200,
+          { viewed: false, views_count: reel.views_count },
+          'Own reel - view not tracked'
+        )
+      );
   }
 
   // Try to insert a unique view record
@@ -799,11 +817,7 @@ export const viewReel = asyncHandler(async (req, res) => {
       return res
         .status(200)
         .json(
-          new ApiResponse(
-            200,
-            { viewed: false, views_count: reel.views_count },
-            'Already viewed'
-          )
+          new ApiResponse(200, { viewed: false, views_count: reel.views_count }, 'Already viewed')
         );
     }
     throw error;

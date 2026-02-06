@@ -2849,7 +2849,7 @@ function ChatPageContent() {
                           {message.isSent && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <button className="opacity-0 group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
+                                <button className="opacity-50 lg:opacity-0 lg:group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
                                   <MoreHorizontal size={16} className="text-muted-foreground" />
                                 </button>
                               </DropdownMenuTrigger>
@@ -3154,7 +3154,7 @@ function ChatPageContent() {
                           {!message.isSent && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <button className="opacity-0 group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
+                                <button className="opacity-50 lg:opacity-0 lg:group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
                                   <MoreHorizontal size={16} className="text-muted-foreground" />
                                 </button>
                               </DropdownMenuTrigger>
@@ -3296,7 +3296,7 @@ function ChatPageContent() {
                 </div>
               )}
 
-              <div className="p-4 border-t border-border flex items-end gap-2 mb-20 lg:mb-4 bg-background relative z-10 w-full">
+              <div className="p-4 border-t border-border flex items-end gap-2 mb-24 lg:mb-4 bg-background relative z-10 w-full">
                 {/* Hidden file inputs */}
                 <input
                   type="file"

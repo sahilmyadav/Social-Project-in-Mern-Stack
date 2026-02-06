@@ -495,12 +495,12 @@ export const deleteMessage = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Message not found');
   }
 
-  // Check authorization
-  if (message.senderId.toString() !== userId.toString()) {
-    throw new ApiError(403, 'You can only delete your own messages');
-  }
-
   if (deleteFor === 'everyone') {
+    // Only the sender can delete for everyone
+    if (message.senderId.toString() !== userId.toString()) {
+      throw new ApiError(403, 'You can only delete your own messages for everyone');
+    }
+
     // Hard delete for everyone (only within 24 hours)
     const messageAge = Date.now() - message.createdAt.getTime();
     const maxDeletionTime = 24 * 60 * 60 * 1000; // 24 hours
@@ -523,12 +523,27 @@ export const deleteMessage = asyncHandler(async (req, res) => {
       });
     }
   } else {
-    // Soft delete for current user only
+    // Soft delete for current user only - anyone in the thread can do this
+    // Check if user is a participant (either sender or receiver)
+    const isParticipant =
+      message.senderId.toString() === userId.toString() ||
+      message.receiverId.toString() === userId.toString();
+
+    if (!isParticipant) {
+      throw new ApiError(403, 'You are not a participant in this conversation');
+    }
+
     if (!message.deletedFor) {
       message.deletedFor = [];
     }
-    message.deletedFor.push(userId);
-    await message.save();
+
+    // Check if already deleted for this user
+    const alreadyDeleted = message.deletedFor.some((id) => id.toString() === userId.toString());
+
+    if (!alreadyDeleted) {
+      message.deletedFor.push(userId);
+      await message.save();
+    }
   }
 
   return res.status(200).json(new ApiResponse(200, null, 'Message deleted successfully'));

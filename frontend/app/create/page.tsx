@@ -29,6 +29,16 @@ interface TaggedUser {
   avatar?: string;
 }
 
+// Type for music selection
+interface MusicSelection {
+  trackId: string;
+  trackName: string;
+  artistName: string;
+  albumArt: string;
+  previewUrl: string;
+  startTime: number;
+}
+
 export default function CreatePage() {
   const [user, setUser] = useState<any>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -39,6 +49,8 @@ export default function CreatePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [selectedMusic, setSelectedMusic] = useState<MusicSelection | null>(null);
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -108,6 +120,7 @@ export default function CreatePage() {
     }
     setUploadedFile(null);
     setPreviewUrl('');
+    setSelectedMusic(null);
   };
 
   const handlePublish = async () => {
@@ -133,6 +146,11 @@ export default function CreatePage() {
       if (taggedPeople.length > 0) {
         const taggedUserIds = taggedPeople.map((user) => user._id);
         formData.append('tags', JSON.stringify(taggedUserIds));
+      }
+
+      // Add music data for reels
+      if (contentType === 'reel' && selectedMusic) {
+        formData.append('music', JSON.stringify(selectedMusic));
       }
 
       let response;
@@ -170,6 +188,7 @@ export default function CreatePage() {
   const handleContentTypeChange = (type: ContentType) => {
     setContentType(type);
     handleRemoveFile();
+    setSelectedMusic(null);
     setError('');
   };
 
@@ -319,6 +338,46 @@ export default function CreatePage() {
               />
             </div>
 
+            {/* Music Section - Only for Reels */}
+            {contentType === 'reel' && (
+              <div className="mb-4 md:mb-8">
+                <label className="text-foreground font-semibold block mb-2 text-sm md:text-base">
+                  Add Music <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                {selectedMusic ? (
+                  <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+                    <img
+                      src={selectedMusic.albumArt}
+                      alt={selectedMusic.trackName}
+                      className="w-12 h-12 rounded-lg object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{selectedMusic.trackName}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {selectedMusic.artistName}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSelectedMusic(null)}
+                      className="p-2 hover:bg-background rounded-full transition"
+                      disabled={loading}
+                    >
+                      <X size={16} className="text-muted-foreground" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowMusicPicker(true)}
+                    className="w-full p-3 border border-dashed border-primary/50 rounded-lg flex items-center justify-center gap-2 hover:border-primary hover:bg-primary/5 transition"
+                    disabled={loading}
+                  >
+                    <Music size={18} className="text-primary" />
+                    <span className="text-sm text-muted-foreground">Add music to your reel</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex gap-2 md:gap-4">
               <Button
                 onClick={() => router.push('/home')}
@@ -382,6 +441,16 @@ export default function CreatePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Music Picker Modal */}
+      <MusicPickerModal
+        isOpen={showMusicPicker}
+        onClose={() => setShowMusicPicker(false)}
+        onSelectMusic={(music) => {
+          setSelectedMusic(music);
+          setShowMusicPicker(false);
+        }}
+      />
     </main>
   );
 }
