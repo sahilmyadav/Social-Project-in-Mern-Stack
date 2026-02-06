@@ -340,9 +340,11 @@ export default function NotificationsPage() {
         notification.type === 'follow_request_accepted'
       ) {
         // Navigate to user profile
-        const userIdMatch = notification.action_url.match(/\/profile\/([a-zA-Z0-9]+)/);
+        const userIdMatch = notification.action_url.match(/\/profile\/([a-zA-Z0-9_]+)/);
         if (userIdMatch) {
           targetUrl = `/profile/${userIdMatch[1]}`;
+        } else if (notification.sender_id?.username) {
+          targetUrl = `/profile/${notification.sender_id.username}`;
         } else if (notification.sender_id?._id) {
           targetUrl = `/profile/${notification.sender_id._id}`;
         }
@@ -350,7 +352,9 @@ export default function NotificationsPage() {
     } else {
       // Fallback: construct URL based on notification type
       if (notification.type === 'follow' || notification.type === 'follow_request_accepted') {
-        if (notification.sender_id?._id) {
+        if (notification.sender_id?.username) {
+          targetUrl = `/profile/${notification.sender_id.username}`;
+        } else if (notification.sender_id?._id) {
           targetUrl = `/profile/${notification.sender_id._id}`;
         }
       }

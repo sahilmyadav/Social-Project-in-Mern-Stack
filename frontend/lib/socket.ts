@@ -386,7 +386,7 @@ export const emitOffer = (recipientId: string, offer: any) => {
 
 export const emitAnswer = (callerId: string, answer: any) => {
   socket?.emit('answer', {
-    callerId,
+    recipientId: callerId, // Send to the caller
     answer: answer, // Send full RTCSessionDescription object
   });
 };

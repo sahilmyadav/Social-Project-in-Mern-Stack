@@ -201,13 +201,30 @@ export default function GroupVoiceCallModal({
       }
 
       try {
-        // Check if peer connection is in correct state to receive offer
+        // Implement "polite peer" protocol to handle glare (simultaneous offers)
+        // The peer with the LOWER user ID is "polite" and will rollback
+        const isPolite = currentUserId < offererUserId;
+
         if (pc.signalingState !== 'stable') {
-          console.log(`📞 [Voice] Peer not in stable state for offer: ${pc.signalingState}`);
-          return;
+          // Glare condition detected
+          console.log(`📞 [Voice] Glare detected! State: ${pc.signalingState}, isPolite: ${isPolite}`);
+
+          if (!isPolite) {
+            // We're impolite - ignore the incoming offer, keep our offer
+            console.log(`📞 [Voice] Impolite peer - ignoring incoming offer`);
+            return;
+          }
+
+          // We're polite - rollback our offer and accept the incoming one
+          console.log(`📞 [Voice] Polite peer - rolling back to accept incoming offer`);
+          await Promise.all([
+            pc.setLocalDescription({ type: 'rollback' }),
+            pc.setRemoteDescription(new RTCSessionDescription(offer))
+          ]);
+        } else {
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
         }
 
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
         console.log(`📞 [Voice] Set remote description from ${offererUserId}`);
 
         const answer = await pc.createAnswer();
@@ -235,7 +252,7 @@ export default function GroupVoiceCallModal({
         console.error('Error handling offer:', err);
       }
     },
-    [createPeerConnection]
+    [createPeerConnection, currentUserId]
   );
 
   // Handle incoming WebRTC answer

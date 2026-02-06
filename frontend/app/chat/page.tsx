@@ -11,10 +11,10 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -23,70 +23,70 @@ import VoiceCallModal from '@/components/voice-call-modal';
 import { authService, chatService, groupService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-  disconnectSocket,
-  emitInitiateCall,
-  emitInitiateGroupCall,
-  emitJoinGroup,
-  emitMessageDelivered,
-  emitStopTyping,
-  emitTyping,
-  emitUserOffline,
-  emitUserOnline,
-  getSocket,
-  initSocket,
-  joinThread,
-  offCallEnded,
-  offCallFailed,
-  offCallRejected,
-  offGroupMessage,
-  offGroupMessageNotification,
-  offIncomingCall,
-  offMessageStatus,
-  offNewMessage,
-  offNewThread,
-  offStopTyping,
-  offTyping,
-  offUserOffline,
-  offUserOnline,
-  onCallEnded,
-  onCallFailed,
-  onCallRejected,
-  onGroupMessage,
-  onGroupMessageNotification,
-  onIncomingCall,
-  onMessageStatus,
-  onNewMessage,
-  onNewThread,
-  onStopTyping,
-  onTyping,
-  onUserOffline,
-  onUserOnline,
+    disconnectSocket,
+    emitInitiateCall,
+    emitInitiateGroupCall,
+    emitJoinGroup,
+    emitMessageDelivered,
+    emitStopTyping,
+    emitTyping,
+    emitUserOffline,
+    emitUserOnline,
+    getSocket,
+    initSocket,
+    joinThread,
+    offCallEnded,
+    offCallFailed,
+    offCallRejected,
+    offGroupMessage,
+    offGroupMessageNotification,
+    offIncomingCall,
+    offMessageStatus,
+    offNewMessage,
+    offNewThread,
+    offStopTyping,
+    offTyping,
+    offUserOffline,
+    offUserOnline,
+    onCallEnded,
+    onCallFailed,
+    onCallRejected,
+    onGroupMessage,
+    onGroupMessageNotification,
+    onIncomingCall,
+    onMessageStatus,
+    onNewMessage,
+    onNewThread,
+    onStopTyping,
+    onTyping,
+    onUserOffline,
+    onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-  Ban,
-  Camera,
-  CornerUpLeft,
-  Edit2,
-  FileText,
-  Flag,
-  Forward,
-  Image as ImageIcon,
-  LogOut,
-  MapPin,
-  Mic,
-  MoreHorizontal,
-  Navigation2,
-  Phone,
-  Plus,
-  Reply,
-  Send,
-  Trash2,
-  User,
-  UserPlus,
-  Users,
-  Video,
-  X,
+    Ban,
+    Camera,
+    CornerUpLeft,
+    Edit2,
+    FileText,
+    Flag,
+    Forward,
+    Image as ImageIcon,
+    LogOut,
+    MapPin,
+    Mic,
+    MoreHorizontal,
+    Navigation2,
+    Phone,
+    Plus,
+    Reply,
+    Send,
+    Trash2,
+    User,
+    UserPlus,
+    Users,
+    Video,
+    X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -223,11 +223,17 @@ function ChatPageContent() {
 
   const selectedThreadIdRef = useRef<string | null>(null);
   const groupsRef = useRef<Conversation[]>([]);
+  const conversationsRef = useRef<Conversation[]>([]);
 
   // Keep groupsRef in sync with groups state
   useEffect(() => {
     groupsRef.current = groups;
   }, [groups]);
+
+  // Keep conversationsRef in sync with conversations state
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   // Helper function to format call duration
   const formatCallDuration = (seconds: number) => {
@@ -851,12 +857,13 @@ function ChatPageContent() {
           return;
         }
 
-        // Find the conversation by threadId
-        const conversation = conversations.find(
+        // Find the conversation by threadId - use ref to get latest state
+        const currentConversations = conversationsRef.current;
+        const conversation = currentConversations.find(
           (c) => c.threadId === threadId || c.id === threadId || c.participantId === callerId
         );
 
-        console.log('📞 Found conversation:', conversation);
+        console.log('📞 Found conversation:', conversation, 'from', currentConversations.length, 'conversations');
 
         // Use priority: conversation name > callerInfo from backend > Unknown
         const callerName = conversation?.name || callerInfo?.name || 'Unknown User';
@@ -3069,7 +3076,9 @@ function ChatPageContent() {
 
                               {/* Location Message */}
                               {(message.location || (message as any).messageType === 'location') &&
-                                message.location && (
+                                message.location &&
+                                message.location.latitude !== undefined &&
+                                message.location.longitude !== undefined && (
                                   <a
                                     href={`https://www.google.com/maps?q=${message.location.latitude},${message.location.longitude}`}
                                     target="_blank"
@@ -3083,9 +3092,13 @@ function ChatPageContent() {
                                         alt="Location"
                                         className="w-full h-full object-cover"
                                         onError={(e) => {
-                                          // Fallback to OpenStreetMap static image
-                                          (e.target as HTMLImageElement).src =
-                                            `https://staticmap.openstreetmap.de/staticmap.php?center=${message.location!.latitude},${message.location!.longitude}&zoom=14&size=250x150&markers=${message.location!.latitude},${message.location!.longitude},red-pushpin`;
+                                          // Fallback to OpenStreetMap static image only if coordinates are valid
+                                          const lat = message.location?.latitude;
+                                          const lng = message.location?.longitude;
+                                          if (lat !== undefined && lng !== undefined) {
+                                            (e.target as HTMLImageElement).src =
+                                              `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=14&size=250x150&markers=${lat},${lng},red-pushpin`;
+                                          }
                                         }}
                                       />
                                       {message.location.isLiveLocation && (

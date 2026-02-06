@@ -64,6 +64,7 @@ export default function StoryViewer({
   const [viewers, setViewers] = useState<any[]>([]);
   const [showViewers, setShowViewers] = useState(false);
   const [mediaLoaded, setMediaLoaded] = useState(false); // Track if media is loaded
+  const [videoDuration, setVideoDuration] = useState<number>(0); // Track video duration
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
   const hasTrackedView = useRef<Set<string>>(new Set());
@@ -102,18 +103,17 @@ export default function StoryViewer({
 
   // Auto-advance story
   useEffect(() => {
-    if (!isOpen || isPaused) return;
+    if (!isOpen || isPaused || !mediaLoaded) return;
 
-    // If story has music, make duration at least 60 seconds to allow full playback
+    // Calculate duration based on content type
     let duration: number;
-    if (currentStory?.music) {
-      duration = 30000; // 30 seconds for stories with music
+    if (isImage) {
+      // Images: 5 seconds, or 30 seconds if music is attached
+      duration = currentStory?.music ? 30000 : 5000;
     } else {
-      duration = isImage
-        ? 5000
-        : videoRef.current?.duration
-          ? videoRef.current.duration * 1000
-          : 15000;
+      // Videos: use actual video duration, or fallback to 15 seconds
+      const actualVideoDuration = videoDuration > 0 ? videoDuration * 1000 : 15000;
+      duration = actualVideoDuration;
     }
 
     const interval = 50;
@@ -135,7 +135,7 @@ export default function StoryViewer({
         clearInterval(progressInterval.current);
       }
     };
-  }, [currentIndex, isOpen, isPaused, isImage, currentStory?.music]);
+  }, [currentIndex, isOpen, isPaused, isImage, currentStory?.music, mediaLoaded, videoDuration]);
 
   // Play music if story has music (only after media is loaded)
   useEffect(() => {
@@ -195,10 +195,25 @@ export default function StoryViewer({
     };
   }, [currentStory?._id, isOpen, mediaLoaded]);
 
+  // Ensure video plays when story changes
+  useEffect(() => {
+    if (!isOpen || isImage || !videoRef.current || !mediaLoaded) return;
+
+    // Play the video
+    videoRef.current.play().catch(() => {
+      // If autoplay fails, try muted autoplay
+      if (videoRef.current) {
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+    });
+  }, [currentIndex, isOpen, isImage, mediaLoaded]);
+
   // Reset progress and media loaded state when story changes or when modal opens
   useEffect(() => {
     setProgress(0);
     setMediaLoaded(false); // Reset media loaded state for new story
+    setVideoDuration(0); // Reset video duration for new story
   }, [currentIndex, isOpen]);
 
   // Load viewers for own stories
@@ -400,9 +415,19 @@ export default function StoryViewer({
               className={`max-w-full max-h-full object-contain ${currentStory.filter ? `filter-${currentStory.filter}` : ''}`}
               autoPlay
               playsInline
+              loop={false}
+              muted={!!currentStory?.music} // Mute video if story has music (play music instead)
               onEnded={handleNext}
+              onLoadedMetadata={(e) => {
+                const video = e.currentTarget;
+                setVideoDuration(video.duration);
+              }}
               onLoadedData={() => {
                 setMediaLoaded(true);
+                // Ensure video plays
+                if (videoRef.current) {
+                  videoRef.current.play().catch(() => {});
+                }
               }}
               onError={() => {
                 setMediaLoaded(true); // Still set to true to prevent blocking

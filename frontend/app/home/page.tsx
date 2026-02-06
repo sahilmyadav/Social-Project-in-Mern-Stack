@@ -5,10 +5,10 @@ import PostCard from '@/components/post-card';
 import ReelCard from '@/components/reel-card';
 import ReelComments from '@/components/reel-comments';
 import {
-  FeedSkeleton,
-  InfiniteScrollTrigger,
-  StoriesBarSkeleton,
-  SuggestionSkeleton,
+    FeedSkeleton,
+    InfiniteScrollTrigger,
+    StoriesBarSkeleton,
+    SuggestionSkeleton,
 } from '@/components/skeletons';
 import StoriesBar from '@/components/stories-bar';
 import { feedService, followService, reelService, searchService } from '@/lib/api-services';
@@ -417,7 +417,7 @@ export default function HomePage() {
                 suggestions.map((suggestion) => (
                   <div key={suggestion._id} className="flex items-center justify-between">
                     <Link
-                      href={`/profile/${suggestion._id}`}
+                      href={`/profile/${suggestion.username || suggestion._id}`}
                       className="flex items-center gap-3 hover:opacity-80 transition"
                     >
                       <div className="w-10 h-10 rounded-full bg-muted overflow-hidden">

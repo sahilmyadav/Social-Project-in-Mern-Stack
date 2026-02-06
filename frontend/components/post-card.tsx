@@ -4,10 +4,10 @@ import ReportPostModal from '@/components/report-post-modal';
 import ShareModal from '@/components/share-modal';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
 import { useVideoSafe } from '@/contexts/video-context';
@@ -15,17 +15,17 @@ import { commentService, postService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-  Download,
-  Eye,
-  Heart,
-  MessageCircle,
-  MoreHorizontal,
-  Play,
-  Send,
-  Share2,
-  Trash2,
-  Volume2,
-  VolumeX,
+    Download,
+    Eye,
+    Heart,
+    MessageCircle,
+    MoreHorizontal,
+    Play,
+    Send,
+    Share2,
+    Trash2,
+    Volume2,
+    VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -792,7 +792,7 @@ function PostCard({
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              router.push(`/profile/${post.user_id?._id}`);
+              router.push(`/profile/${post.user_id?.username || post.user_id?._id}`);
             }}
             className="cursor-pointer hover:opacity-80 transition"
           >
@@ -817,7 +817,7 @@ function PostCard({
               onClick={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                router.push(`/profile/${post.user_id?._id}`);
+                router.push(`/profile/${post.user_id?.username || post.user_id?._id}`);
               }}
             >
               {authorName}

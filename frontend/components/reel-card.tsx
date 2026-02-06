@@ -4,10 +4,10 @@ import ReportReelModal from '@/components/report-reel-modal';
 import ShareModal from '@/components/share-modal';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
 import { useVideoSafe } from '@/contexts/video-context';
@@ -15,16 +15,16 @@ import { reelService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast } from '@/lib/toast';
 import {
-  Bookmark,
-  Download,
-  Eye,
-  Heart,
-  MessageCircle,
-  MoreHorizontal,
-  Play,
-  Share2,
-  Volume2,
-  VolumeX,
+    Bookmark,
+    Download,
+    Eye,
+    Heart,
+    MessageCircle,
+    MoreHorizontal,
+    Play,
+    Share2,
+    Volume2,
+    VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -143,7 +143,7 @@ export default function ReelCard({
   }
 
   const handleOpenProfile = () => {
-    router.push(`/profile/${reel.user_id?._id}`);
+    router.push(`/profile/${reel.user_id?.username || reel.user_id?._id}`);
   };
 
   const handleLike = async () => {

@@ -56,8 +56,8 @@ export default function UserAvatar({
   };
 
   const handleUserClick = () => {
-    if (clickable && user._id) {
-      router.push(`/profile/${user._id}`);
+    if (clickable && (user.username || user._id)) {
+      router.push(`/profile/${user.username || user._id}`);
     }
   };
 

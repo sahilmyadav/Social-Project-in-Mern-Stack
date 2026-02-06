@@ -38,7 +38,7 @@ import { useEffect, useRef, useState } from 'react';
 export default function UserProfilePage() {
   const router = useRouter();
   const params = useParams();
-  const userId = params.userId as string;
+  const usernameOrId = params.username as string; // Can be username or userId
   const { confirm, dialogProps } = useConfirmDialog();
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -73,7 +73,7 @@ export default function UserProfilePage() {
   useEffect(() => {
     loadCurrentUser();
     loadUserProfile();
-  }, [userId]);
+  }, [usernameOrId]);
 
   // Load posts and reels when profile loads or follow status changes
   useEffect(() => {
@@ -107,7 +107,7 @@ export default function UserProfilePage() {
     setLoading(true);
     setNotFound(false);
     try {
-      const response = await authService.getUserProfile(userId);
+      const response = await authService.getUserProfile(usernameOrId);
       console.log('getUserProfile response:', response);
 
       if (response.success && response.data) {
@@ -115,7 +115,7 @@ export default function UserProfilePage() {
         console.log('Setting profile user with coverPhoto:', user.coverPhoto);
 
         setProfileUser({
-          _id: user._id || userId,
+          _id: user._id,
           firstName: user.firstName || '',
           lastName: user.lastName || '',
           fullName: user.fullName || `${user.firstName} ${user.lastName}`,
@@ -149,14 +149,14 @@ export default function UserProfilePage() {
         // Set follow status from API response (API is source of truth)
         if (user.isFollowing === true) {
           setFollowStatus('following');
-          localStorage.setItem(`follow_status_${userId}`, 'following');
+          localStorage.setItem(`follow_status_${user._id}`, 'following');
         } else if (user.isPending === true) {
           setFollowStatus('pending');
-          localStorage.setItem(`follow_status_${userId}`, 'pending');
+          localStorage.setItem(`follow_status_${user._id}`, 'pending');
         } else {
           // Not following
           setFollowStatus('none');
-          localStorage.setItem(`follow_status_${userId}`, 'none');
+          localStorage.setItem(`follow_status_${user._id}`, 'none');
         }
       }
     } catch (error: any) {
@@ -178,7 +178,7 @@ export default function UserProfilePage() {
 
   const loadUserPosts = async () => {
     try {
-      const isOwnProfile = currentUser?._id === userId;
+      const isOwnProfile = currentUser?._id === profileUser?._id;
 
       // Don't load posts if account is private and not following
       if (profileUser?.isPrivate && followStatus !== 'following' && !isOwnProfile) {
@@ -186,7 +186,7 @@ export default function UserProfilePage() {
         return;
       }
 
-      const response = await feedService.getUserPosts(userId, {
+      const response = await feedService.getUserPosts(profileUser._id, {
         page: 1,
         limit: 20,
       });
@@ -206,7 +206,7 @@ export default function UserProfilePage() {
   const loadUserReels = async () => {
     try {
       setReelsLoading(true);
-      const isOwnProfile = currentUser?._id === userId;
+      const isOwnProfile = currentUser?._id === profileUser?._id;
 
       // Don't load reels if account is private and not following
       if (profileUser?.isPrivate && followStatus !== 'following' && !isOwnProfile) {
@@ -215,7 +215,7 @@ export default function UserProfilePage() {
         return;
       }
 
-      const response = await reelService.getUserReels(userId, {
+      const response = await reelService.getUserReels(profileUser._id, {
         page: 1,
         limit: 20,
       });
@@ -235,15 +235,16 @@ export default function UserProfilePage() {
   };
   // const handleFollowAction
   const handleFollowAction = async () => {
-    if (isProcessing) return;
+    if (isProcessing || !profileUser?._id) return;
 
+    const targetUserId = profileUser._id;
     setIsProcessing(true);
     try {
       if (followStatus === 'following') {
-        const response = await followService.unfollowUser(userId);
+        const response = await followService.unfollowUser(targetUserId);
         if (response.success) {
           setFollowStatus('none');
-          localStorage.setItem(`follow_status_${userId}`, 'none');
+          localStorage.setItem(`follow_status_${targetUserId}`, 'none');
           // Update follower count
           setProfileUser((prev: any) => ({
             ...prev,
@@ -252,10 +253,10 @@ export default function UserProfilePage() {
         }
       } else if (followStatus === 'pending') {
         try {
-          const response = await followService.cancelFollowRequest(userId);
+          const response = await followService.cancelFollowRequest(targetUserId);
           if (response.success) {
             setFollowStatus('none');
-            localStorage.setItem(`follow_status_${userId}`, 'none');
+            localStorage.setItem(`follow_status_${targetUserId}`, 'none');
           }
         } catch (cancelError: any) {
           // Check if error is "not found" (request already canceled or doesn't exist)
@@ -265,7 +266,7 @@ export default function UserProfilePage() {
           if (statusCode === 404 || errorMessage.toLowerCase().includes('not found')) {
             // Request doesn't exist - set status to none anyway
             setFollowStatus('none');
-            localStorage.setItem(`follow_status_${userId}`, 'none');
+            localStorage.setItem(`follow_status_${targetUserId}`, 'none');
           } else {
             // Other error - rethrow
             throw cancelError;
@@ -274,7 +275,7 @@ export default function UserProfilePage() {
       } else {
         // Use sendFollowRequest for all accounts (public and private)
         try {
-          const response = await followService.sendFollowRequest(userId);
+          const response = await followService.sendFollowRequest(targetUserId);
           if (response.success) {
             // Check if auto-approved (public account)
             if (
@@ -282,7 +283,7 @@ export default function UserProfilePage() {
               response.data?.followRequest?.status === 'accepted'
             ) {
               setFollowStatus('following');
-              localStorage.setItem(`follow_status_${userId}`, 'following');
+              localStorage.setItem(`follow_status_${targetUserId}`, 'following');
               // Update follower count for public accounts
               setProfileUser((prev: any) => ({
                 ...prev,
@@ -291,7 +292,7 @@ export default function UserProfilePage() {
             } else {
               // Request pending for private accounts
               setFollowStatus('pending');
-              localStorage.setItem(`follow_status_${userId}`, 'pending');
+              localStorage.setItem(`follow_status_${targetUserId}`, 'pending');
             }
           }
         } catch (followError: any) {
@@ -300,7 +301,7 @@ export default function UserProfilePage() {
           if (errorMessage.toLowerCase().includes('already sent')) {
             // Request already exists - set status to pending
             setFollowStatus('pending');
-            localStorage.setItem(`follow_status_${userId}`, 'pending');
+            localStorage.setItem(`follow_status_${targetUserId}`, 'pending');
           } else {
             // Other error - rethrow to be caught by outer catch
             throw followError;
@@ -328,7 +329,7 @@ export default function UserProfilePage() {
       'User';
     const avatar = profileUser?.profilePicture || profileUser?.avatar || '👤';
     router.push(
-      `/chat?userId=${userId}&userName=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`
+      `/chat?userId=${profileUser._id}&userName=${encodeURIComponent(userName)}&avatar=${encodeURIComponent(avatar)}`
     );
   };
 
@@ -393,7 +394,7 @@ export default function UserProfilePage() {
       cancelText: 'Cancel',
       onConfirm: async () => {
         try {
-          const response = await authService.blockUser(userId);
+          const response = await authService.blockUser(profileUser._id);
 
           if (response.success) {
             setIsBlocked(true);
@@ -420,7 +421,7 @@ export default function UserProfilePage() {
       cancelText: 'Cancel',
       onConfirm: async () => {
         try {
-          const response = await authService.unblockUser(userId);
+          const response = await authService.unblockUser(profileUser._id);
 
           if (response.success) {
             setIsBlocked(false);
@@ -479,7 +480,7 @@ export default function UserProfilePage() {
     );
   }
 
-  const isOwnProfile = currentUser?._id === userId;
+  const isOwnProfile = currentUser?._id === profileUser?._id;
 
   return (
     <main className="min-h-screen bg-background">
@@ -633,7 +634,7 @@ export default function UserProfilePage() {
                                 <button
                                   onClick={async () => {
                                     setShowOptionsMenu(false);
-                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    const profileUrl = `${window.location.origin}/profile/${profileUser.username}`;
                                     if (navigator.share) {
                                       try {
                                         await navigator.share({
@@ -660,7 +661,7 @@ export default function UserProfilePage() {
                                 <button
                                   onClick={async () => {
                                     setShowOptionsMenu(false);
-                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    const profileUrl = `${window.location.origin}/profile/${profileUser.username}`;
                                     await navigator.clipboard.writeText(profileUrl);
                                     showToast.success(
                                       'Link copied',
@@ -748,7 +749,7 @@ export default function UserProfilePage() {
                                 <button
                                   onClick={async () => {
                                     setShowOptionsMenu(false);
-                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    const profileUrl = `${window.location.origin}/profile/${profileUser.username}`;
                                     if (navigator.share) {
                                       try {
                                         await navigator.share({
@@ -774,7 +775,7 @@ export default function UserProfilePage() {
                                 <button
                                   onClick={async () => {
                                     setShowOptionsMenu(false);
-                                    const profileUrl = `${window.location.origin}/profile/${userId}`;
+                                    const profileUrl = `${window.location.origin}/profile/${profileUser.username}`;
                                     await navigator.clipboard.writeText(profileUrl);
                                     showToast.success(
                                       'Link copied',

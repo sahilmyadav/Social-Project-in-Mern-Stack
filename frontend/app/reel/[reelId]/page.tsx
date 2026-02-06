@@ -6,10 +6,10 @@ import ShareModal from '@/components/share-modal';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { useVideoSafe } from '@/contexts/video-context';
@@ -17,20 +17,20 @@ import { commentService, reelService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-  ArrowLeft,
-  Bookmark,
-  Eye,
-  Flag,
-  Heart,
-  Loader2,
-  MessageCircle,
-  MoreVertical,
-  Play,
-  Send,
-  Trash2,
-  Volume2,
-  VolumeX,
-  X,
+    ArrowLeft,
+    Bookmark,
+    Eye,
+    Flag,
+    Heart,
+    Loader2,
+    MessageCircle,
+    MoreVertical,
+    Play,
+    Send,
+    Trash2,
+    Volume2,
+    VolumeX,
+    X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -679,7 +679,7 @@ export default function ReelPage() {
 
             {/* Author Info Overlay */}
             <div className="absolute bottom-4 left-4 right-16 z-10">
-              <Link href={`/profile/${author._id}`} className="flex items-center gap-3 mb-2">
+              <Link href={`/profile/${author.username || author._id}`} className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
                   {authorAvatar ? (
                     <img
@@ -779,7 +779,7 @@ export default function ReelPage() {
 
               {/* Author Avatar - like in reels feed */}
               <Link
-                href={`/profile/${author._id}`}
+                href={`/profile/${author.username || author._id}`}
                 className="w-7 h-7 rounded border-2 border-white overflow-hidden mt-1"
               >
                 {authorAvatar ? (
@@ -881,7 +881,7 @@ export default function ReelPage() {
                       <div key={comment._id || comment.id || index}>
                         {/* Main Comment */}
                         <div className="flex gap-3">
-                          <Link href={`/profile/${commentUser._id}`}>
+                          <Link href={`/profile/${commentUser.username || commentUser._id}`}>
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-sm font-semibold overflow-hidden flex-shrink-0">
                               {commentAvatar ? (
                                 <img
@@ -897,7 +897,7 @@ export default function ReelPage() {
                           <div className="flex-1">
                             <div className="bg-muted rounded-lg p-3">
                               <div className="flex items-center justify-between mb-1">
-                                <Link href={`/profile/${commentUser._id}`}>
+                                <Link href={`/profile/${commentUser.username || commentUser._id}`}>
                                   <span className="font-semibold text-sm text-foreground hover:underline">
                                     {commentName}
                                   </span>
@@ -979,7 +979,7 @@ export default function ReelPage() {
 
                                 return (
                                   <div key={reply._id} className="flex gap-2">
-                                    <Link href={`/profile/${replyUser._id}`}>
+                                    <Link href={`/profile/${replyUser.username || replyUser._id}`}>
                                       <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-xs font-semibold overflow-hidden flex-shrink-0">
                                         {replyAvatar ? (
                                           <img
@@ -995,7 +995,7 @@ export default function ReelPage() {
                                     <div className="flex-1 min-w-0">
                                       <div className="bg-muted rounded-lg px-3 py-2">
                                         <div className="flex items-center gap-2 mb-1">
-                                          <Link href={`/profile/${replyUser._id}`}>
+                                          <Link href={`/profile/${replyUser.username || replyUser._id}`}>
                                             <span className="font-semibold text-xs text-foreground hover:text-primary transition">
                                               {replyName}
                                             </span>

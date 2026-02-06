@@ -6,26 +6,26 @@ import ShareModal from '@/components/share-modal';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { commentService, postService } from '@/lib/api-services';
 import { showToast, toasts } from '@/lib/toast';
 import {
-  ArrowLeft,
-  Bookmark,
-  Flag,
-  Heart,
-  Loader2,
-  MessageCircle,
-  MoreVertical,
-  Send,
-  Share2,
-  Trash2,
-  X,
+    ArrowLeft,
+    Bookmark,
+    Flag,
+    Heart,
+    Loader2,
+    MessageCircle,
+    MoreVertical,
+    Send,
+    Share2,
+    Trash2,
+    X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -358,7 +358,7 @@ export default function PostPage() {
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           {/* Post Header */}
           <div className="flex items-center justify-between p-4">
-            <Link href={`/profile/${author._id}`} className="flex items-center gap-3">
+            <Link href={`/profile/${author.username || author._id}`} className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-semibold overflow-hidden">
                 {authorAvatar ? (
                   <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
@@ -505,7 +505,7 @@ export default function PostPage() {
 
                     return (
                       <div key={comment._id} className="flex gap-3">
-                        <Link href={`/profile/${commentUser._id}`}>
+                        <Link href={`/profile/${commentUser.username || commentUser._id}`}>
                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-sm font-semibold overflow-hidden flex-shrink-0">
                             {commentAvatar ? (
                               <img
@@ -521,7 +521,7 @@ export default function PostPage() {
                         <div className="flex-1">
                           <div className="bg-muted rounded-lg p-3">
                             <div className="flex items-center justify-between mb-1">
-                              <Link href={`/profile/${commentUser._id}`}>
+                              <Link href={`/profile/${commentUser.username || commentUser._id}`}>
                                 <span className="font-semibold text-sm text-foreground hover:underline">
                                   {commentName}
                                 </span>

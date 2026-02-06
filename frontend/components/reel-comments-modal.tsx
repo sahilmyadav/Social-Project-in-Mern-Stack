@@ -16,6 +16,7 @@ interface Comment {
     _id: string;
     firstName: string;
     lastName: string;
+    username?: string;
     profilePicture?: string;
     profileImage?: string;
     avatar?: string;
@@ -337,7 +338,7 @@ export default function ReelCommentsModal({
                           <div className="flex items-center gap-2 mb-1">
                             <span
                               className="font-semibold text-sm cursor-pointer hover:text-primary transition"
-                              onClick={() => router.push(`/profile/${comment.user_id?._id}`)}
+                              onClick={() => router.push(`/profile/${comment.user_id?.username || comment.user_id?._id}`)}
                             >
                               {comment.user_id?.firstName} {comment.user_id?.lastName}
                             </span>
@@ -429,7 +430,7 @@ export default function ReelCommentsModal({
                                   <div className="flex items-center gap-2 mb-1">
                                     <span
                                       className="font-semibold text-xs cursor-pointer hover:text-primary transition"
-                                      onClick={() => router.push(`/profile/${reply.user_id?._id}`)}
+                                      onClick={() => router.push(`/profile/${reply.user_id?.username || reply.user_id?._id}`)}
                                     >
                                       {reply.user_id?.firstName} {reply.user_id?.lastName}
                                     </span>
