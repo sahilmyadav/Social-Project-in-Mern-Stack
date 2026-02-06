@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { commentService, postService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
+import { showToast } from '@/lib/toast';
 import { Heart, Loader2, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -96,7 +97,7 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
       }
     } catch (error) {
       console.error('Error posting comment:', error);
-      alert('Failed to post comment. Please try again.');
+      showToast.error('Failed to post comment. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

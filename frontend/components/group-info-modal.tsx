@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,8 +9,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { chatService } from '@/lib/api-services';
+import { chatService, groupService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
+import { showToast } from '@/lib/toast';
 import {
   Camera,
   Edit2,
@@ -64,6 +66,7 @@ export default function GroupInfoModal({
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
+  const { confirm, dialogProps } = useConfirmDialog();
 
   useEffect(() => {
     if (isOpen && groupId) {
@@ -89,7 +92,7 @@ export default function GroupInfoModal({
 
   const handleUpdateGroup = async () => {
     if (!groupName.trim()) {
-      alert('Group name cannot be empty');
+      showToast.error('Group name cannot be empty');
       return;
     }
 
@@ -105,11 +108,11 @@ export default function GroupInfoModal({
         loadGroupDetails();
         onGroupUpdated?.();
       } else {
-        alert(response.message || 'Failed to update group');
+        showToast.error(response.message || 'Failed to update group');
       }
     } catch (error: any) {
       console.error('Error updating group:', error);
-      alert(error.message || 'Failed to update group');
+      showToast.error(error.message || 'Failed to update group');
     } finally {
       setIsUpdating(false);
     }
@@ -125,29 +128,35 @@ export default function GroupInfoModal({
         loadGroupDetails();
         onGroupUpdated?.();
       } else {
-        alert(response.message || 'Failed to update group avatar');
+        showToast.error(response.message || 'Failed to update group avatar');
       }
     } catch (error: any) {
       console.error('Error updating avatar:', error);
-      alert(error.message || 'Failed to update group avatar');
+      showToast.error(error.message || 'Failed to update group avatar');
     }
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!confirm('Are you sure you want to remove this member?')) return;
-
-    try {
-      const response = await chatService.removeMember(groupId, memberId);
-      if (response.success) {
-        loadGroupDetails();
-        onGroupUpdated?.();
-      } else {
-        alert(response.message || 'Failed to remove member');
-      }
-    } catch (error: any) {
-      console.error('Error removing member:', error);
-      alert(error.message || 'Failed to remove member');
-    }
+    confirm({
+      title: 'Remove Member',
+      message: 'Are you sure you want to remove this member from the group?',
+      confirmText: 'Remove',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const response = await chatService.removeMember(groupId, memberId);
+          if (response.success) {
+            loadGroupDetails();
+            onGroupUpdated?.();
+          } else {
+            showToast.error(response.message || 'Failed to remove member');
+          }
+        } catch (error: any) {
+          console.error('Error removing member:', error);
+          showToast.error(error.message || 'Failed to remove member');
+        }
+      },
+    });
   };
 
   const handleMakeAdmin = async (memberId: string) => {
@@ -157,51 +166,59 @@ export default function GroupInfoModal({
         loadGroupDetails();
         onGroupUpdated?.();
       } else {
-        alert(response.message || 'Failed to make admin');
+        showToast.error(response.message || 'Failed to make admin');
       }
     } catch (error: any) {
       console.error('Error making admin:', error);
-      alert(error.message || 'Failed to make admin');
+      showToast.error(error.message || 'Failed to make admin');
     }
   };
 
   const handleLeaveGroup = async () => {
-    if (!confirm('Are you sure you want to leave this group?')) return;
-
-    try {
-      const response = await chatService.leaveGroup(groupId, currentUserId);
-      if (response.success) {
-        onLeaveGroup?.();
-        onClose();
-      } else {
-        alert(response.message || 'Failed to leave group');
-      }
-    } catch (error: any) {
-      console.error('Error leaving group:', error);
-      alert(error.message || 'Failed to leave group');
-    }
+    confirm({
+      title: 'Leave Group',
+      message: 'Are you sure you want to leave this group?',
+      confirmText: 'Leave',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          const response = await chatService.leaveGroup(groupId, currentUserId);
+          if (response.success) {
+            onLeaveGroup?.();
+            onClose();
+          } else {
+            showToast.error(response.message || 'Failed to leave group');
+          }
+        } catch (error: any) {
+          console.error('Error leaving group:', error);
+          showToast.error(error.message || 'Failed to leave group');
+        }
+      },
+    });
   };
 
   const handleDeleteGroup = async () => {
-    if (
-      !confirm(
-        'Are you sure you want to delete this group? This action cannot be undone and will remove the group for all members.'
-      )
-    )
-      return;
-
-    try {
-      const response = await chatService.deleteGroup(groupId);
-      if (response.success) {
-        onDeleteGroup?.();
-        onClose();
-      } else {
-        alert(response.message || 'Failed to delete group');
-      }
-    } catch (error: any) {
-      console.error('Error deleting group:', error);
-      alert(error.message || 'Failed to delete group');
-    }
+    confirm({
+      title: 'Delete Group',
+      message:
+        'Are you sure you want to delete this group? This action cannot be undone and will remove the group for all members.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const response = await groupService.deleteGroup(groupId);
+          if (response.success) {
+            onDeleteGroup?.();
+            onClose();
+          } else {
+            showToast.error(response.message || 'Failed to delete group');
+          }
+        } catch (error: any) {
+          console.error('Error deleting group:', error);
+          showToast.error(error.message || 'Failed to delete group');
+        }
+      },
+    });
   };
 
   if (!isOpen) return null;
@@ -352,7 +369,9 @@ export default function GroupInfoModal({
                 <div className="space-y-2">
                   {members.map((member, index) => {
                     const memberUser = member.user || member;
-                    const memberId = memberUser._id || memberUser;
+                    const memberId =
+                      memberUser._id ||
+                      (typeof memberUser === 'string' ? memberUser : `member-${index}`);
                     const memberIsAdmin = member.role === 'admin' || member.role === 'owner';
                     const memberIsOwner =
                       member.role === 'owner' || groupDetails?.createdBy?._id === memberId;
@@ -365,7 +384,7 @@ export default function GroupInfoModal({
 
                     return (
                       <div
-                        key={memberId || `member-${index}`}
+                        key={memberId}
                         className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                       >
                         <img
@@ -451,6 +470,9 @@ export default function GroupInfoModal({
           )}
         </div>
       </div>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import ReportPostModal from '@/components/report-post-modal';
 import ShareModal from '@/components/share-modal';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -196,6 +197,7 @@ function PostCard({
   const [viewCount, setViewCount] = useState(post.views_count || 0);
   const [hasTrackedView, setHasTrackedView] = useState(false);
   const postCardRef = useRef<HTMLDivElement>(null);
+  const { confirm, dialogProps } = useConfirmDialog();
 
   // Track view when post comes into view
   useEffect(() => {
@@ -207,7 +209,7 @@ function PostCard({
           if (entry.isIntersecting && !hasTrackedView) {
             // Track the view
             postService.trackView(post._id).catch(() => {});
-            setViewCount((prev) => prev + 1);
+            setViewCount((prev: number) => prev + 1);
             setHasTrackedView(true);
           }
         });
@@ -298,7 +300,7 @@ function PostCard({
       }
     } catch (error) {
       console.error('Error posting comment:', error);
-      alert('Failed to post comment. Please try again.');
+      showToast.error('Failed to post comment. Please try again.');
     } finally {
       setSubmittingComment(false);
     }
@@ -354,7 +356,7 @@ function PostCard({
       }
     } catch (error) {
       console.error('Error posting reply:', error);
-      alert('Failed to post reply. Please try again.');
+      showToast.error('Failed to post reply. Please try again.');
     } finally {
       setSubmittingReply(false);
     }
@@ -389,7 +391,7 @@ function PostCard({
           }
         } catch (error) {
           console.error('Error loading replies:', error);
-          alert('Failed to load replies');
+          showToast.error('Failed to load replies');
         } finally {
           setLoadingReplies((prev) => {
             const newSet = new Set(prev);
@@ -507,62 +509,68 @@ function PostCard({
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!confirm('Are you sure you want to delete this comment?')) return;
+    confirm({
+      title: 'Delete Comment',
+      message: 'Are you sure you want to delete this comment?',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          // Check if it's a main comment or a reply
+          const isMainComment = comments.find((c) => c._id === commentId);
+          let parentCommentId: string | null = null;
 
-    try {
-      // Check if it's a main comment or a reply
-      const isMainComment = comments.find((c) => c._id === commentId);
-      let parentCommentId: string | null = null;
-
-      // If it's a reply, find the parent comment
-      if (!isMainComment) {
-        for (const [parentId, replies] of repliesData.entries()) {
-          const reply = replies.find((r: any) => r._id === commentId);
-          if (reply) {
-            parentCommentId = parentId;
-            break;
+          // If it's a reply, find the parent comment
+          if (!isMainComment) {
+            for (const [parentId, replies] of repliesData.entries()) {
+              const reply = replies.find((r: any) => r._id === commentId);
+              if (reply) {
+                parentCommentId = parentId;
+                break;
+              }
+            }
           }
+
+          // Optimistically remove from UI
+          if (isMainComment) {
+            // Remove main comment
+            setComments((prev) => prev.filter((c) => c._id !== commentId));
+            setCommentCount((prev) => Math.max(0, prev - 1));
+          } else if (parentCommentId) {
+            // Remove reply from repliesData
+            setRepliesData((prev) => {
+              const newMap = new Map(prev);
+              const replies = newMap.get(parentCommentId!) || [];
+              newMap.set(
+                parentCommentId!,
+                replies.filter((r: any) => r._id !== commentId)
+              );
+              return newMap;
+            });
+
+            // Decrease the reply count on the parent comment
+            setComments((prev) =>
+              prev.map((c) =>
+                c._id === parentCommentId
+                  ? { ...c, replies_count: Math.max(0, (c.replies_count || 1) - 1) }
+                  : c
+              )
+            );
+
+            // Decrease the total comment count (replies are also counted as comments)
+            setCommentCount((prev) => Math.max(0, prev - 1));
+          }
+
+          // Call the delete API
+          await commentService.deleteComment(commentId);
+        } catch (error) {
+          console.error('Error deleting comment:', error);
+          // Revert on error
+          loadComments();
+          showToast.error('Failed to delete comment');
         }
-      }
-
-      // Optimistically remove from UI
-      if (isMainComment) {
-        // Remove main comment
-        setComments((prev) => prev.filter((c) => c._id !== commentId));
-        setCommentCount((prev) => Math.max(0, prev - 1));
-      } else if (parentCommentId) {
-        // Remove reply from repliesData
-        setRepliesData((prev) => {
-          const newMap = new Map(prev);
-          const replies = newMap.get(parentCommentId!) || [];
-          newMap.set(
-            parentCommentId!,
-            replies.filter((r: any) => r._id !== commentId)
-          );
-          return newMap;
-        });
-
-        // Decrease the reply count on the parent comment
-        setComments((prev) =>
-          prev.map((c) =>
-            c._id === parentCommentId
-              ? { ...c, replies_count: Math.max(0, (c.replies_count || 1) - 1) }
-              : c
-          )
-        );
-
-        // Decrease the total comment count (replies are also counted as comments)
-        setCommentCount((prev) => Math.max(0, prev - 1));
-      }
-
-      // Call the delete API
-      await commentService.deleteComment(commentId);
-    } catch (error) {
-      console.error('Error deleting comment:', error);
-      // Revert on error
-      loadComments();
-      alert('Failed to delete comment');
-    }
+      },
+    });
   };
 
   // Check if current user is the post author
@@ -643,27 +651,33 @@ function PostCard({
     setIsShareModalOpen(true);
   };
 
-  const handleDeletePost = async () => {
+  const handleDeletePost = () => {
     if (isDeleting || !postId) return;
 
-    if (!confirm('Are you sure you want to delete this post?')) return;
+    confirm({
+      title: 'Delete Post',
+      message: 'Are you sure you want to delete this post? This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        setIsDeleting(true);
 
-    setIsDeleting(true);
-
-    try {
-      const response = await postService.deletePost(postId);
-      if (response.success) {
-        showToast.success('Deleted', 'Post deleted successfully');
-        setIsHidden(true); // Hide the post immediately
-      } else {
-        throw new Error(response.message || 'Failed to delete post');
-      }
-    } catch (error: any) {
-      console.error('Error deleting post:', error.message || error);
-      showToast.error('Delete failed', error.message || 'Failed to delete post');
-    } finally {
-      setIsDeleting(false);
-    }
+        try {
+          const response = await postService.deletePost(postId);
+          if (response.success) {
+            showToast.success('Deleted', 'Post deleted successfully');
+            setIsHidden(true); // Hide the post immediately
+          } else {
+            throw new Error(response.message || 'Failed to delete post');
+          }
+        } catch (error: any) {
+          console.error('Error deleting post:', error.message || error);
+          showToast.error('Delete failed', error.message || 'Failed to delete post');
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+    });
   };
 
   const handleSavePost = async (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1222,6 +1236,9 @@ function PostCard({
         contentType="post"
         contentId={postId}
       />
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...dialogProps} />
     </article>
   );
 }

@@ -207,7 +207,7 @@ export default function ReelCard({
       console.error('Error saving/unsaving reel:', error.message || error);
       // Revert on error
       setSaved(previousSaved);
-      alert(error.message || 'Failed to save reel');
+      showToast.error(error.message || 'Failed to save reel');
     } finally {
       setIsSaving(false);
     }

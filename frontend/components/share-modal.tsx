@@ -230,7 +230,7 @@ export default function ShareModal({
       }
     } catch (error: any) {
       console.error('❌ Error sharing:', error);
-      alert(error.message || 'Failed to share');
+      showToast.error(error.message || 'Failed to share');
     } finally {
       setSharing(null);
     }

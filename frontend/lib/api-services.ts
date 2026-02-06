@@ -889,7 +889,7 @@ export const groupService = {
     if (data.description !== undefined) formData.append('description', data.description);
     if (data.settings) formData.append('settings', JSON.stringify(data.settings));
     if (data.avatar) formData.append('avatar', data.avatar);
-    return api.upload(API_ENDPOINTS.GROUP.UPDATE(groupId), formData, 'PUT');
+    return api.put(API_ENDPOINTS.GROUP.UPDATE(groupId), formData, true);
   },
 
   // Delete group

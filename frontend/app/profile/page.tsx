@@ -571,81 +571,78 @@ export default function ProfilePage() {
   };
 
   // Delete Profile Picture
-  const handleDeleteProfilePicture = async () => {
-    const confirmed = await confirm({
+  const handleDeleteProfilePicture = () => {
+    confirm({
       title: 'Delete Profile Picture',
-      description:
+      message:
         'Are you sure you want to delete your profile picture? This action cannot be undone.',
       confirmText: 'Delete',
       cancelText: 'Cancel',
-      variant: 'destructive',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsUploadingProfilePic(true);
+          const response = await authService.deleteProfilePicture();
+
+          if (response.success) {
+            setUser((prev: any) => {
+              const updatedUser = {
+                ...prev,
+                profileImage: null,
+                avatar: null,
+                profilePicture: null,
+              };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              return updatedUser;
+            });
+            showToast.success('Profile picture deleted!', 'Your profile picture has been removed.');
+          } else {
+            showToast.error('Failed to delete profile picture', 'Please try again.');
+          }
+        } catch (err) {
+          console.error('Error deleting profile picture:', err);
+          showToast.error('Failed to delete profile picture', 'Please try again.');
+        } finally {
+          setIsUploadingProfilePic(false);
+        }
+      },
     });
-
-    if (!confirmed) return;
-
-    try {
-      setIsUploadingProfilePic(true);
-      const response = await authService.deleteProfilePicture();
-
-      if (response.success) {
-        setUser((prev: any) => {
-          const updatedUser = {
-            ...prev,
-            profileImage: null,
-            avatar: null,
-            profilePicture: null,
-          };
-          localStorage.setItem('user', JSON.stringify(updatedUser));
-          return updatedUser;
-        });
-        showToast.success('Profile picture deleted!', 'Your profile picture has been removed.');
-      } else {
-        showToast.error('Failed to delete profile picture', 'Please try again.');
-      }
-    } catch (err) {
-      console.error('Error deleting profile picture:', err);
-      showToast.error('Failed to delete profile picture', 'Please try again.');
-    } finally {
-      setIsUploadingProfilePic(false);
-    }
   };
 
   // Delete Cover Photo
-  const handleDeleteCoverPhoto = async () => {
-    const confirmed = await confirm({
+  const handleDeleteCoverPhoto = () => {
+    confirm({
       title: 'Delete Cover Photo',
-      description:
-        'Are you sure you want to delete your cover photo? This action cannot be undone.',
+      message: 'Are you sure you want to delete your cover photo? This action cannot be undone.',
       confirmText: 'Delete',
       cancelText: 'Cancel',
-      variant: 'destructive',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsUploadingCoverPhoto(true);
+          const response = await authService.deleteCoverPhoto();
+
+          if (response.success) {
+            setUser((prev: any) => {
+              const updatedUser = {
+                ...prev,
+                coverPhoto: null,
+              };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              return updatedUser;
+            });
+            showToast.success('Cover photo deleted!', 'Your cover photo has been removed.');
+          } else {
+            showToast.error('Failed to delete cover photo', 'Please try again.');
+          }
+        } catch (err) {
+          console.error('Error deleting cover photo:', err);
+          showToast.error('Failed to delete cover photo', 'Please try again.');
+        } finally {
+          setIsUploadingCoverPhoto(false);
+        }
+      },
     });
-
-    if (!confirmed) return;
-
-    try {
-      setIsUploadingCoverPhoto(true);
-      const response = await authService.deleteCoverPhoto();
-
-      if (response.success) {
-        setUser((prev: any) => {
-          const updatedUser = {
-            ...prev,
-            coverPhoto: null,
-          };
-          localStorage.setItem('user', JSON.stringify(updatedUser));
-          return updatedUser;
-        });
-        showToast.success('Cover photo deleted!', 'Your cover photo has been removed.');
-      } else {
-        showToast.error('Failed to delete cover photo', 'Please try again.');
-      }
-    } catch (err) {
-      console.error('Error deleting cover photo:', err);
-      showToast.error('Failed to delete cover photo', 'Please try again.');
-    } finally {
-      setIsUploadingCoverPhoto(false);
-    }
   };
 
   const handleOpenPostDetails = (post: any) => {

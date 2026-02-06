@@ -111,6 +111,7 @@ interface Conversation {
 
 interface Message {
   id: number | string;
+  _id?: string;
   sender: string;
   content: string;
   timestamp: string;
@@ -1478,7 +1479,7 @@ function ChatPageContent() {
     if (!selectedThreadId || isSendingMessage) return;
 
     const isGroup = selectedConversation?.isGroup;
-    const replyToId = replyingTo?._id || replyingTo?.id;
+    const replyToId = replyingTo?._id || (replyingTo?.id ? String(replyingTo.id) : undefined);
 
     setIsSendingMessage(true);
     setReplyingTo(null);
@@ -1506,7 +1507,7 @@ function ChatPageContent() {
     setMessages((prev) => [...prev, tempMessage]);
 
     try {
-      let response;
+      let response: any;
 
       if (isGroup) {
         response = await groupService.sendGroupMessage(selectedThreadId, {
@@ -1739,7 +1740,7 @@ function ChatPageContent() {
 
       // Send the forwarded message
       const forwardedText = messageToForward.content;
-      let response;
+      let response: any;
 
       if (targetConversation.isGroup) {
         response = await groupService.sendGroupMessage(targetThreadId, {
@@ -1823,7 +1824,7 @@ function ChatPageContent() {
 
       // Send to server - use appropriate API based on conversation type
       const isGroup = selectedConversation?.isGroup || false;
-      let response;
+      let response: any;
 
       if (isGroup) {
         response = await groupService.sendGroupMessage(selectedThreadId, {
@@ -1913,7 +1914,7 @@ function ChatPageContent() {
 
       // Send to server - use appropriate API based on conversation type
       const isGroup = selectedConversation?.isGroup || false;
-      let response;
+      let response: any;
 
       if (isGroup) {
         response = await groupService.sendGroupMessage(selectedThreadId, {

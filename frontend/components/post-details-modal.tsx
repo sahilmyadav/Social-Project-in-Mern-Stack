@@ -2,6 +2,7 @@
 
 import EmojiPicker, { CommentReactions } from '@/components/emoji-picker';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   DropdownMenu,
@@ -40,6 +41,7 @@ export default function PostDetailsModal({
   const [isDeleting, setIsDeleting] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const scrollPositionRef = useRef(0);
+  const { confirm, dialogProps } = useConfirmDialog();
 
   // Save scroll position when modal opens
   useEffect(() => {
@@ -279,24 +281,29 @@ export default function PostDetailsModal({
   const handleDeletePost = async () => {
     if (isDeleting || !post?._id) return;
 
-    if (!confirm('Are you sure you want to delete this post?')) return;
-
-    setIsDeleting(true);
-
-    try {
-      const postId = post._id || post.id;
-      const response = await postService.deletePost(postId);
-      if (response.success) {
-        handleClose(); // Close modal after deletion
-      } else {
-        throw new Error(response.message || 'Failed to delete post');
-      }
-    } catch (error: any) {
-      console.error('Error deleting post:', error.message || error);
-      alert('Failed to delete post. Please try again.');
-    } finally {
-      setIsDeleting(false);
-    }
+    confirm({
+      title: 'Delete Post',
+      message: 'Are you sure you want to delete this post? This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        setIsDeleting(true);
+        try {
+          const postId = post._id || post.id;
+          const response = await postService.deletePost(postId);
+          if (response.success) {
+            handleClose(); // Close modal after deletion
+          } else {
+            throw new Error(response.message || 'Failed to delete post');
+          }
+        } catch (error: any) {
+          console.error('Error deleting post:', error.message || error);
+          toasts.error('Failed to delete post. Please try again.');
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+    });
   };
 
   // Check if current user is the post author
@@ -674,6 +681,9 @@ export default function PostDetailsModal({
           </div>
         )}
       </DialogContent>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...dialogProps} />
     </Dialog>
   );
 }

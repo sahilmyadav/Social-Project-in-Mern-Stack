@@ -2,25 +2,26 @@
 
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-    emitAcceptCall,
-    emitAnswer,
-    emitEndCall,
-    emitIceCandidate,
-    emitOffer,
-    emitRejectCall,
-    offAnswer,
-    offCallAccepted,
-    offCallEnded,
-    offCallFailed,
-    offIceCandidate,
-    offOffer,
-    onAnswer,
-    onCallAccepted,
-    onCallEnded,
-    onCallFailed,
-    onIceCandidate,
-    onOffer,
+  emitAcceptCall,
+  emitAnswer,
+  emitEndCall,
+  emitIceCandidate,
+  emitOffer,
+  emitRejectCall,
+  offAnswer,
+  offCallAccepted,
+  offCallEnded,
+  offCallFailed,
+  offIceCandidate,
+  offOffer,
+  onAnswer,
+  onCallAccepted,
+  onCallEnded,
+  onCallFailed,
+  onIceCandidate,
+  onOffer,
 } from '@/lib/socket';
+import { showToast } from '@/lib/toast';
 import { Mic, MicOff, Phone, PhoneOff, User, Volume2, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -310,7 +311,7 @@ export default function VoiceCallModal({
       return peerConnection;
     } catch (error) {
       console.error('❌ Error creating peer connection:', error);
-      alert('Unable to access microphone. Please check permissions.');
+      showToast.error('Unable to access microphone. Please check permissions.');
       setCallStatus('ended');
       throw error;
     }
@@ -538,7 +539,9 @@ export default function VoiceCallModal({
           {/* Avatar */}
           <div className="relative mb-8">
             <div className="w-32 h-32 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-7xl shadow-2xl border-4 border-white/10">
-              {recipientAvatar?.startsWith('http') || recipientAvatar?.startsWith('/') || recipientAvatar?.startsWith('uploads') ? (
+              {recipientAvatar?.startsWith('http') ||
+              recipientAvatar?.startsWith('/') ||
+              recipientAvatar?.startsWith('uploads') ? (
                 <img
                   src={getMediaUrl(recipientAvatar)}
                   alt={recipientName}
@@ -607,9 +610,7 @@ export default function VoiceCallModal({
             )}
 
             {callStatus === 'ended' && (
-              <p className="text-lg">
-                {callFailedReason || 'Call ended'}
-              </p>
+              <p className="text-lg">{callFailedReason || 'Call ended'}</p>
             )}
           </div>
         </div>

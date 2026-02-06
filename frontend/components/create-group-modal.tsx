@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { chatService, followService, groupService, searchService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
+import { showToast } from '@/lib/toast';
 import { Camera, Search, User as UserIcon, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -273,7 +274,7 @@ export default function CreateGroupModal({
 
   const handleCreateGroup = async () => {
     if (!groupName.trim() || selectedUsers.length === 0) {
-      alert('Please enter a group name and select at least one member');
+      showToast.error('Please enter a group name and select at least one member');
       return;
     }
 
@@ -294,7 +295,7 @@ export default function CreateGroupModal({
       } else {
         const errorMessage = response.message || 'Failed to create group';
         console.error('Group creation failed:', errorMessage);
-        alert(errorMessage);
+        showToast.error(errorMessage);
       }
     } catch (error: any) {
       console.error('Error creating group:', error);
@@ -315,7 +316,7 @@ export default function CreateGroupModal({
       }
 
       console.error('Final error message:', errorMessage);
-      alert(errorMessage);
+      showToast.error(errorMessage);
     } finally {
       setIsCreating(false);
     }
@@ -600,7 +601,7 @@ export default function CreateGroupModal({
             onClick={() => {
               if (step === 'members') {
                 if (selectedUsers.length === 0) {
-                  alert('Please select at least one member');
+                  showToast.error('Please select at least one member');
                   return;
                 }
                 setStep('details');

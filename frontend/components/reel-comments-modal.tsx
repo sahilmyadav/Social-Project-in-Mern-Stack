@@ -1,6 +1,7 @@
 'use client';
 
 import EmojiPicker, { CommentReactions } from '@/components/emoji-picker';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import UserAvatar from '@/components/user-avatar';
 import { commentService, reelService } from '@/lib/api-services';
@@ -42,6 +43,7 @@ export default function ReelCommentsModal({
   currentUserId,
 }: ReelCommentsModalProps) {
   const router = useRouter();
+  const { confirm, dialogProps } = useConfirmDialog();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(false);
@@ -250,52 +252,58 @@ export default function ReelCommentsModal({
     }
   };
 
-  const handleDeleteComment = async (commentId: string) => {
-    if (!confirm('Are you sure you want to delete this comment?')) return;
+  const handleDeleteComment = (commentId: string) => {
+    confirm({
+      title: 'Delete Comment',
+      message: 'Are you sure you want to delete this comment?',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const isMainComment = comments.find((c) => c._id === commentId);
+          let parentCommentId: string | null = null;
 
-    try {
-      const isMainComment = comments.find((c) => c._id === commentId);
-      let parentCommentId: string | null = null;
-
-      if (!isMainComment) {
-        for (const [parentId, replies] of repliesData.entries()) {
-          const reply = replies.find((r: any) => r._id === commentId);
-          if (reply) {
-            parentCommentId = parentId;
-            break;
+          if (!isMainComment) {
+            for (const [parentId, replies] of repliesData.entries()) {
+              const reply = replies.find((r: any) => r._id === commentId);
+              if (reply) {
+                parentCommentId = parentId;
+                break;
+              }
+            }
           }
+
+          // Optimistic delete
+          if (isMainComment) {
+            setComments((prev) => prev.filter((c) => c._id !== commentId));
+          } else if (parentCommentId) {
+            setRepliesData((prev) => {
+              const newMap = new Map(prev);
+              const replies = newMap.get(parentCommentId!) || [];
+              newMap.set(
+                parentCommentId!,
+                replies.filter((r: any) => r._id !== commentId)
+              );
+              return newMap;
+            });
+            setComments((prev) =>
+              prev.map((c) =>
+                c._id === parentCommentId
+                  ? { ...c, replies_count: Math.max(0, (c.replies_count || 1) - 1) }
+                  : c
+              )
+            );
+          }
+
+          await commentService.deleteComment(commentId);
+          showToast.success('Comment deleted');
+        } catch (error) {
+          console.error('Error deleting comment:', error);
+          showToast.error('Failed to delete comment');
+          fetchComments();
         }
-      }
-
-      // Optimistic delete
-      if (isMainComment) {
-        setComments((prev) => prev.filter((c) => c._id !== commentId));
-      } else if (parentCommentId) {
-        setRepliesData((prev) => {
-          const newMap = new Map(prev);
-          const replies = newMap.get(parentCommentId!) || [];
-          newMap.set(
-            parentCommentId!,
-            replies.filter((r: any) => r._id !== commentId)
-          );
-          return newMap;
-        });
-        setComments((prev) =>
-          prev.map((c) =>
-            c._id === parentCommentId
-              ? { ...c, replies_count: Math.max(0, (c.replies_count || 1) - 1) }
-              : c
-          )
-        );
-      }
-
-      await commentService.deleteComment(commentId);
-      showToast.success('Comment deleted');
-    } catch (error) {
-      console.error('Error deleting comment:', error);
-      showToast.error('Failed to delete comment');
-      fetchComments();
-    }
+      },
+    });
   };
 
   return (
@@ -562,6 +570,9 @@ export default function ReelCommentsModal({
           </form>
         </div>
       </DialogContent>
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...dialogProps} />
     </Dialog>
   );
 }

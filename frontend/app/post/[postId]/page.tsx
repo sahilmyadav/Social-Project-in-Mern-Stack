@@ -4,6 +4,7 @@ import Navigation from '@/components/navigation';
 import ReportPostModal from '@/components/report-post-modal';
 import ShareModal from '@/components/share-modal';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +35,7 @@ export default function PostPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { confirm, dialogProps } = useConfirmDialog();
   const postId = params.postId as string;
   const showComments = searchParams.get('comments') === 'true';
 
@@ -203,21 +205,27 @@ export default function PostPage() {
   };
 
   // Handle delete
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (isDeleting || !post) return;
 
-    if (!confirm('Are you sure you want to delete this post?')) return;
-
-    setIsDeleting(true);
-    try {
-      await postService.deletePost(post._id);
-      toasts.postDeleted();
-      router.push('/home');
-    } catch (error) {
-      showToast.error('Failed to delete post');
-    } finally {
-      setIsDeleting(false);
-    }
+    confirm({
+      title: 'Delete Post',
+      message: 'Are you sure you want to delete this post? This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        setIsDeleting(true);
+        try {
+          await postService.deletePost(post._id);
+          toasts.postDeleted();
+          router.push('/home');
+        } catch (error) {
+          showToast.error('Failed to delete post');
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+    });
   };
 
   // Handle comment submit
@@ -641,6 +649,9 @@ export default function PostPage() {
         postId={post._id}
         postAuthor={authorUsername}
       />
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }
