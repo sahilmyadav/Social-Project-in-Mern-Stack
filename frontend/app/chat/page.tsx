@@ -11,10 +11,10 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -23,70 +23,70 @@ import VoiceCallModal from '@/components/voice-call-modal';
 import { authService, chatService, groupService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-    disconnectSocket,
-    emitInitiateCall,
-    emitInitiateGroupCall,
-    emitJoinGroup,
-    emitMessageDelivered,
-    emitStopTyping,
-    emitTyping,
-    emitUserOffline,
-    emitUserOnline,
-    getSocket,
-    initSocket,
-    joinThread,
-    offCallEnded,
-    offCallFailed,
-    offCallRejected,
-    offGroupMessage,
-    offGroupMessageNotification,
-    offIncomingCall,
-    offMessageStatus,
-    offNewMessage,
-    offNewThread,
-    offStopTyping,
-    offTyping,
-    offUserOffline,
-    offUserOnline,
-    onCallEnded,
-    onCallFailed,
-    onCallRejected,
-    onGroupMessage,
-    onGroupMessageNotification,
-    onIncomingCall,
-    onMessageStatus,
-    onNewMessage,
-    onNewThread,
-    onStopTyping,
-    onTyping,
-    onUserOffline,
-    onUserOnline,
+  disconnectSocket,
+  emitInitiateCall,
+  emitInitiateGroupCall,
+  emitJoinGroup,
+  emitMessageDelivered,
+  emitStopTyping,
+  emitTyping,
+  emitUserOffline,
+  emitUserOnline,
+  getSocket,
+  initSocket,
+  joinThread,
+  offCallEnded,
+  offCallFailed,
+  offCallRejected,
+  offGroupMessage,
+  offGroupMessageNotification,
+  offIncomingCall,
+  offMessageStatus,
+  offNewMessage,
+  offNewThread,
+  offStopTyping,
+  offTyping,
+  offUserOffline,
+  offUserOnline,
+  onCallEnded,
+  onCallFailed,
+  onCallRejected,
+  onGroupMessage,
+  onGroupMessageNotification,
+  onIncomingCall,
+  onMessageStatus,
+  onNewMessage,
+  onNewThread,
+  onStopTyping,
+  onTyping,
+  onUserOffline,
+  onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-    Ban,
-    Camera,
-    CornerUpLeft,
-    Edit2,
-    FileText,
-    Flag,
-    Forward,
-    Image as ImageIcon,
-    LogOut,
-    MapPin,
-    Mic,
-    MoreHorizontal,
-    Navigation2,
-    Phone,
-    Plus,
-    Reply,
-    Send,
-    Trash2,
-    User,
-    UserPlus,
-    Users,
-    Video,
-    X,
+  Ban,
+  Camera,
+  CornerUpLeft,
+  Edit2,
+  FileText,
+  Flag,
+  Forward,
+  Image as ImageIcon,
+  LogOut,
+  MapPin,
+  Mic,
+  MoreHorizontal,
+  Navigation2,
+  Phone,
+  Plus,
+  Reply,
+  Send,
+  Trash2,
+  User,
+  UserPlus,
+  Users,
+  Video,
+  X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -863,7 +863,13 @@ function ChatPageContent() {
           (c) => c.threadId === threadId || c.id === threadId || c.participantId === callerId
         );
 
-        console.log('📞 Found conversation:', conversation, 'from', currentConversations.length, 'conversations');
+        console.log(
+          '📞 Found conversation:',
+          conversation,
+          'from',
+          currentConversations.length,
+          'conversations'
+        );
 
         // Use priority: conversation name > callerInfo from backend > Unknown
         const callerName = conversation?.name || callerInfo?.name || 'Unknown User';
@@ -2035,7 +2041,24 @@ function ChatPageContent() {
 
   const handleDeleteMessage = async (messageId: string, deleteFor: 'me' | 'everyone') => {
     try {
-      await chatService.deleteMessage(messageId, deleteFor);
+      let response;
+
+      // Use appropriate service based on whether we're in a group chat or direct message
+      if (activeTab === 'groups' && selectedThreadId) {
+        // Group message - use groupService
+        response = await groupService.deleteMessage(
+          selectedThreadId,
+          messageId,
+          deleteFor === 'everyone'
+        );
+      } else {
+        // Direct message - use chatService
+        response = await chatService.deleteMessage(messageId, deleteFor);
+      }
+
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to delete message');
+      }
 
       // Remove message from UI immediately for both cases
       // Socket event will also update other user's UI for "everyone"
@@ -2046,8 +2069,9 @@ function ChatPageContent() {
         deleteFor === 'everyone' ? 'Message deleted for everyone' : 'Message deleted for you'
       );
     } catch (error: any) {
-      console.error('Error deleting message:', error);
-      showToast.error('Delete failed', error?.message || 'Failed to delete message');
+      console.error('Error deleting message:', JSON.stringify(error, null, 2));
+      const errorMessage = error?.message || error?.error || 'Failed to delete message';
+      showToast.error('Delete failed', errorMessage);
     }
   };
 
