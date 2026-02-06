@@ -691,3 +691,38 @@ export const onCommentUnpinned = (callback: (data: any) => void) => {
 export const offCommentUnpinned = (callback: (data: any) => void) => {
   socket?.off('commentUnpinned', callback);
 };
+
+// ==================== NOTIFICATION EVENTS ====================
+
+/**
+ * Listen for new notification events
+ */
+export const onNewNotification = (callback: (data: any) => void) => {
+  socket?.on('newNotification', callback);
+};
+
+export const offNewNotification = (callback: (data: any) => void) => {
+  socket?.off('newNotification', callback);
+};
+
+/**
+ * Listen for notification read events
+ */
+export const onNotificationRead = (callback: (data: any) => void) => {
+  socket?.on('notificationRead', callback);
+};
+
+export const offNotificationRead = (callback: (data: any) => void) => {
+  socket?.off('notificationRead', callback);
+};
+
+/**
+ * Listen for all notifications marked as read
+ */
+export const onAllNotificationsRead = (callback: (data: any) => void) => {
+  socket?.on('allNotificationsRead', callback);
+};
+
+export const offAllNotificationsRead = (callback: (data: any) => void) => {
+  socket?.off('allNotificationsRead', callback);
+};

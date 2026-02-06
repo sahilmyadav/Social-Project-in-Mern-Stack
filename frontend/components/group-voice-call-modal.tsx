@@ -3,7 +3,6 @@
 import { getMediaUrl } from '@/lib/media-utils';
 import { getSocket } from '@/lib/socket';
 import { Mic, MicOff, Phone, PhoneOff, Users, Volume2, VolumeX, X } from 'lucide-react';
-import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Participant {
@@ -678,44 +677,53 @@ export default function GroupVoiceCallModal({
         {/* Participants Grid */}
         <div className="px-6 pb-4">
           <div className="grid grid-cols-3 gap-3 max-h-[300px] overflow-y-auto">
-            {participants.map((participant) => (
-              <div
-                key={participant.userId}
-                className={`relative flex flex-col items-center p-3 rounded-xl transition ${
-                  participant.isSpeaking ? 'bg-green-500/20 ring-2 ring-green-400' : 'bg-white/5'
-                }`}
-              >
-                {/* Avatar */}
-                <div className="relative w-14 h-14 mb-2">
-                  {participant.avatar ? (
-                    <Image
-                      src={getMediaUrl(participant.avatar) || '/default-avatar.png'}
-                      alt={participant.userName}
-                      fill
-                      className="rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                      <span className="text-white text-lg font-medium">
-                        {participant.userName?.charAt(0)?.toUpperCase() || '?'}
-                      </span>
-                    </div>
-                  )}
+            {participants.map((participant) => {
+              const avatarUrl = participant.avatar ? getMediaUrl(participant.avatar) : null;
+              const isValidAvatar =
+                avatarUrl && (avatarUrl.startsWith('http') || avatarUrl.startsWith('/'));
 
-                  {/* Muted indicator */}
-                  {participant.isMuted && (
-                    <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-red-500">
-                      <MicOff size={10} className="text-white" />
-                    </div>
-                  )}
+              return (
+                <div
+                  key={participant.userId}
+                  className={`relative flex flex-col items-center p-3 rounded-xl transition ${
+                    participant.isSpeaking ? 'bg-green-500/20 ring-2 ring-green-400' : 'bg-white/5'
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div className="relative w-14 h-14 mb-2">
+                    {isValidAvatar ? (
+                      <img
+                        src={avatarUrl}
+                        alt={participant.userName}
+                        className="w-full h-full rounded-full object-cover"
+                        onError={(e) => {
+                          // Hide image on error and show fallback
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                        <span className="text-white text-lg font-medium">
+                          {participant.userName?.charAt(0)?.toUpperCase() || '?'}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Muted indicator */}
+                    {participant.isMuted && (
+                      <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-red-500">
+                        <MicOff size={10} className="text-white" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Name */}
+                  <span className="text-white text-xs font-medium text-center truncate w-full">
+                    {participant.userId === currentUserId ? 'You' : participant.userName}
+                  </span>
                 </div>
-
-                {/* Name */}
-                <span className="text-white text-xs font-medium text-center truncate w-full">
-                  {participant.userId === currentUserId ? 'You' : participant.userName}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

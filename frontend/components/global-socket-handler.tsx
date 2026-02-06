@@ -1,13 +1,13 @@
 'use client';
 
 import {
-    disconnectSocket,
-    emitUserOffline,
-    emitUserOnline,
-    getSocket,
-    initSocket,
-    isSocketConnected,
-    reconnectSocket,
+  disconnectSocket,
+  emitUserOffline,
+  emitUserOnline,
+  getSocket,
+  initSocket,
+  isSocketConnected,
+  reconnectSocket,
 } from '@/lib/socket';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -260,7 +260,11 @@ export default function GlobalSocketHandler() {
       const callType = data.callType || 'voice';
       showBrowserNotification(
         callType === 'video' ? `Video call from ${callerName}` : `Call from ${callerName}`,
-        { body: `${callerName} is calling you...`, tag: `call-${data.threadId}`, requireInteraction: true }
+        {
+          body: `${callerName} is calling you...`,
+          tag: `call-${data.threadId}`,
+          requireInteraction: true,
+        }
       );
     });
 
@@ -276,6 +280,39 @@ export default function GlobalSocketHandler() {
         body: title || 'Tap to watch the live video',
         tag: `live-${streamId}`,
         onClick: () => router.push(`/live/watch/${streamId}`),
+      });
+    });
+
+    // Listen for new notifications globally
+    socket?.on('newNotification', (data) => {
+      const notification = data.notification;
+      if (!notification) return;
+
+      const isOnNotificationsPage = pathname?.startsWith('/notifications');
+
+      // Get sender info
+      const sender = notification.sender_id;
+      const senderName = sender?.firstName
+        ? `${sender.firstName} ${sender.lastName || ''}`.trim()
+        : sender?.username || 'Someone';
+
+      // Show toast notification (except when on notifications page)
+      if (!isOnNotificationsPage) {
+        toast.message(notification.title || 'New Notification', {
+          description: notification.message || `${senderName} interacted with your content`,
+          action: {
+            label: 'View',
+            onClick: () => router.push('/notifications'),
+          },
+          duration: 5000,
+        });
+      }
+
+      // Show browser notification
+      showBrowserNotification(notification.title || 'New Notification', {
+        body: notification.message || `${senderName} interacted with your content`,
+        tag: `notification-${notification._id}`,
+        onClick: () => router.push('/notifications'),
       });
     });
 
@@ -308,6 +345,7 @@ export default function GlobalSocketHandler() {
       socket?.off('liveStreamStarted');
       socket?.off('newMessage');
       socket?.off('incomingCall');
+      socket?.off('newNotification');
       socket?.off('connect');
       socket?.off('disconnect');
       const currentToken = localStorage.getItem('accessToken');

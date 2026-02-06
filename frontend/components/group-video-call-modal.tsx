@@ -3,7 +3,6 @@
 import { getMediaUrl } from '@/lib/media-utils';
 import { getSocket } from '@/lib/socket';
 import { Mic, MicOff, PhoneOff, Users, Video, VideoOff, X } from 'lucide-react';
-import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Participant {
@@ -826,6 +825,11 @@ export default function GroupVideoCallModal({
                 ? !participant.isVideoOff && localStreamReady && localStreamRef.current
                 : !participant.isVideoOff && participant.stream;
 
+              // Get valid avatar URL
+              const avatarUrl = participant.odgoAvatar ? getMediaUrl(participant.odgoAvatar) : null;
+              const isValidAvatar =
+                avatarUrl && (avatarUrl.startsWith('http') || avatarUrl.startsWith('/'));
+
               return (
                 <div
                   key={participant.odgoId || `participant-${index}`}
@@ -834,13 +838,15 @@ export default function GroupVideoCallModal({
                   {/* Video or Avatar */}
                   {!hasVideo ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-900">
-                      {participant.odgoAvatar ? (
+                      {isValidAvatar ? (
                         <div className="relative w-20 h-20 md:w-24 md:h-24">
-                          <Image
-                            src={getMediaUrl(participant.odgoAvatar) || '/default-avatar.png'}
+                          <img
+                            src={avatarUrl}
                             alt={participant.odgoName}
-                            fill
-                            className="rounded-full object-cover"
+                            className="w-full h-full rounded-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
                           />
                         </div>
                       ) : (

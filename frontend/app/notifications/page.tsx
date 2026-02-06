@@ -4,22 +4,23 @@ import Navigation from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { authService, followService, notificationService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
+import { getSocket, offNewNotification, onNewNotification } from '@/lib/socket';
 import {
-    AtSign,
-    Bell,
-    BellOff,
-    CheckCheck,
-    Heart,
-    Loader2,
-    MessageCircle,
-    Settings,
-    Share2,
-    UserCheck,
-    UserPlus,
-    X,
+  AtSign,
+  Bell,
+  BellOff,
+  CheckCheck,
+  Heart,
+  Loader2,
+  MessageCircle,
+  Settings,
+  Share2,
+  UserCheck,
+  UserPlus,
+  X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface NotificationSender {
   _id: string;
@@ -70,9 +71,56 @@ export default function NotificationsPage() {
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [followingStatus, setFollowingStatus] = useState<Record<string, 'none' | 'following' | 'pending'>>({});
+  const [followingStatus, setFollowingStatus] = useState<
+    Record<string, 'none' | 'following' | 'pending'>
+  >({});
   const [processingFollowBack, setProcessingFollowBack] = useState<string | null>(null);
   const router = useRouter();
+  const notificationHandlerRef = useRef<((data: any) => void) | null>(null);
+
+  // Handle new notification from socket
+  const handleNewNotification = useCallback((data: any) => {
+    console.log('🔔 New notification received:', data);
+    const newNotification = data.notification;
+
+    if (newNotification) {
+      setNotifications((prev) => {
+        // Check if notification already exists
+        const exists = prev.some((n) => n._id === newNotification._id);
+        if (exists) return prev;
+
+        // Add new notification at the beginning
+        return [newNotification, ...prev];
+      });
+
+      // Update unread count
+      if (!newNotification.is_read) {
+        setUnreadCount((prev) => prev + 1);
+      }
+    }
+  }, []);
+
+  // Set up socket listener for real-time notifications
+  useEffect(() => {
+    const socket = getSocket();
+
+    if (socket) {
+      // Store the handler reference
+      notificationHandlerRef.current = handleNewNotification;
+
+      // Subscribe to new notification events
+      onNewNotification(handleNewNotification);
+      console.log('🔔 Subscribed to notification events');
+    }
+
+    return () => {
+      // Cleanup: remove the listener
+      if (notificationHandlerRef.current) {
+        offNewNotification(notificationHandlerRef.current);
+        console.log('🔔 Unsubscribed from notification events');
+      }
+    };
+  }, [handleNewNotification]);
 
   useEffect(() => {
     loadNotifications();
@@ -203,11 +251,11 @@ export default function NotificationsPage() {
       if (response.success && response.data) {
         const user = response.data;
         if (user.isFollowing) {
-          setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }));
+          setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
         } else if (user.isPending) {
-          setFollowingStatus(prev => ({ ...prev, [userId]: 'pending' }));
+          setFollowingStatus((prev) => ({ ...prev, [userId]: 'pending' }));
         } else {
-          setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }));
+          setFollowingStatus((prev) => ({ ...prev, [userId]: 'none' }));
         }
       }
     } catch (error) {
@@ -222,13 +270,13 @@ export default function NotificationsPage() {
     try {
       const response = await followService.followBack(userId);
       if (response.success) {
-        setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }));
+        setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
       }
     } catch (error: any) {
       console.error('Failed to follow back:', error);
       // If error is "already following" or similar, update status
       if (error?.message?.toLowerCase().includes('already')) {
-        setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }));
+        setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
       }
     } finally {
       setProcessingFollowBack(null);
@@ -237,8 +285,10 @@ export default function NotificationsPage() {
 
   // Check following status for follow notifications
   useEffect(() => {
-    const followNotifications = notifications.filter(n => n.type === 'follow' && n.sender_id?._id);
-    followNotifications.forEach(notification => {
+    const followNotifications = notifications.filter(
+      (n) => n.type === 'follow' && n.sender_id?._id
+    );
+    followNotifications.forEach((notification) => {
       const senderId = notification.sender_id._id;
       if (!followingStatus[senderId]) {
         checkFollowingStatus(senderId);
@@ -438,8 +488,8 @@ export default function NotificationsPage() {
                           <img
                             src={getMediaUrl(
                               request.requester.profileImage ||
-                              request.requester.profilePicture ||
-                              request.requester.avatar
+                                request.requester.profilePicture ||
+                                request.requester.avatar
                             )}
                             alt={request.requester.firstName}
                             className="w-full h-full object-cover"
@@ -538,8 +588,8 @@ export default function NotificationsPage() {
                         <img
                           src={getMediaUrl(
                             notification.sender_id.profileImage ||
-                            notification.sender_id.profilePicture ||
-                            notification.sender_id.avatar
+                              notification.sender_id.profilePicture ||
+                              notification.sender_id.avatar
                           )}
                           alt={notification.sender_id.firstName}
                           className="w-full h-full object-cover"

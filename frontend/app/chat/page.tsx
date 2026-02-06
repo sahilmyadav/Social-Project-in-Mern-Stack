@@ -121,6 +121,7 @@ interface Message {
   isDeleted?: boolean;
   // System message fields
   type?: string;
+  messageType?: string;
   senderId?: string;
   senderName?: string;
   isSystemMessage?: boolean;
@@ -1046,9 +1047,10 @@ function ChatPageContent() {
 
         // Update messages if we're viewing this group
         if (selectedThreadIdRef.current === groupId) {
+          const isSystemMsg = message.messageType === 'system';
           const newMessage = {
             id: message._id,
-            content: message.text || message.content || '',
+            content: message.systemMessage || message.text || message.content || '',
             sender: isOwnMessage
               ? 'You'
               : message.senderId?.firstName
@@ -1056,6 +1058,8 @@ function ChatPageContent() {
                 : 'Unknown',
             isSent: isOwnMessage,
             messageType: message.messageType || 'text',
+            isSystemMessage: isSystemMsg,
+            systemMessageType: message.systemMessageType,
             senderId: message.senderId?._id || message.senderId,
             senderName: message.senderId?.firstName
               ? `${message.senderId.firstName} ${message.senderId.lastName || ''}`.trim()
@@ -1091,7 +1095,10 @@ function ChatPageContent() {
         // Update groups list (reuse isOwnMessage from above)
         setGroups((prev) => {
           const displayMessage =
-            message.text || message.content || (message.media?.length > 0 ? '📎 Media' : '');
+            message.systemMessage ||
+            message.text ||
+            message.content ||
+            (message.media?.length > 0 ? '📎 Media' : '');
 
           const updatedGroups = prev.map((group) => {
             if (group.id === groupId) {
@@ -1811,7 +1818,7 @@ function ChatPageContent() {
         content: '📍 Location',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isSent: true,
-        type: 'location',
+        messageType: 'location',
         location: {
           latitude,
           longitude,
@@ -1901,7 +1908,7 @@ function ChatPageContent() {
         content: '📍 Live Location',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isSent: true,
-        type: 'location',
+        messageType: 'location',
         location: {
           latitude,
           longitude,
@@ -2117,7 +2124,9 @@ function ChatPageContent() {
             msg.senderId?._id === user?._id
               ? 'You'
               : msg.senderId?.firstName || msg.senderId?.username || 'Unknown',
-          content: msg.isDeleted ? 'This message was deleted' : msg.text || msg.content || '',
+          content: msg.isDeleted
+            ? 'This message was deleted'
+            : msg.systemMessage || msg.text || msg.content || '',
           timestamp: new Date(msg.createdAt).toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
@@ -2127,6 +2136,8 @@ function ChatPageContent() {
           isSent: msg.senderId?._id === user?._id,
           status: msg.status || 'sent',
           messageType: msg.messageType || 'text',
+          isSystemMessage: msg.messageType === 'system',
+          systemMessageType: msg.systemMessageType,
           sharedContent: msg.sharedContent,
           media: msg.media || [],
           isForwarded: msg.isForwarded || false,
