@@ -13,8 +13,6 @@ const Port = process.env.PORT || 3000;
 // Create HTTP server
 const httpServer = http.createServer(ExpressApp);
 
-// to do cluster configration for production ✅ DONE!
-
 connectDB()
   .then(async () => {
     // Initialize Socket.IO with Redis adapter (async)

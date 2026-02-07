@@ -536,7 +536,7 @@ export default function BroadcastPage() {
         console.log(`  Connection state: ${pc.connectionState}`);
 
         if (pc.connectionState === 'connected') {
-          console.log(`  ✅ Connected to viewer ${viewerId}`);
+          console.log(`Connected to viewer ${viewerId}`);
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
           console.log(`  ❌ Disconnected from viewer ${viewerId}`);
           // Cleanup this peer connection
@@ -678,7 +678,7 @@ export default function BroadcastPage() {
     if (pc && pc.signalingState === 'have-local-offer') {
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`  ✅ Remote description set for ${id}`);
+        console.log(`Remote description set for ${id}`);
       } catch (error) {
         console.error('Error setting remote description:', error);
       }

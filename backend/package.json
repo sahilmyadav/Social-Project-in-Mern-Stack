@@ -1,7 +1,7 @@
 {
-  "name": "quick-js-jwt-es6",
+  "name": "clickme-backend",
   "version": "1.0.1",
-  "description": "A quick setup for a JWT-based authentication system using ES6 modules.",
+  "description": "Backend API server for ClickME social media platform.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -12,8 +12,7 @@
     "clear-redis": "redis-cli FLUSHALL"
   },
   "author": {
-    "name": "Kunal Risaaanva",
-    "email": "kunalrisaanva12@gmail.com"
+    "name": "Sahil Yadav"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",

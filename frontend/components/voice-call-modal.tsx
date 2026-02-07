@@ -77,7 +77,7 @@ export default function VoiceCallModal({
   }>({});
 
   useEffect(() => {
-    console.log('📞 Voice Call Modal - isOpen:', isOpen, 'isIncomingCall:', isIncomingCall);
+    console.log('Voice Call Modal - isOpen:', isOpen, 'isIncomingCall:', isIncomingCall);
 
     if (isOpen) {
       // Reset state when modal opens
@@ -90,7 +90,7 @@ export default function VoiceCallModal({
 
       // Listen for call ended from remote user
       const handleCallEndedByRemote = () => {
-        console.log('📞 Remote user ended the call');
+        console.log('Remote user ended the call');
         endCall();
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
@@ -98,7 +98,7 @@ export default function VoiceCallModal({
 
       // Listen for call failed (user offline or error)
       const handleCallFailedEvent = (data: any) => {
-        console.log('📞 Call failed:', data);
+        console.log('Call failed:', data);
         setCallFailedReason(data.reason || 'Call failed');
         setCallStatus('ended');
         // Auto close after showing the error
@@ -151,14 +151,14 @@ export default function VoiceCallModal({
                   try {
                     await peerConnection.addIceCandidate(candidate);
                   } catch (err) {
-                    console.error('❌ Error adding queued candidate:', err);
+                    console.error('Error adding queued candidate:', err);
                   }
                 }
                 iceCandidatesQueue.current = [];
 
                 setCallStatus('active');
               } catch (error) {
-                console.error('❌ Error setting remote description:', error);
+                console.error('Error setting remote description:', error);
               }
             };
 
@@ -184,7 +184,7 @@ export default function VoiceCallModal({
                   }
                 }
               } catch (error) {
-                console.error('❌ Error adding ICE candidate:', error);
+                console.error('Error adding ICE candidate:', error);
               }
             };
 
@@ -201,7 +201,7 @@ export default function VoiceCallModal({
             onAnswer(handleAnswer);
             onIceCandidate(handleCandidate);
           } catch (error) {
-            console.error('❌ Error setting up call after acceptance:', error);
+            console.error('Error setting up call after acceptance:', error);
             setCallStatus('ended');
           }
         };
@@ -303,14 +303,14 @@ export default function VoiceCallModal({
       // Handle connection state
       peerConnection.onconnectionstatechange = () => {
         if (peerConnection.connectionState === 'failed') {
-          console.error('❌ Peer connection failed');
+          console.error('Peer connection failed');
           endCall();
         }
       };
 
       return peerConnection;
     } catch (error) {
-      console.error('❌ Error creating peer connection:', error);
+      console.error('Error creating peer connection:', error);
       showToast.error('Unable to access microphone. Please check permissions.');
       setCallStatus('ended');
       throw error;
@@ -346,14 +346,14 @@ export default function VoiceCallModal({
             try {
               await peerConnection.addIceCandidate(candidate);
             } catch (err) {
-              console.error('❌ Error adding queued candidate:', err);
+              console.error('Error adding queued candidate:', err);
             }
           }
           iceCandidatesQueue.current = [];
 
           setCallStatus('active');
         } catch (error) {
-          console.error('❌ Error processing offer:', error);
+          console.error('Error processing offer:', error);
         }
       };
 
@@ -393,7 +393,7 @@ export default function VoiceCallModal({
             }
           }
         } catch (error) {
-          console.error('❌ Error adding ICE candidate:', error);
+          console.error('Error adding ICE candidate:', error);
         }
       };
 
@@ -426,7 +426,7 @@ export default function VoiceCallModal({
       } else {
       }
     } catch (error) {
-      console.error('❌ Error accepting call:', error);
+      console.error('Error accepting call:', error);
       setCallStatus('ended');
     }
   };

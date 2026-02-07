@@ -93,13 +93,13 @@ export const initializeSocket = async (server) => {
 
   io.on('connection', async (socket) => {
     const userId = socket.userId.toString(); // Ensure string format
-    console.log(`✅ User connected: ${userId} (socket: ${socket.id})`);
+    console.log(`User connected: ${userId} (socket: ${socket.id})`);
 
     // Cancel any pending disconnect timeout for this user (they reconnected!)
     if (disconnectTimeouts.has(userId)) {
       clearTimeout(disconnectTimeouts.get(userId));
       disconnectTimeouts.delete(userId);
-      console.log(`🔄 User ${userId} reconnected, cancelled offline broadcast`);
+      console.log(`User ${userId} reconnected, cancelled offline broadcast`);
     }
 
     //  ADD USER TO ONLINE MAP (Redis + local)
@@ -109,7 +109,7 @@ export const initializeSocket = async (server) => {
     socket.join(userId);
 
     //  BROADCAST TO ALL USERS THAT THIS USER IS ONLINE
-    console.log(`📢 Broadcasting userOnline event for userId: ${userId}`);
+    console.log(`Broadcasting userOnline event for userId: ${userId}`);
     io.emit('userOnline', {
       userId: userId,
       socketId: socket.id,
@@ -117,7 +117,7 @@ export const initializeSocket = async (server) => {
 
     //  SEND CURRENT ONLINE USERS LIST TO THE NEWLY CONNECTED USER (cluster-safe)
     const onlineList = await getOnlineUsers();
-    console.log(`📋 Sending online users list to ${userId}: [${onlineList.join(', ')}]`);
+    console.log(`Sending online users list to ${userId}: [${onlineList.join(', ')}]`);
     socket.emit('onlineUsersList', {
       users: onlineList,
     });
@@ -125,7 +125,7 @@ export const initializeSocket = async (server) => {
     //  GET ONLINE USERS REQUEST (cluster-safe)
     socket.on('getOnlineUsers', async () => {
       const onlineUsersList = await getOnlineUsers();
-      console.log(`📋 User ${userId} requested online users: [${onlineUsersList.join(', ')}]`);
+      console.log(`User ${userId} requested online users: [${onlineUsersList.join(', ')}]`);
       socket.emit('onlineUsersList', { users: onlineUsersList });
     });
 
@@ -182,12 +182,12 @@ export const initializeSocket = async (server) => {
     });
 
     // ============================================
-    // NEW MESSAGE SENDING (FIXED - PROPER FORMAT)
+    // MESSAGE SENDING
     // ============================================
 
     socket.on('sendMessage', async (messageData) => {
       try {
-        console.log(`💬 Sending message via socket: ${socket.userId} -> ${messageData.receiverId}`);
+        console.log(`Sending message via socket: ${socket.userId} -> ${messageData.receiverId}`);
 
         // Fetch sender's user info
         const senderUser = await User.findById(socket.userId).select(
@@ -221,7 +221,7 @@ export const initializeSocket = async (server) => {
         // Also send to receiver's personal room (for notification when not in thread)
         io.to(messageData.receiverId).emit('newMessage', formattedMessage);
         console.log(
-          `✅ Message sent to thread ${messageData.threadId} and receiver ${messageData.receiverId}`
+          `Message sent to thread ${messageData.threadId} and receiver ${messageData.receiverId}`
         );
 
         // Also send back to sender for confirmation (optional)
@@ -261,7 +261,7 @@ export const initializeSocket = async (server) => {
     });
 
     // ============================================
-    // VOICE/VIDEO CALL SIGNALING (FIXED)
+    // VOICE/VIDEO CALL SIGNALING
     // ============================================
 
     // Initiate call - User A calls User B
@@ -269,14 +269,14 @@ export const initializeSocket = async (server) => {
       try {
         // Ensure recipientId is a string for room lookup consistency
         const recipientIdStr = recipientId?.toString();
-        console.log(`📞 Call initiated: ${userId} -> ${recipientIdStr}, type: ${callType}`);
+        console.log(`Call initiated: ${userId} -> ${recipientIdStr}, type: ${callType}`);
 
         // Check if recipient is connected (use string format for room lookup)
         const recipientSockets = await io.in(recipientIdStr).allSockets();
-        console.log(`📞 Recipient ${recipientIdStr} has ${recipientSockets.size} active sockets`);
+        console.log(`Recipient ${recipientIdStr} has ${recipientSockets.size} active sockets`);
 
         if (recipientSockets.size === 0) {
-          console.log(`❌ Recipient ${recipientIdStr} is offline`);
+          console.log(`Recipient ${recipientIdStr} is offline`);
           // Recipient is offline
           socket.emit('callFailed', {
             recipientId: recipientIdStr,
@@ -298,7 +298,7 @@ export const initializeSocket = async (server) => {
           callerName = callerUser.username;
         }
 
-        console.log(`📞 Sending incoming call notification to ${recipientIdStr}`);
+        console.log(`Sending incoming call notification to ${recipientIdStr}`);
 
         // Send incoming call notification to recipient with caller info
         io.to(recipientIdStr).emit('incomingCall', {
@@ -313,7 +313,7 @@ export const initializeSocket = async (server) => {
           name: callerName,
         });
 
-        console.log(`✅ Call notification sent successfully to room: ${recipientIdStr}`);
+        console.log(`Call notification sent successfully to room: ${recipientIdStr}`);
       } catch (error) {
         console.error('❌ Error initiating call:', error);
         socket.emit('callFailed', {
@@ -326,13 +326,13 @@ export const initializeSocket = async (server) => {
     // Initiate GROUP call - User A calls ALL online members in a group
     socket.on('initiateGroupCall', async ({ groupId, callType = 'voice' }) => {
       try {
-        console.log(`📞 Group call initiated by ${userId} in group ${groupId}, type: ${callType}`);
+        console.log(`Group call initiated by ${userId} in group ${groupId}, type: ${callType}`);
 
         // Fetch the group and its members
         const group = await GroupChat.findById(groupId).select('name avatar members').lean();
 
         if (!group) {
-          console.log(`❌ Group ${groupId} not found`);
+          console.log(`Group ${groupId} not found`);
           socket.emit('callFailed', {
             groupId,
             reason: 'Group not found',
@@ -344,7 +344,7 @@ export const initializeSocket = async (server) => {
         const memberIds = group.members.map((m) => m.user.toString()).filter((id) => id !== userId);
 
         if (memberIds.length === 0) {
-          console.log(`❌ No other members in group ${groupId}`);
+          console.log(`No other members in group ${groupId}`);
           socket.emit('callFailed', {
             groupId,
             reason: 'No other members in this group',
@@ -374,7 +374,7 @@ export const initializeSocket = async (server) => {
 
           if (memberSockets.size > 0) {
             onlineMembersCount++;
-            console.log(`📞 Sending group call notification to ${memberId}`);
+            console.log(`Sending group call notification to ${memberId}`);
 
             io.to(memberId).emit('incomingCall', {
               callerId: userId,
@@ -397,7 +397,7 @@ export const initializeSocket = async (server) => {
         }
 
         if (onlineMembersCount === 0) {
-          console.log(`❌ No online members in group ${groupId}`);
+          console.log(`No online members in group ${groupId}`);
           socket.emit('callFailed', {
             groupId,
             reason: 'No group members are online',
@@ -405,7 +405,7 @@ export const initializeSocket = async (server) => {
           return;
         }
 
-        console.log(`✅ Group call notification sent to ${onlineMembersCount} online members`);
+        console.log(`Group call notification sent to ${onlineMembersCount} online members`);
       } catch (error) {
         console.error('❌ Error initiating group call:', error);
         socket.emit('callFailed', {
@@ -428,7 +428,7 @@ export const initializeSocket = async (server) => {
     // Join a group call
     socket.on('joinGroupCall', async ({ groupId, callType }) => {
       try {
-        console.log(`📞 User ${userId} joining group call ${groupId}`);
+        console.log(`User ${userId} joining group call ${groupId}`);
 
         // Get or create the group call session
         if (!global.activeGroupCalls.has(groupId)) {
@@ -483,7 +483,7 @@ export const initializeSocket = async (server) => {
         }
 
         console.log(
-          `✅ User ${userId} joined group call ${groupId}, total participants: ${participants.size}`
+          `User ${userId} joined group call ${groupId}, total participants: ${participants.size}`
         );
       } catch (error) {
         console.error('❌ Error joining group call:', error);
@@ -493,7 +493,7 @@ export const initializeSocket = async (server) => {
     // Accept a group call (for incoming calls)
     socket.on('acceptGroupCall', async ({ groupId, callerId }) => {
       try {
-        console.log(`📞 User ${userId} accepting group call ${groupId}`);
+        console.log(`User ${userId} accepting group call ${groupId}`);
 
         // Get or create the group call session
         if (!global.activeGroupCalls.has(groupId)) {
@@ -554,7 +554,7 @@ export const initializeSocket = async (server) => {
           groupId: groupId,
         });
 
-        console.log(`✅ User ${userId} accepted group call ${groupId}`);
+        console.log(`User ${userId} accepted group call ${groupId}`);
       } catch (error) {
         console.error('❌ Error accepting group call:', error);
       }
@@ -562,7 +562,7 @@ export const initializeSocket = async (server) => {
 
     // Reject a group call
     socket.on('rejectGroupCall', ({ groupId, callerId }) => {
-      console.log(`📞 User ${userId} rejected group call ${groupId}`);
+      console.log(`User ${userId} rejected group call ${groupId}`);
 
       // Notify the caller (optional)
       io.to(callerId?.toString()).emit('groupCallRejected', {
@@ -574,7 +574,7 @@ export const initializeSocket = async (server) => {
     // Leave a group call
     socket.on('leaveGroupCall', async ({ groupId }) => {
       try {
-        console.log(`📞 User ${userId} leaving group call ${groupId}`);
+        console.log(`User ${userId} leaving group call ${groupId}`);
 
         // Remove from participants
         if (global.activeGroupCalls.has(groupId)) {
@@ -584,7 +584,7 @@ export const initializeSocket = async (server) => {
           // If no participants left, clean up the call
           if (participants.size === 0) {
             global.activeGroupCalls.delete(groupId);
-            console.log(`📞 Group call ${groupId} ended (no participants)`);
+            console.log(`Group call ${groupId} ended (no participants)`);
           }
         }
 
@@ -596,7 +596,7 @@ export const initializeSocket = async (server) => {
           userId: userId,
         });
 
-        console.log(`✅ User ${userId} left group call ${groupId}`);
+        console.log(`User ${userId} left group call ${groupId}`);
       } catch (error) {
         console.error('❌ Error leaving group call:', error);
       }
@@ -621,7 +621,7 @@ export const initializeSocket = async (server) => {
     // End group call (host only)
     socket.on('endGroupCall', async ({ groupId }) => {
       try {
-        console.log(`📞 Group call ${groupId} ended by ${userId}`);
+        console.log(`Group call ${groupId} ended by ${userId}`);
 
         // Notify all participants
         io.to(`group-call:${groupId}`).emit('groupCallEnded', {
@@ -640,7 +640,7 @@ export const initializeSocket = async (server) => {
     // Accept call - User B accepts the incoming call
     socket.on('acceptCall', ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
-      console.log(`📞 Call accepted: ${userId} accepted call from ${callerIdStr}`);
+      console.log(`Call accepted: ${userId} accepted call from ${callerIdStr}`);
 
       // Notify the caller that call was accepted
       io.to(callerIdStr).emit('callAccepted', {
@@ -648,13 +648,13 @@ export const initializeSocket = async (server) => {
         threadId: threadId,
       });
 
-      console.log(`✅ Call accepted notification sent to ${callerIdStr}`);
+      console.log(`Call accepted notification sent to ${callerIdStr}`);
     });
 
     // Reject call - User B rejects the incoming call
     socket.on('rejectCall', ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
-      console.log(`📞 Call rejected: ${userId} rejected call from ${callerIdStr}`);
+      console.log(`Call rejected: ${userId} rejected call from ${callerIdStr}`);
 
       // Notify the caller that call was rejected
       io.to(callerIdStr).emit('callRejected', {
@@ -666,7 +666,7 @@ export const initializeSocket = async (server) => {
     // End call - Either party ends the active call
     socket.on('endCall', ({ recipientId, threadId }) => {
       const recipientIdStr = recipientId?.toString();
-      console.log(`📞 Call ended: ${userId} ended call with ${recipientIdStr}`);
+      console.log(`Call ended: ${userId} ended call with ${recipientIdStr}`);
 
       // Notify the other party that call ended
       io.to(recipientIdStr).emit('callEnded', {
@@ -682,7 +682,7 @@ export const initializeSocket = async (server) => {
 
     // WebRTC offer - Send WebRTC offer for peer connection
     socket.on('offer', async ({ recipientId, offer, callType }) => {
-      console.log(`🔄 WebRTC offer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
+      console.log(`WebRTC offer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
 
       // Get caller info to send with offer
       const caller = await User.findById(socket.userId).select(
@@ -698,16 +698,16 @@ export const initializeSocket = async (server) => {
         offer: offer,
         callType: callType,
         callerInfo: {
-          odgoId: socket.userId,
-          odgoName: callerName,
-          odgoAvatar: caller?.profilePicture || caller?.avatar,
+          userId: socket.userId,
+          userName: callerName,
+          userAvatar: caller?.profilePicture || caller?.avatar,
         },
       });
     });
 
     // WebRTC answer - Send WebRTC answer back to caller
     socket.on('answer', async ({ recipientId, answer, callType }) => {
-      console.log(`🔄 WebRTC answer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
+      console.log(`WebRTC answer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
 
       // Get answerer info to send with answer
       const answerer = await User.findById(socket.userId).select(
@@ -723,16 +723,16 @@ export const initializeSocket = async (server) => {
         answer: answer,
         callType: callType,
         answererInfo: {
-          odgoId: socket.userId,
-          odgoName: answererName,
-          odgoAvatar: answerer?.profilePicture || answerer?.avatar,
+          userId: socket.userId,
+          userName: answererName,
+          userAvatar: answerer?.profilePicture || answerer?.avatar,
         },
       });
     });
 
     // ICE candidate exchange for WebRTC connection
     socket.on('iceCandidate', ({ recipientId, candidate }) => {
-      console.log(`🧊 ICE candidate: ${socket.userId} -> ${recipientId}`);
+      console.log(`ICE candidate: ${socket.userId} -> ${recipientId}`);
 
       io.to(recipientId).emit('iceCandidate', {
         senderId: socket.userId,
@@ -742,27 +742,25 @@ export const initializeSocket = async (server) => {
 
     // USER DISCONNECT (tab close, internet loss, logout, etc.)
     socket.on('disconnect', async (reason) => {
-      console.log(`❌ User disconnected: ${userId} (reason: ${reason})`);
+      console.log(`User disconnected: ${userId} (reason: ${reason})`);
 
       // Check if user has other active sockets (multiple tabs/devices)
       const userSockets = await io.in(userId).allSockets();
 
       if (userSockets.size > 0) {
         // User still has other connections, don't mark as offline
-        console.log(
-          `🔄 User ${userId} still has ${userSockets.size} other socket(s), staying online`
-        );
+        console.log(`User ${userId} still has ${userSockets.size} other socket(s), staying online`);
         return;
       }
 
       // Use grace period to handle brief disconnections (network hiccup, page refresh)
-      console.log(`⏳ Starting ${DISCONNECT_GRACE_PERIOD}ms grace period for ${userId}`);
+      console.log(`Starting ${DISCONNECT_GRACE_PERIOD}ms grace period for ${userId}`);
 
       const timeoutId = setTimeout(async () => {
         // Double-check user hasn't reconnected during grace period
         const currentSockets = await io.in(userId).allSockets();
         if (currentSockets.size > 0) {
-          console.log(`🔄 User ${userId} reconnected during grace period, staying online`);
+          console.log(`User ${userId} reconnected during grace period, staying online`);
           disconnectTimeouts.delete(userId);
           return;
         }
@@ -771,7 +769,7 @@ export const initializeSocket = async (server) => {
         await removeOnlineUser(userId);
 
         //  BROADCAST TO ALL USERS THAT THIS USER IS OFFLINE
-        console.log(`📢 Broadcasting userOffline event for userId: ${userId.toString()}`);
+        console.log(`Broadcasting userOffline event for userId: ${userId.toString()}`);
         io.emit('userOffline', {
           userId: userId.toString(),
         });
@@ -843,7 +841,7 @@ async function addOnlineUser(userId, socketId) {
   const userIdStr = userId.toString();
   // Add to local Map
   onlineUsers.set(userIdStr, socketId);
-  console.log(`✅ Added to online map: ${userIdStr} (total: ${onlineUsers.size})`);
+  console.log(`Added to online map: ${userIdStr} (total: ${onlineUsers.size})`);
 
   // Add to Redis for cross-worker tracking
   if (redisClient && redisClient.isOpen) {

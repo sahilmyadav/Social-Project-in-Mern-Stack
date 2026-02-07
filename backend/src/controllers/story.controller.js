@@ -3,7 +3,7 @@ import { Story } from '../models/story.model.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { delteOnCloudinray, uploadOnCloudinary } from '../utils/localStorage.js';
+import { deleteOnCloudinary, uploadOnCloudinary } from '../utils/localStorage.js';
 
 // Upload a story
 export const uploadStory = asyncHandler(async (req, res) => {
@@ -81,7 +81,7 @@ export const deleteStory = asyncHandler(async (req, res) => {
   // Delete media from Cloudinary
   if (story.media?.public_id) {
     try {
-      await delteOnCloudinray(story.media.public_id);
+      await deleteOnCloudinary(story.media.public_id);
     } catch (error) {
       console.error('Error deleting from Cloudinary:', error);
       // Continue with story deletion even if Cloudinary fails
@@ -288,7 +288,7 @@ export const cleanupExpiredStories = asyncHandler(async (req, res) => {
       // Delete from Cloudinary
       if (story.media?.public_id) {
         try {
-          await delteOnCloudinray(story.media.public_id);
+          await deleteOnCloudinary(story.media.public_id);
           cloudinaryDeletedCount++;
         } catch (error) {
           console.error(`Failed to delete from Cloudinary: ${story.media.public_id}`, error);

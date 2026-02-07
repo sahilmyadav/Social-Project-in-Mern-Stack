@@ -28,7 +28,7 @@ export const getAllThreads = asyncHandler(async (req, res) => {
   })
     .populate({
       path: 'participants',
-      select: 'firstName lastName username profileImage profilePicture avatar isOnline', // ✅ FIXED
+      select: 'firstName lastName username profileImage profilePicture avatar isOnline',
       match: { _id: { $ne: userId } }, // Exclude current user
     })
     .populate({
@@ -36,7 +36,7 @@ export const getAllThreads = asyncHandler(async (req, res) => {
       select: 'text encryptedContent media createdAt senderId isDeleted',
       populate: {
         path: 'senderId',
-        select: 'firstName lastName username profileImage profilePicture avatar', // ✅ ALSO FIX THIS
+        select: 'firstName lastName username profileImage profilePicture avatar',
       },
     })
     .sort({ [sortBy]: -1 })

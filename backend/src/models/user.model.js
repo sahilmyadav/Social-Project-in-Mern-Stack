@@ -107,7 +107,7 @@ const userSchema = new Schema(
       code: { type: String },
       expiresAt: { type: Date },
     },
-    isOneline: { type: Boolean, default: false },
+    isOnline: { type: Boolean, default: false },
 
     // Refresh token
     refreshToken: { type: String, select: false },

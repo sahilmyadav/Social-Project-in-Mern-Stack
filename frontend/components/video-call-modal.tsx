@@ -143,7 +143,7 @@ export default function VideoCallModal({
 
       return stream;
     } catch (error) {
-      console.error('❌ Error accessing media devices:', error);
+      console.error('Error accessing media devices:', error);
       showToast.error('Could not access camera/microphone. Please check permissions.');
       handleEndCall();
       return null;
@@ -196,14 +196,14 @@ export default function VideoCallModal({
             try {
               await pc.addIceCandidate(candidate);
             } catch (err) {
-              console.error('❌ Error adding queued candidate:', err);
+              console.error('Error adding queued candidate:', err);
             }
           }
           iceCandidatesQueue.current = [];
 
           setCallStatus('active');
         } catch (error) {
-          console.error('❌ Error processing offer:', error);
+          console.error('Error processing offer:', error);
         }
       };
 
@@ -243,7 +243,7 @@ export default function VideoCallModal({
             }
           }
         } catch (error) {
-          console.error('❌ Error adding ICE candidate:', error);
+          console.error('Error adding ICE candidate:', error);
         }
       };
 
@@ -284,7 +284,7 @@ export default function VideoCallModal({
       } else {
       }
     } catch (error) {
-      console.error('❌ Error accepting call:', error);
+      console.error('Error accepting call:', error);
       setCallStatus('ended');
     }
   };
@@ -406,7 +406,7 @@ export default function VideoCallModal({
 
       // Listen for call failed (user offline or error)
       const handleCallFailedEvent = (data: any) => {
-        console.log('📞 Video call failed:', data);
+        console.log('Video call failed:', data);
         setCallFailedReason(data.reason || 'Call failed');
         setCallStatus('ended');
         // Auto close after showing the error
@@ -458,14 +458,14 @@ export default function VideoCallModal({
                   try {
                     await pc.addIceCandidate(candidate);
                   } catch (err) {
-                    console.error('❌ Error adding queued candidate:', err);
+                    console.error('Error adding queued candidate:', err);
                   }
                 }
                 iceCandidatesQueue.current = [];
 
                 setCallStatus('active');
               } catch (error) {
-                console.error('❌ Error setting remote description:', error);
+                console.error('Error setting remote description:', error);
               }
             };
 
@@ -491,7 +491,7 @@ export default function VideoCallModal({
                   }
                 }
               } catch (error) {
-                console.error('❌ Error adding ICE candidate:', error);
+                console.error('Error adding ICE candidate:', error);
               }
             };
 
@@ -508,7 +508,7 @@ export default function VideoCallModal({
             onAnswer(handleAnswer);
             onIceCandidate(handleCandidate);
           } catch (error) {
-            console.error('❌ Error setting up call after acceptance:', error);
+            console.error('Error setting up call after acceptance:', error);
             setCallStatus('ended');
           }
         };

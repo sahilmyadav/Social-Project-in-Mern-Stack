@@ -10,7 +10,7 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { decryptMessage, encryptMessage } from '../utils/encryption.js';
-import { delteOnCloudinray, uploadOnCloudinary } from '../utils/localStorage.js';
+import { deleteOnCloudinary, uploadOnCloudinary } from '../utils/localStorage.js';
 
 // ==================== GROUP MANAGEMENT ====================
 
@@ -263,7 +263,7 @@ export const updateGroup = asyncHandler(async (req, res) => {
   if (req.file) {
     // Delete old avatar
     if (group.avatarPublicId) {
-      await delteOnCloudinray(group.avatarPublicId);
+      await deleteOnCloudinary(group.avatarPublicId);
     }
     const uploadResult = await uploadOnCloudinary(req.file.path);
     if (uploadResult) {

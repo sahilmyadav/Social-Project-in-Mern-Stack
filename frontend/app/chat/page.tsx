@@ -318,7 +318,7 @@ function ChatPageContent() {
               if (mediaType === 'image') {
                 lastMessageText = '📷 Image';
               } else if (mediaType === 'video') {
-                lastMessageText = '📹 Video';
+                lastMessageText = 'Video';
               } else if (mediaType === 'document' || mediaType === 'file') {
                 lastMessageText = '📄 Document';
               } else if (mediaType === 'audio') {
@@ -367,10 +367,10 @@ function ChatPageContent() {
               threadId: thread._id,
               hasStory: otherParticipant?.hasActiveStory || false, // Check if user has active story
             };
-            console.log('📋 Created conversation object:', conversationObj);
+            console.log('Created conversation object:', conversationObj);
             return conversationObj;
           });
-          console.log('✅ All conversations:', convList);
+          console.log('All conversations:', convList);
           setConversations(convList);
 
           // Request online users list AFTER conversations are loaded
@@ -523,7 +523,7 @@ function ChatPageContent() {
               if (mediaType === 'image') {
                 displayMessage = '📷 Image';
               } else if (mediaType === 'video') {
-                displayMessage = '📹 Video';
+                displayMessage = 'Video';
               } else if (mediaType === 'document' || mediaType === 'file') {
                 displayMessage = '📄 Document';
               } else {
@@ -601,7 +601,7 @@ function ChatPageContent() {
               if (mediaType === 'image') {
                 displayMessage = '📷 Image';
               } else if (mediaType === 'video') {
-                displayMessage = '📹 Video';
+                displayMessage = 'Video';
               } else if (mediaType === 'document' || mediaType === 'file') {
                 displayMessage = '📄 Document';
               } else {
@@ -712,7 +712,7 @@ function ChatPageContent() {
             );
           }
         } else {
-          console.error('❌ No messageId in delete event!');
+          console.error('No messageId in delete event!');
         }
       };
 
@@ -839,7 +839,7 @@ function ChatPageContent() {
 
       // Voice call handlers
       const handleIncomingCall = (data: any) => {
-        console.log('📞 Incoming call received:', data);
+        console.log('Incoming call received:', data);
 
         // Backend sends 'callerId', not 'from'
         const callerId = data?.callerId || data?.from;
@@ -849,11 +849,11 @@ function ChatPageContent() {
         const isGroupCall = data?.isGroupCall || false;
         const groupInfo = data?.groupInfo;
 
-        console.log('📞 Call details:', { callerId, threadId, callType, isGroupCall, groupInfo });
-        console.log('📞 Raw isGroupCall value:', data?.isGroupCall, typeof data?.isGroupCall);
+        console.log('Call details:', { callerId, threadId, callType, isGroupCall, groupInfo });
+        console.log('Raw isGroupCall value:', data?.isGroupCall, typeof data?.isGroupCall);
 
         if (!callerId || !threadId) {
-          console.warn('❌ Invalid incoming call data:', data);
+          console.warn('Invalid incoming call data:', data);
           return;
         }
 
@@ -864,7 +864,7 @@ function ChatPageContent() {
         );
 
         console.log(
-          '📞 Found conversation:',
+          'Found conversation:',
           conversation,
           'from',
           currentConversations.length,
@@ -892,16 +892,16 @@ function ChatPageContent() {
         });
 
         // Open the appropriate call modal for group calls
-        console.log('📞 Opening modal - isGroupCall:', isGroupCall, 'callType:', callType);
+        console.log('Opening modal - isGroupCall:', isGroupCall, 'callType:', callType);
         if (isGroupCall) {
-          console.log('📞 Opening GROUP call modal');
+          console.log('Opening GROUP call modal');
           if (callType === 'video') {
             setIsGroupVideoCallOpen(true);
           } else {
             setIsGroupVoiceCallOpen(true);
           }
         } else {
-          console.log('📞 Opening 1-to-1 call modal');
+          console.log('Opening 1-to-1 call modal');
           // For 1-to-1 calls, the existing modals will handle it
           if (callType === 'video') {
             setIsVideoCallOpen(true);
@@ -918,7 +918,7 @@ function ChatPageContent() {
           const callMessage: Message = {
             id: `call-incoming-${Date.now()}`,
             sender: 'System',
-            content: callType === 'video' ? '📹 Incoming video call' : '📞 Incoming voice call',
+            content: callType === 'video' ? 'Incoming video call' : 'Incoming voice call',
             timestamp: new Date().toISOString(),
             isSent: false,
             type: 'system',
@@ -1006,7 +1006,7 @@ function ChatPageContent() {
       };
 
       const handleCallFailed = (data: any) => {
-        console.log('📞 Call failed:', data);
+        console.log('Call failed:', data);
         setIncomingCall(null);
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
@@ -1704,7 +1704,7 @@ function ChatPageContent() {
                     ? fileToSend.type.startsWith('image')
                       ? '📷 Image'
                       : fileToSend.type.startsWith('video')
-                        ? '📹 Video'
+                        ? 'Video'
                         : '📄 Document'
                     : messageText,
                   timestamp: 'Now',
@@ -2695,7 +2695,7 @@ function ChatPageContent() {
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
-                        content: '📞 Starting group voice call',
+                        content: 'Starting group voice call',
                         timestamp: new Date().toISOString(),
                         isSent: true,
                         type: 'system',
@@ -2717,7 +2717,7 @@ function ChatPageContent() {
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
-                        content: '📞 Outgoing voice call',
+                        content: 'Outgoing voice call',
                         timestamp: new Date().toISOString(),
                         isSent: true,
                         type: 'system',
@@ -2751,7 +2751,7 @@ function ChatPageContent() {
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
-                        content: '📹 Starting group video call',
+                        content: 'Starting group video call',
                         timestamp: new Date().toISOString(),
                         isSent: true,
                         type: 'system',
@@ -2773,7 +2773,7 @@ function ChatPageContent() {
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
-                        content: '📹 Outgoing video call',
+                        content: 'Outgoing video call',
                         timestamp: new Date().toISOString(),
                         isSent: true,
                         type: 'system',

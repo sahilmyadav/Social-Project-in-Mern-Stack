@@ -83,31 +83,31 @@ export default function GroupVoiceCallModal({
     (peerId: string, isInitiator: boolean) => {
       const socket = getSocket();
       if (!socket || !localStreamRef.current) {
-        console.error('❌ Cannot create peer connection: missing socket or local stream');
+        console.error('Cannot create peer connection: missing socket or local stream');
         return null;
       }
 
       // Check if we already have a connection
       if (peerConnectionsRef.current.has(peerId)) {
-        console.log(`📞 Peer connection already exists for ${peerId}`);
+        console.log(`Peer connection already exists for ${peerId}`);
         return peerConnectionsRef.current.get(peerId);
       }
 
-      console.log(`📞 Creating peer connection for ${peerId}, isInitiator: ${isInitiator}`);
+      console.log(`Creating peer connection for ${peerId}, isInitiator: ${isInitiator}`);
 
       const pc = new RTCPeerConnection(ICE_SERVERS);
       peerConnectionsRef.current.set(peerId, pc);
 
       // Add local audio track to peer connection
       localStreamRef.current.getTracks().forEach((track) => {
-        console.log(`📞 Adding local track to peer connection for ${peerId}`);
+        console.log(`Adding local track to peer connection for ${peerId}`);
         pc.addTrack(track, localStreamRef.current!);
       });
 
       // Handle ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log(`🧊 Sending ICE candidate to ${peerId}`);
+          console.log(`Sending ICE candidate to ${peerId}`);
           socket.emit('iceCandidate', {
             recipientId: peerId,
             candidate: event.candidate,
@@ -117,17 +117,17 @@ export default function GroupVoiceCallModal({
 
       // Handle connection state changes
       pc.onconnectionstatechange = () => {
-        console.log(`📞 Connection state for ${peerId}: ${pc.connectionState}`);
+        console.log(`Connection state for ${peerId}: ${pc.connectionState}`);
         if (pc.connectionState === 'connected') {
           setCallStatus('active');
         } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-          console.log(`❌ Connection ${pc.connectionState} for ${peerId}`);
+          console.log(`Connection ${pc.connectionState} for ${peerId}`);
         }
       };
 
       // Handle incoming remote tracks
       pc.ontrack = (event) => {
-        console.log(`📞 Received remote track from ${peerId}`);
+        console.log(`Received remote track from ${peerId}`);
         const [remoteStream] = event.streams;
 
         // Create or get audio element for this peer
@@ -153,11 +153,11 @@ export default function GroupVoiceCallModal({
       if (isInitiator) {
         pc.createOffer()
           .then((offer) => {
-            console.log(`📞 [Voice] Created offer for ${peerId}`);
+            console.log(`[Voice] Created offer for ${peerId}`);
             return pc.setLocalDescription(offer);
           })
           .then(() => {
-            console.log(`📞 [Voice] Sending offer to ${peerId}`);
+            console.log(`[Voice] Sending offer to ${peerId}`);
             socket.emit('offer', {
               recipientId: peerId,
               offer: pc.localDescription,
@@ -180,16 +180,16 @@ export default function GroupVoiceCallModal({
     async (data: { callerId: string; offer: RTCSessionDescriptionInit; callType?: string }) => {
       // Only handle voice call offers
       if (data.callType && data.callType !== 'group-voice') {
-        console.log(`📞 [Voice] Ignoring offer with callType: ${data.callType}`);
+        console.log(`[Voice] Ignoring offer with callType: ${data.callType}`);
         return;
       }
 
       const { callerId: offererUserId, offer } = data;
-      console.log(`📞 [Voice] Received offer from ${offererUserId}`);
+      console.log(`[Voice] Received offer from ${offererUserId}`);
 
       const socket = getSocket();
       if (!socket || !localStreamRef.current) {
-        console.error('❌ Cannot handle offer: missing socket or local stream');
+        console.error('Cannot handle offer: missing socket or local stream');
         return;
       }
 
@@ -207,16 +207,16 @@ export default function GroupVoiceCallModal({
 
         if (pc.signalingState !== 'stable') {
           // Glare condition detected
-          console.log(`📞 [Voice] Glare detected! State: ${pc.signalingState}, isPolite: ${isPolite}`);
+          console.log(`[Voice] Glare detected! State: ${pc.signalingState}, isPolite: ${isPolite}`);
 
           if (!isPolite) {
             // We're impolite - ignore the incoming offer, keep our offer
-            console.log(`📞 [Voice] Impolite peer - ignoring incoming offer`);
+            console.log(`[Voice] Impolite peer - ignoring incoming offer`);
             return;
           }
 
           // We're polite - rollback our offer and accept the incoming one
-          console.log(`📞 [Voice] Polite peer - rolling back to accept incoming offer`);
+          console.log(`[Voice] Polite peer - rolling back to accept incoming offer`);
           await Promise.all([
             pc.setLocalDescription({ type: 'rollback' }),
             pc.setRemoteDescription(new RTCSessionDescription(offer))
@@ -225,11 +225,11 @@ export default function GroupVoiceCallModal({
           await pc.setRemoteDescription(new RTCSessionDescription(offer));
         }
 
-        console.log(`📞 [Voice] Set remote description from ${offererUserId}`);
+        console.log(`[Voice] Set remote description from ${offererUserId}`);
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        console.log(`📞 [Voice] Sending answer to ${offererUserId}`);
+        console.log(`[Voice] Sending answer to ${offererUserId}`);
 
         socket.emit('answer', {
           recipientId: offererUserId,
@@ -242,7 +242,7 @@ export default function GroupVoiceCallModal({
         for (const candidate of pending) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log(`🧊 Added pending ICE candidate for ${offererUserId}`);
+            console.log(`Added pending ICE candidate for ${offererUserId}`);
           } catch (err) {
             console.error('Error adding pending ICE candidate:', err);
           }
@@ -265,36 +265,36 @@ export default function GroupVoiceCallModal({
     }) => {
       // Only handle voice call answers
       if (data.callType && data.callType !== 'group-voice') {
-        console.log(`📞 [Voice] Ignoring answer with callType: ${data.callType}`);
+        console.log(`[Voice] Ignoring answer with callType: ${data.callType}`);
         return;
       }
 
       const receiverId = data.receiverId || data.recipientId || '';
       const { answer } = data;
-      console.log(`📞 [Voice] Received answer from ${receiverId}`);
+      console.log(`[Voice] Received answer from ${receiverId}`);
 
       const pc = peerConnectionsRef.current.get(receiverId);
       if (!pc) {
-        console.error(`❌ No peer connection found for ${receiverId}`);
+        console.error(`No peer connection found for ${receiverId}`);
         return;
       }
 
       // Only set remote description if we're in the correct state (have-local-offer)
       if (pc.signalingState !== 'have-local-offer') {
-        console.log(`📞 [Voice] Ignoring answer - wrong state: ${pc.signalingState}`);
+        console.log(`[Voice] Ignoring answer - wrong state: ${pc.signalingState}`);
         return;
       }
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`📞 [Voice] Set remote description from answer for ${receiverId}`);
+        console.log(`[Voice] Set remote description from answer for ${receiverId}`);
 
         // Process any pending ICE candidates now that remote description is set
         const pending = pendingCandidatesRef.current.get(receiverId) || [];
         for (const candidate of pending) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log(`🧊 Added pending ICE candidate for ${receiverId}`);
+            console.log(`Added pending ICE candidate for ${receiverId}`);
           } catch (err) {
             console.error('Error adding pending ICE candidate:', err);
           }
@@ -316,13 +316,13 @@ export default function GroupVoiceCallModal({
       }
 
       const { senderId, candidate } = data;
-      console.log(`🧊 [Voice] Received ICE candidate from ${senderId}`);
+      console.log(`[Voice] Received ICE candidate from ${senderId}`);
 
       const pc = peerConnectionsRef.current.get(senderId);
 
       // Queue candidate if no peer connection or remote description not set
       if (!pc || !pc.remoteDescription || pc.remoteDescription.type === null) {
-        console.log(`🧊 [Voice] Queueing ICE candidate for ${senderId}`);
+        console.log(`[Voice] Queueing ICE candidate for ${senderId}`);
         const pending = pendingCandidatesRef.current.get(senderId) || [];
         pending.push(candidate);
         pendingCandidatesRef.current.set(senderId, pending);
@@ -331,7 +331,7 @@ export default function GroupVoiceCallModal({
 
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log(`🧊 [Voice] Added ICE candidate from ${senderId}`);
+        console.log(`[Voice] Added ICE candidate from ${senderId}`);
       } catch (err) {
         console.error('Error adding ICE candidate:', err);
       }
@@ -374,18 +374,18 @@ export default function GroupVoiceCallModal({
     const setupMedia = async () => {
       if (isIncomingCall) {
         // For incoming calls, just wait - media will be obtained when user accepts
-        console.log('📞 Incoming call - waiting for user to accept...');
+        console.log('Incoming call - waiting for user to accept...');
         return;
       }
 
       try {
-        console.log('📞 Getting user media...');
+        console.log('Getting user media...');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         localStreamRef.current = stream;
-        console.log('📞 Got local audio stream');
+        console.log('Got local audio stream');
 
         // For outgoing calls, join the group call room
-        console.log('📞 Joining group call room...');
+        console.log('Joining group call room...');
         socket.emit('joinGroupCall', { groupId, callType: 'voice' });
         setCallStatus('connecting');
       } catch (error) {
@@ -402,7 +402,7 @@ export default function GroupVoiceCallModal({
       userName: string;
       avatar: string;
     }) => {
-      console.log('📞 Participant joined:', data);
+      console.log('Participant joined:', data);
 
       // Don't add ourselves
       if (data.userId === currentUserId) return;
@@ -434,7 +434,7 @@ export default function GroupVoiceCallModal({
 
     // Listen for participants leaving
     const handleParticipantLeft = (data: { userId: string }) => {
-      console.log('📞 Participant left:', data);
+      console.log('Participant left:', data);
       setParticipants((prev) => prev.filter((p) => p.userId !== data.userId));
 
       // Clean up peer connection for this participant
@@ -454,7 +454,7 @@ export default function GroupVoiceCallModal({
 
     // Listen for call ended by another participant
     const handleGroupCallEnded = () => {
-      console.log('📞 Group call ended by another participant');
+      console.log('Group call ended by another participant');
       // Clean up without emitting another endGroupCall event
       // Stop local stream
       if (localStreamRef.current) {
@@ -542,22 +542,22 @@ export default function GroupVoiceCallModal({
     if (!socket) return;
 
     try {
-      console.log('📞 [Voice] User accepting call...');
+      console.log('[Voice] User accepting call...');
       setHasUserAccepted(true); // Mark as accepted by user action
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
 
       // Add tracks to any existing peer connections
-      peerConnectionsRef.current.forEach((pc, odgoId) => {
-        console.log(`📞 [Voice] Adding local tracks to existing peer connection: ${odgoId}`);
+      peerConnectionsRef.current.forEach((pc, userId) => {
+        console.log(`[Voice] Adding local tracks to existing peer connection: ${userId}`);
         stream.getTracks().forEach((track) => {
           // Check if track is already added
           const senders = pc.getSenders();
           const existingSender = senders.find((s) => s.track?.kind === track.kind);
           if (!existingSender) {
             pc.addTrack(track, stream);
-            console.log(`📞 [Voice] Added ${track.kind} track to peer: ${odgoId}`);
+            console.log(`[Voice] Added ${track.kind} track to peer: ${userId}`);
           }
         });
       });
@@ -570,7 +570,7 @@ export default function GroupVoiceCallModal({
       // Accept the group call
       socket.emit('acceptGroupCall', { groupId, callerId });
       setCallStatus('active');
-      console.log('📞 [Voice] Call accepted successfully');
+      console.log('[Voice] Call accepted successfully');
     } catch (error) {
       console.error('Error accepting call:', error);
       setHasUserAccepted(false);
@@ -621,7 +621,7 @@ export default function GroupVoiceCallModal({
 
   const toggleMic = () => {
     if (!localStreamRef.current) {
-      console.warn('📞 [Voice] Cannot toggle mic - no local stream');
+      console.warn('[Voice] Cannot toggle mic - no local stream');
       return;
     }
 
@@ -640,9 +640,9 @@ export default function GroupVoiceCallModal({
       setParticipants((prev) =>
         prev.map((p) => (p.userId === currentUserId ? { ...p, isMuted: !audioTrack.enabled } : p))
       );
-      console.log(`📞 [Voice] Mic toggled: ${audioTrack.enabled}`);
+      console.log(`[Voice] Mic toggled: ${audioTrack.enabled}`);
     } else {
-      console.warn('📞 [Voice] No audio track found');
+      console.warn('[Voice] No audio track found');
     }
   };
 

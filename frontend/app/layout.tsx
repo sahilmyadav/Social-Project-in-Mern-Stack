@@ -11,7 +11,6 @@ const _geistMono = Geist_Mono({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'ClickME - Social Media',
   description: 'Share your moments, connect with friends',
-  generator: 'v0.app',
 };
 
 export const viewport = {

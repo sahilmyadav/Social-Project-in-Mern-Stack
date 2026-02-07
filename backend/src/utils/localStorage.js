@@ -375,7 +375,7 @@ const uploadOnCloudinary = async (localFilePath, category = 'general') => {
   return result;
 };
 
-const delteOnCloudinray = async (publicId) => {
+const deleteOnCloudinary = async (publicId) => {
   if (!publicId) return null;
   // Extract file path from public_id
   const result = await deleteLocalFile(publicId);
@@ -386,7 +386,7 @@ export {
   AVATARS_DIR,
   deleteLocalFile,
   deleteMultipleFiles,
-  delteOnCloudinray,
+  deleteOnCloudinary,
   generateUniqueFileName,
   getFileType,
   getStorageStats,

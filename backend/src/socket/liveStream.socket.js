@@ -145,18 +145,18 @@ export const liveStreamSocket = (io, socket, userId) => {
       const liveStream = await LiveStream.findById(streamId);
 
       if (!liveStream) {
-        console.log('  ❌ Stream not found');
+        console.log('  Stream not found');
         socket.emit('liveStreamError', { error: 'Live stream not found' });
         return;
       }
 
       if (liveStream.status !== 'live') {
-        console.log('  ❌ Stream not live, status:', liveStream.status);
+        console.log('  Stream not live, status:', liveStream.status);
         socket.emit('liveStreamError', { error: 'Stream is not live' });
         return;
       }
 
-      console.log(`  ✅ Stream is live, broadcaster: ${liveStream.streamerId}`);
+      console.log(`Stream is live, broadcaster: ${liveStream.streamerId}`);
 
       // Join the stream room
       socket.join(`stream:${streamId}`);
@@ -445,7 +445,7 @@ export const liveStreamSocket = (io, socket, userId) => {
   socket.on('liveStreamOffer', async (data) => {
     try {
       const { streamId, viewerId, offer } = data;
-      console.log(`📤 Relaying offer from ${userId} to viewer ${viewerId}`);
+      console.log(`Relaying offer from ${userId} to viewer ${viewerId}`);
 
       // Send offer to specific viewer
       io.to(viewerId).emit('liveStreamOffer', {
@@ -453,7 +453,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         broadcasterId: userId,
         offer,
       });
-      console.log(`  ✅ Offer sent to ${viewerId}`);
+      console.log(`Offer sent to ${viewerId}`);
     } catch (error) {
       console.error('Error sending live stream offer:', error);
       socket.emit('liveStreamError', { error: 'Failed to send offer' });
@@ -464,7 +464,7 @@ export const liveStreamSocket = (io, socket, userId) => {
   socket.on('liveStreamAnswer', async (data) => {
     try {
       const { streamId, broadcasterId, answer } = data;
-      console.log(`📤 Relaying answer from ${userId} to broadcaster ${broadcasterId}`);
+      console.log(`Relaying answer from ${userId} to broadcaster ${broadcasterId}`);
 
       // Send answer back to broadcaster
       io.to(broadcasterId).emit('liveStreamAnswer', {
@@ -472,7 +472,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         viewerId: userId,
         answer,
       });
-      console.log(`  ✅ Answer sent to ${broadcasterId}`);
+      console.log(`Answer sent to ${broadcasterId}`);
     } catch (error) {
       console.error('Error sending live stream answer:', error);
       socket.emit('liveStreamError', { error: 'Failed to send answer' });

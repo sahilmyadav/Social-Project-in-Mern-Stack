@@ -6,9 +6,9 @@ import { Mic, MicOff, PhoneOff, Users, Video, VideoOff, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Participant {
-  odgoId: string;
-  odgoName: string;
-  odgoAvatar: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
   isMuted: boolean;
   isVideoOff: boolean;
   stream?: MediaStream;
@@ -121,7 +121,7 @@ export default function GroupVideoCallModal({
 
       // Update participants with the stream
       setParticipants((prev) =>
-        prev.map((p) => (p.odgoId === participantId ? { ...p, stream: remoteStream } : p))
+        prev.map((p) => (p.userId === participantId ? { ...p, stream: remoteStream } : p))
       );
     };
 
@@ -162,7 +162,7 @@ export default function GroupVideoCallModal({
     }) => {
       // Only handle video call offers
       if (data.callType && data.callType !== 'group-video') {
-        console.log(`📹 [Video] Ignoring offer with callType: ${data.callType}`);
+        console.log(`[Video] Ignoring offer with callType: ${data.callType}`);
         return;
       }
 
@@ -175,15 +175,15 @@ export default function GroupVideoCallModal({
 
       // Add the caller as a participant if not already present
       if (data.callerInfo) {
-        const callerOdgoId = data.callerInfo.odgoId || data.callerId;
+        const callerUserId = data.callerInfo.userId || data.callerId;
         setParticipants((prev) => {
-          if (prev.some((p) => p.odgoId === callerOdgoId)) return prev;
+          if (prev.some((p) => p.userId === callerUserId)) return prev;
           return [
             ...prev,
             {
-              odgoId: callerOdgoId,
-              odgoName: data.callerInfo.odgoName || data.callerInfo.name || 'Unknown',
-              odgoAvatar: data.callerInfo.odgoAvatar || data.callerInfo.avatar || '',
+              userId: callerUserId,
+              userName: data.callerInfo.userName || data.callerInfo.name || 'Unknown',
+              userAvatar: data.callerInfo.userAvatar || data.callerInfo.avatar || '',
               isMuted: false,
               isVideoOff: false,
               joinedAt: new Date(),
@@ -201,7 +201,9 @@ export default function GroupVideoCallModal({
 
         if (pc.signalingState !== 'stable') {
           // Glare condition detected
-          console.log(`[GroupVideoCall] Glare detected! State: ${pc.signalingState}, isPolite: ${isPolite}`);
+          console.log(
+            `[GroupVideoCall] Glare detected! State: ${pc.signalingState}, isPolite: ${isPolite}`
+          );
 
           if (!isPolite) {
             // We're impolite - ignore the incoming offer, keep our offer
@@ -213,7 +215,7 @@ export default function GroupVideoCallModal({
           console.log(`[GroupVideoCall] Polite peer - rolling back to accept incoming offer`);
           await Promise.all([
             pc.setLocalDescription({ type: 'rollback' }),
-            pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+            pc.setRemoteDescription(new RTCSessionDescription(data.offer)),
           ]);
         } else {
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -257,7 +259,7 @@ export default function GroupVideoCallModal({
     }) => {
       // Only handle video call answers
       if (data.callType && data.callType !== 'group-video') {
-        console.log(`📹 [Video] Ignoring answer with callType: ${data.callType}`);
+        console.log(`[Video] Ignoring answer with callType: ${data.callType}`);
         return;
       }
 
@@ -270,15 +272,15 @@ export default function GroupVideoCallModal({
 
       // Add the answerer as a participant if not already present
       if (data.answererInfo) {
-        const answererOdgoId = data.answererInfo.odgoId || data.recipientId;
+        const answererUserId = data.answererInfo.userId || data.recipientId;
         setParticipants((prev) => {
-          if (prev.some((p) => p.odgoId === answererOdgoId)) return prev;
+          if (prev.some((p) => p.userId === answererUserId)) return prev;
           return [
             ...prev,
             {
-              odgoId: answererOdgoId,
-              odgoName: data.answererInfo.odgoName || data.answererInfo.name || 'Unknown',
-              odgoAvatar: data.answererInfo.odgoAvatar || data.answererInfo.avatar || '',
+              userId: answererUserId,
+              userName: data.answererInfo.userName || data.answererInfo.name || 'Unknown',
+              userAvatar: data.answererInfo.userAvatar || data.answererInfo.avatar || '',
               isMuted: false,
               isVideoOff: false,
               joinedAt: new Date(),
@@ -374,13 +376,13 @@ export default function GroupVideoCallModal({
       if (isIncomingCall) {
         // For incoming calls, add self as participant but without stream
         // Stream will be obtained when user accepts
-        console.log('📹 Incoming call - waiting for user to accept...');
+        console.log('Incoming call - waiting for user to accept...');
         setLocalStreamReady(false);
         setParticipants([
           {
-            odgoId: currentUserId,
-            odgoName: currentUserName || 'You',
-            odgoAvatar: currentUserAvatar,
+            userId: currentUserId,
+            userName: currentUserName || 'You',
+            userAvatar: currentUserAvatar,
             isMuted: false,
             isVideoOff: true,
             stream: undefined,
@@ -410,9 +412,9 @@ export default function GroupVideoCallModal({
         // Add self as first participant
         setParticipants([
           {
-            odgoId: currentUserId,
-            odgoName: currentUserName || 'You',
-            odgoAvatar: currentUserAvatar,
+            userId: currentUserId,
+            userName: currentUserName || 'You',
+            userAvatar: currentUserAvatar,
             isMuted: false,
             isVideoOff: false,
             stream: stream,
@@ -433,37 +435,37 @@ export default function GroupVideoCallModal({
 
     // Listen for participants joining
     const handleParticipantJoined = async (data: {
-      odgoId?: string;
       userId?: string;
-      odgoName?: string;
+      userId?: string;
       userName?: string;
-      odgoAvatar?: string;
+      userName?: string;
+      userAvatar?: string;
       avatar?: string;
       existingParticipants?: Array<{
-        odgoId?: string;
         userId?: string;
-        odgoName?: string;
+        userId?: string;
         userName?: string;
-        odgoAvatar?: string;
+        userName?: string;
+        userAvatar?: string;
         avatar?: string;
       }>;
     }) => {
-      // Normalize field names - backend may send userId/userName/avatar OR odgoId/odgoName/odgoAvatar
-      const participantId = data.odgoId || data.userId || '';
-      const participantName = data.odgoName || data.userName || 'Unknown';
-      const participantAvatar = data.odgoAvatar || data.avatar || '';
+      // Normalize field names from socket event data
+      const participantId = data.userId || '';
+      const participantName = data.userName || 'Unknown';
+      const participantAvatar = data.userAvatar || data.avatar || '';
 
-      console.log('📹 Participant joined:', { participantId, participantName, participantAvatar });
+      console.log('Participant joined:', { participantId, participantName, participantAvatar });
 
       // Add new participant
       setParticipants((prev) => {
-        if (prev.some((p) => p.odgoId === participantId)) return prev;
+        if (prev.some((p) => p.userId === participantId)) return prev;
         return [
           ...prev,
           {
-            odgoId: participantId,
-            odgoName: participantName,
-            odgoAvatar: participantAvatar,
+            userId: participantId,
+            userName: participantName,
+            userAvatar: participantAvatar,
             isMuted: false,
             isVideoOff: false,
             joinedAt: new Date(),
@@ -473,21 +475,21 @@ export default function GroupVideoCallModal({
 
       // Add existing participants if provided
       if (data.existingParticipants && data.existingParticipants.length > 0) {
-        console.log('📹 Adding existing participants:', data.existingParticipants);
+        console.log('Adding existing participants:', data.existingParticipants);
         setParticipants((prev) => {
           const newParticipants = data
             .existingParticipants!.map((ep) => ({
-              odgoId: ep.odgoId || ep.userId || '',
-              odgoName: ep.odgoName || ep.userName || 'Unknown',
-              odgoAvatar: ep.odgoAvatar || ep.avatar || '',
+              userId: ep.userId || ep.userId || '',
+              userName: ep.userName || ep.userName || 'Unknown',
+              userAvatar: ep.userAvatar || ep.avatar || '',
             }))
-            .filter((ep) => ep.odgoId && !prev.some((p) => p.odgoId === ep.odgoId));
+            .filter((ep) => ep.userId && !prev.some((p) => p.userId === ep.userId));
           return [
             ...prev,
             ...newParticipants.map((ep) => ({
-              odgoId: ep.odgoId,
-              odgoName: ep.odgoName,
-              odgoAvatar: ep.odgoAvatar,
+              userId: ep.userId,
+              userName: ep.userName,
+              userAvatar: ep.userAvatar,
               isMuted: false,
               isVideoOff: false,
               joinedAt: new Date(),
@@ -498,9 +500,9 @@ export default function GroupVideoCallModal({
         // Create peer connections and send offers to existing participants
         if (localStreamRef.current) {
           for (const participant of data.existingParticipants) {
-            const epId = participant.odgoId || participant.userId || '';
+            const epId = participant.userId || participant.userId || '';
             if (epId && epId !== currentUserId) {
-              console.log('📹 Creating offer for existing participant:', epId);
+              console.log('Creating offer for existing participant:', epId);
               const pc = createPeerConnection(epId, participant);
               try {
                 const offer = await pc.createOffer();
@@ -510,9 +512,9 @@ export default function GroupVideoCallModal({
                   offer: offer,
                   callType: 'group-video',
                 });
-                console.log('📹 Sent offer to:', epId);
+                console.log('Sent offer to:', epId);
               } catch (err) {
-                console.error('📹 Error creating offer:', err);
+                console.error('Error creating offer:', err);
               }
             }
           }
@@ -521,7 +523,7 @@ export default function GroupVideoCallModal({
 
       // If we have a local stream and this is a new participant, create peer connection
       if (localStreamRef.current && participantId && participantId !== currentUserId) {
-        console.log('📹 Creating peer connection for new participant:', participantId);
+        console.log('Creating peer connection for new participant:', participantId);
         const pc = createPeerConnection(participantId, data);
         try {
           const offer = await pc.createOffer();
@@ -531,9 +533,9 @@ export default function GroupVideoCallModal({
             offer: offer,
             callType: 'group-video',
           });
-          console.log('📹 Sent offer to new participant:', participantId);
+          console.log('Sent offer to new participant:', participantId);
         } catch (err) {
-          console.error('📹 Error creating offer for new participant:', err);
+          console.error('Error creating offer for new participant:', err);
         }
       }
 
@@ -541,10 +543,10 @@ export default function GroupVideoCallModal({
     };
 
     // Listen for participants leaving
-    const handleParticipantLeft = (data: { odgoId?: string; userId?: string }) => {
-      const participantId = data.odgoId || data.userId || '';
-      console.log('📹 Participant left:', participantId);
-      setParticipants((prev) => prev.filter((p) => p.odgoId !== participantId));
+    const handleParticipantLeft = (data: { userId?: string; userId?: string }) => {
+      const participantId = data.userId || data.userId || '';
+      console.log('Participant left:', participantId);
+      setParticipants((prev) => prev.filter((p) => p.userId !== participantId));
 
       // Clean up peer connection for this participant
       const pc = peerConnectionsRef.current.get(participantId);
@@ -559,7 +561,7 @@ export default function GroupVideoCallModal({
 
     // Listen for call ended by another participant
     const handleGroupCallEnded = () => {
-      console.log('📹 Group call ended by another participant');
+      console.log('Group call ended by another participant');
       // Clean up without emitting another endGroupCall event
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -574,24 +576,24 @@ export default function GroupVideoCallModal({
 
     // Listen for participant mute/video toggle
     const handleParticipantMuted = (data: {
-      odgoId?: string;
+      userId?: string;
       userId?: string;
       isMuted: boolean;
     }) => {
-      const participantId = data.odgoId || data.userId || '';
+      const participantId = data.userId || data.userId || '';
       setParticipants((prev) =>
-        prev.map((p) => (p.odgoId === participantId ? { ...p, isMuted: data.isMuted } : p))
+        prev.map((p) => (p.userId === participantId ? { ...p, isMuted: data.isMuted } : p))
       );
     };
 
     const handleParticipantVideoToggle = (data: {
-      odgoId?: string;
+      userId?: string;
       userId?: string;
       isVideoOff: boolean;
     }) => {
-      const participantId = data.odgoId || data.userId || '';
+      const participantId = data.userId || data.userId || '';
       setParticipants((prev) =>
-        prev.map((p) => (p.odgoId === participantId ? { ...p, isVideoOff: data.isVideoOff } : p))
+        prev.map((p) => (p.userId === participantId ? { ...p, isVideoOff: data.isVideoOff } : p))
       );
     };
 
@@ -654,7 +656,7 @@ export default function GroupVideoCallModal({
     if (!socket) return;
 
     try {
-      console.log('📹 [Video] User accepting call...');
+      console.log('[Video] User accepting call...');
       setHasUserAccepted(true); // Mark as accepted by user action
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -673,15 +675,15 @@ export default function GroupVideoCallModal({
       }
 
       // Add tracks to any existing peer connections
-      peerConnectionsRef.current.forEach((pc, odgoId) => {
-        console.log(`📹 [Video] Adding local tracks to existing peer connection: ${odgoId}`);
+      peerConnectionsRef.current.forEach((pc, userId) => {
+        console.log(`[Video] Adding local tracks to existing peer connection: ${userId}`);
         stream.getTracks().forEach((track) => {
           // Check if track is already added
           const senders = pc.getSenders();
           const existingSender = senders.find((s) => s.track?.kind === track.kind);
           if (!existingSender) {
             pc.addTrack(track, stream);
-            console.log(`📹 [Video] Added ${track.kind} track to peer: ${odgoId}`);
+            console.log(`[Video] Added ${track.kind} track to peer: ${userId}`);
           }
         });
       });
@@ -689,7 +691,7 @@ export default function GroupVideoCallModal({
       // Update self participant with stream
       setParticipants((prev) =>
         prev.map((p) =>
-          p.odgoId === currentUserId
+          p.userId === currentUserId
             ? { ...p, stream: stream, isVideoOff: false, isMuted: false }
             : p
         )
@@ -698,7 +700,7 @@ export default function GroupVideoCallModal({
       // Accept the group call
       socket.emit('acceptGroupCall', { groupId, callerId });
       setCallStatus('active');
-      console.log('📹 [Video] Call accepted successfully');
+      console.log('[Video] Call accepted successfully');
     } catch (error) {
       console.error('Error accepting call:', error);
       setHasUserAccepted(false);
@@ -741,7 +743,7 @@ export default function GroupVideoCallModal({
 
   const toggleMute = () => {
     if (!localStreamRef.current) {
-      console.warn('📹 [Video] Cannot toggle mute - no local stream');
+      console.warn('[Video] Cannot toggle mute - no local stream');
       return;
     }
 
@@ -758,17 +760,17 @@ export default function GroupVideoCallModal({
 
       // Update self in participants
       setParticipants((prev) =>
-        prev.map((p) => (p.odgoId === currentUserId ? { ...p, isMuted: !audioTrack.enabled } : p))
+        prev.map((p) => (p.userId === currentUserId ? { ...p, isMuted: !audioTrack.enabled } : p))
       );
-      console.log(`📹 [Video] Mute toggled: ${!audioTrack.enabled}`);
+      console.log(`[Video] Mute toggled: ${!audioTrack.enabled}`);
     } else {
-      console.warn('📹 [Video] No audio track found');
+      console.warn('[Video] No audio track found');
     }
   };
 
   const toggleVideo = () => {
     if (!localStreamRef.current) {
-      console.warn('📹 [Video] Cannot toggle video - no local stream');
+      console.warn('[Video] Cannot toggle video - no local stream');
       return;
     }
 
@@ -786,12 +788,12 @@ export default function GroupVideoCallModal({
       // Update self in participants
       setParticipants((prev) =>
         prev.map((p) =>
-          p.odgoId === currentUserId ? { ...p, isVideoOff: !videoTrack.enabled } : p
+          p.userId === currentUserId ? { ...p, isVideoOff: !videoTrack.enabled } : p
         )
       );
-      console.log(`📹 [Video] Video toggled: ${!videoTrack.enabled}`);
+      console.log(`[Video] Video toggled: ${!videoTrack.enabled}`);
     } else {
-      console.warn('📹 [Video] No video track found');
+      console.warn('[Video] No video track found');
     }
   };
 
@@ -836,20 +838,20 @@ export default function GroupVideoCallModal({
           <div className={`grid ${getGridClass(participants.length)} gap-2 h-full auto-rows-fr`}>
             {participants.map((participant, index) => {
               // Check if this is the local user
-              const isLocalUser = participant.odgoId === currentUserId;
+              const isLocalUser = participant.userId === currentUserId;
               // For local user, check localStreamReady state, for remote users check participant.stream
               const hasVideo = isLocalUser
                 ? !participant.isVideoOff && localStreamReady && localStreamRef.current
                 : !participant.isVideoOff && participant.stream;
 
               // Get valid avatar URL
-              const avatarUrl = participant.odgoAvatar ? getMediaUrl(participant.odgoAvatar) : null;
+              const avatarUrl = participant.userAvatar ? getMediaUrl(participant.userAvatar) : null;
               const isValidAvatar =
                 avatarUrl && (avatarUrl.startsWith('http') || avatarUrl.startsWith('/'));
 
               return (
                 <div
-                  key={participant.odgoId || `participant-${index}`}
+                  key={participant.userId || `participant-${index}`}
                   className="relative rounded-xl overflow-hidden bg-gray-800"
                 >
                   {/* Video or Avatar */}
@@ -859,7 +861,7 @@ export default function GroupVideoCallModal({
                         <div className="relative w-20 h-20 md:w-24 md:h-24">
                           <img
                             src={avatarUrl}
-                            alt={participant.odgoName}
+                            alt={participant.userName}
                             className="w-full h-full rounded-full object-cover"
                             onError={(e) => {
                               e.currentTarget.style.display = 'none';
@@ -869,7 +871,7 @@ export default function GroupVideoCallModal({
                       ) : (
                         <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
                           <span className="text-white text-3xl font-medium">
-                            {participant.odgoName?.charAt(0)?.toUpperCase() || '?'}
+                            {participant.userName?.charAt(0)?.toUpperCase() || '?'}
                           </span>
                         </div>
                       )}
@@ -897,7 +899,7 @@ export default function GroupVideoCallModal({
                       ref={(el) => {
                         if (el && participant.stream && el.srcObject !== participant.stream) {
                           el.srcObject = participant.stream;
-                          videoElementsRef.current.set(participant.odgoId, el);
+                          videoElementsRef.current.set(participant.userId, el);
                         }
                       }}
                       autoPlay
@@ -910,7 +912,7 @@ export default function GroupVideoCallModal({
                   <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
                     <div className="flex items-center justify-between">
                       <span className="text-white text-sm font-medium truncate">
-                        {participant.odgoId === currentUserId ? 'You' : participant.odgoName}
+                        {participant.userId === currentUserId ? 'You' : participant.userName}
                       </span>
                       <div className="flex items-center gap-1">
                         {participant.isMuted && (

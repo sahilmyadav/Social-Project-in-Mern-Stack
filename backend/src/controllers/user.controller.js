@@ -6,14 +6,13 @@ import { Post } from '../models/post.model.js';
 import { Reel } from '../models/reel.model.js';
 import { Save } from '../models/save.model.js';
 import { User } from '../models/user.model.js';
-import { default as emailService, default as EmailService } from '../services/email.service.js';
+import emailService from '../services/email.service.js';
 import smsService from '../services/sms.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { saveFileLocally, uploadOnCloudinary } from '../utils/localStorage.js';
 import redis from '../utils/redis.config.js';
-// import crypto from "crypto";
 
 // Utility function to generate a 6-digit OTP as string
 export function generateOTP() {
@@ -1164,7 +1163,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
   // Check if current user is viewing the profile
   const currentUserId = req.user?._id;
 
-  // ✅ INSTAGRAM-LIKE BLOCKING: Check bidirectional blocking BEFORE showing profile
+  // Check bidirectional blocking before showing profile
   if (currentUserId && currentUserId.toString() !== profileUserId.toString()) {
     // Check if current user has blocked this profile user
     const currentUser = await User.findById(currentUserId).select('blockedUsers').lean();
@@ -1183,7 +1182,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     }
   }
 
-  // ✅ OPTIMIZED: Run all count queries in parallel
+  // Run all count queries in parallel
   const [
     followersCount,
     followingCount,

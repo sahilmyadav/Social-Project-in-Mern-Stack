@@ -697,7 +697,7 @@ export const getAllComments = asyncHandler(async (req, res) => {
     is_deleted: false,
     reply_to_comment_id: null, // Only get top-level comments
   })
-    .populate('user_id', 'firstName lastName username profileImage profilePicture avatar') // ✅ ADD profileImage
+    .populate('user_id', 'firstName lastName username profileImage profilePicture avatar')
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
     .skip((parseInt(page) - 1) * parseInt(limit));
