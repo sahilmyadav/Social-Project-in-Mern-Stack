@@ -5,12 +5,12 @@ import Navigation from '@/components/navigation';
 import TagPeopleInput from '@/components/tag-people-input';
 import { Button } from '@/components/ui/button';
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { ApiError } from '@/lib/api-client';
 import { postService, reelService } from '@/lib/api-services';
