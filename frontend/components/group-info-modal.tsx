@@ -84,7 +84,6 @@ export default function GroupInfoModal({
         setGroupDescription(response.data.description || '');
       }
     } catch (error) {
-      console.error('Error loading group details:', error);
     } finally {
       setIsLoading(false);
     }
@@ -111,7 +110,6 @@ export default function GroupInfoModal({
         showToast.error(response.message || 'Failed to update group');
       }
     } catch (error: any) {
-      console.error('Error updating group:', error);
       showToast.error(error.message || 'Failed to update group');
     } finally {
       setIsUpdating(false);
@@ -131,7 +129,6 @@ export default function GroupInfoModal({
         showToast.error(response.message || 'Failed to update group avatar');
       }
     } catch (error: any) {
-      console.error('Error updating avatar:', error);
       showToast.error(error.message || 'Failed to update group avatar');
     }
   };
@@ -152,7 +149,6 @@ export default function GroupInfoModal({
             showToast.error(response.message || 'Failed to remove member');
           }
         } catch (error: any) {
-          console.error('Error removing member:', error);
           showToast.error(error.message || 'Failed to remove member');
         }
       },
@@ -169,7 +165,6 @@ export default function GroupInfoModal({
         showToast.error(response.message || 'Failed to make admin');
       }
     } catch (error: any) {
-      console.error('Error making admin:', error);
       showToast.error(error.message || 'Failed to make admin');
     }
   };
@@ -190,7 +185,6 @@ export default function GroupInfoModal({
             showToast.error(response.message || 'Failed to leave group');
           }
         } catch (error: any) {
-          console.error('Error leaving group:', error);
           showToast.error(error.message || 'Failed to leave group');
         }
       },
@@ -214,7 +208,6 @@ export default function GroupInfoModal({
             showToast.error(response.message || 'Failed to delete group');
           }
         } catch (error: any) {
-          console.error('Error deleting group:', error);
           showToast.error(error.message || 'Failed to delete group');
         }
       },
@@ -223,7 +216,6 @@ export default function GroupInfoModal({
 
   if (!isOpen) return null;
 
-  // Check if current user is admin - admins could be array of user objects or IDs
   const isAdmin =
     groupDetails?.members?.some((member: any) => {
       const userId = member.user?._id || member.user;
@@ -236,7 +228,6 @@ export default function GroupInfoModal({
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-800">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Group Info</h2>
           <button
@@ -247,7 +238,6 @@ export default function GroupInfoModal({
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -255,7 +245,6 @@ export default function GroupInfoModal({
             </div>
           ) : (
             <div className="p-6 space-y-6">
-              {/* Group Avatar & Name */}
               <div className="flex flex-col items-center gap-4">
                 <div className="relative">
                   <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center overflow-hidden">
@@ -354,7 +343,6 @@ export default function GroupInfoModal({
                 )}
               </div>
 
-              {/* Members List */}
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="font-semibold text-gray-900 dark:text-white">Members</h4>
@@ -444,10 +432,8 @@ export default function GroupInfoModal({
                 </div>
               </div>
 
-              {/* Leave Group / Delete Group */}
               <div className="pt-4 border-t border-gray-200 dark:border-gray-800 space-y-3">
                 {isOwner || isAdmin ? (
-                  // Owner/Admin can delete the group
                   <button
                     onClick={handleDeleteGroup}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors font-medium"
@@ -456,7 +442,6 @@ export default function GroupInfoModal({
                     Delete Group
                   </button>
                 ) : (
-                  // Regular members can leave
                   <button
                     onClick={handleLeaveGroup}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors font-medium"
@@ -471,7 +456,6 @@ export default function GroupInfoModal({
         </div>
       </div>
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </div>
   );

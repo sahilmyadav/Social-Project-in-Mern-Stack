@@ -17,7 +17,6 @@ export const getMediaUrl = (url: string | undefined | null): string => {
     return `${BACKEND_URL}/${url}`;
   }
 
-  // Handle avatar filenames stored without path prefix
   if (
     url.startsWith('avatar_') ||
     url.startsWith('cover_') ||
@@ -25,7 +24,6 @@ export const getMediaUrl = (url: string | undefined | null): string => {
     url.startsWith('reel_') ||
     url.startsWith('story_')
   ) {
-    // Determine the subfolder based on the filename prefix
     if (url.startsWith('avatar_')) {
       return `${BACKEND_URL}/uploads/avatars/${url}`;
     }

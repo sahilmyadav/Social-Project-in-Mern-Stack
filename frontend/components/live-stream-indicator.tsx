@@ -15,7 +15,6 @@ export function LiveStreamIndicator() {
     useEffect(() => {
         fetchLiveStreams();
 
-        // Socket listeners for real-time updates
         const handleStreamStarted = (data: any) => {
             fetchLiveStreams();
         };
@@ -40,7 +39,6 @@ export function LiveStreamIndicator() {
                 setLiveStreams(response.data || []);
             }
         } catch (error) {
-            console.error('Error fetching live streams:', error);
         }
     };
 
@@ -86,22 +84,18 @@ export function LiveStreamIndicator() {
                                     <div className="w-full h-full bg-gradient-to-br from-purple-500 to-pink-500" />
                                 )}
 
-                                {/* Live Badge */}
                                 <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded text-xs font-semibold flex items-center gap-1 animate-pulse">
                                     <span className="w-1.5 h-1.5 bg-white rounded-full" />
                                     LIVE
                                 </div>
 
-                                {/* Viewer Count */}
                                 <div className="absolute top-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-xs flex items-center gap-1">
                                     <Users className="h-3 w-3" />
                                     {stream.viewerCount}
                                 </div>
 
-                                {/* Gradient Overlay */}
                                 <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent" />
 
-                                {/* Stream Info */}
                                 <div className="absolute bottom-2 left-2 right-2">
                                     <div className="flex items-center gap-2 mb-1">
                                         {stream.streamer.profilePicture ? (

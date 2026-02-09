@@ -47,7 +47,6 @@ export default function CreateGroupModal({
   }, [isOpen]);
 
   useEffect(() => {
-    // Debounce search
     const timer = setTimeout(() => {
       if (searchQuery.trim()) {
         searchUsers();
@@ -70,20 +69,17 @@ export default function CreateGroupModal({
 
       const user = JSON.parse(userData);
 
-      // First try to load recent chats (people user has talked to)
       try {
         const threadsResponse = await chatService.getThreads({ limit: 10 });
         const threads = threadsResponse?.data?.threads || threadsResponse?.data || [];
 
         if (Array.isArray(threads) && threads.length > 0) {
-          // Extract unique users from threads (excluding current user)
           const recentUsers: User[] = [];
           const seenIds = new Set<string>();
 
           for (const thread of threads) {
             if (thread.isGroup) continue; // Skip group threads
 
-            // Get the other participant
             const participant =
               thread.participant || thread.participants?.find((p: any) => p._id !== user._id);
 
@@ -101,7 +97,6 @@ export default function CreateGroupModal({
           }
 
           if (recentUsers.length > 0) {
-            // Also load followers to merge
             try {
               const followersResponse = await followService.getFollowers(user._id);
               const followers = followersResponse?.data?.followers || followersResponse?.data || [];
@@ -126,7 +121,6 @@ export default function CreateGroupModal({
                 }
               }
             } catch (e) {
-              // Followers failed, continue with recent users only
             }
 
             setUsers(recentUsers.slice(0, 10)); // Limit to 10 users
@@ -135,10 +129,8 @@ export default function CreateGroupModal({
           }
         }
       } catch (threadsError) {
-        console.log('Could not load recent chats, trying followers...');
       }
 
-      // Fallback: Try followers
       try {
         const response = await followService.getFollowers(user._id);
         const followers = response?.data?.followers || response?.data || [];
@@ -165,10 +157,8 @@ export default function CreateGroupModal({
           }
         }
       } catch (followersError) {
-        console.log('Could not load followers, trying following...');
       }
 
-      // Fallback: Try following
       try {
         const response = await followService.getFollowing(user._id);
         const following = response?.data?.following || response?.data || [];
@@ -195,13 +185,10 @@ export default function CreateGroupModal({
           }
         }
       } catch (followingError) {
-        console.log('Could not load following, trying suggestions...');
       }
 
-      // Final fallback: suggestions
       await loadSuggestions();
     } catch (error) {
-      console.log('Error in loadFollowing, trying suggestions...');
       await loadSuggestions();
     } finally {
       setIsLoading(false);
@@ -216,7 +203,6 @@ export default function CreateGroupModal({
         setUsers(suggestions);
       }
     } catch (e) {
-      console.log('Could not load suggestions');
     }
   };
 
@@ -227,7 +213,6 @@ export default function CreateGroupModal({
     try {
       const response = await searchService.searchUsers({ query: searchQuery.trim(), limit: 20 });
       if (response.success && response.data) {
-        // Handle different response structures
         const userResults = response.data.users || response.data.results || response.data || [];
         const mappedUsers = (Array.isArray(userResults) ? userResults : []).map((u: any) => ({
           _id: u._id,
@@ -242,7 +227,6 @@ export default function CreateGroupModal({
         setUsers([]);
       }
     } catch (error) {
-      console.log('Error searching users');
       setUsers([]);
     } finally {
       setIsLoading(false);
@@ -294,15 +278,10 @@ export default function CreateGroupModal({
         handleClose();
       } else {
         const errorMessage = response.message || 'Failed to create group';
-        console.error('Group creation failed:', errorMessage);
         showToast.error(errorMessage);
       }
     } catch (error: any) {
-      console.error('Error creating group:', error);
-      console.error('Error type:', typeof error);
-      console.error('Error keys:', Object.keys(error));
 
-      // Extract error message from different possible error structures
       let errorMessage = 'Failed to create group';
 
       if (typeof error === 'string') {
@@ -315,7 +294,6 @@ export default function CreateGroupModal({
         errorMessage = `Error ${error.statusCode}: ${error.message || error.error || 'Unknown error'}`;
       }
 
-      console.error('Final error message:', errorMessage);
       showToast.error(errorMessage);
     } finally {
       setIsCreating(false);
@@ -338,7 +316,6 @@ export default function CreateGroupModal({
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
@@ -363,11 +340,9 @@ export default function CreateGroupModal({
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {step === 'members' ? (
             <div className="p-6 space-y-4">
-              {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <Input
@@ -379,7 +354,6 @@ export default function CreateGroupModal({
                 />
               </div>
 
-              {/* Selected Users */}
               {selectedUsers.length > 0 && (
                 <div className="flex flex-wrap gap-2 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl">
                   {selectedUsers.map((user) => {
@@ -420,7 +394,6 @@ export default function CreateGroupModal({
                 </div>
               )}
 
-              {/* User List */}
               <div className="space-y-2">
                 {isLoading ? (
                   <div className="text-center py-8 text-gray-500">Loading...</div>
@@ -497,7 +470,6 @@ export default function CreateGroupModal({
             </div>
           ) : (
             <div className="p-6 space-y-6">
-              {/* Group Avatar */}
               <div className="flex flex-col items-center gap-4">
                 <div className="relative">
                   <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center overflow-hidden">
@@ -528,7 +500,6 @@ export default function CreateGroupModal({
                 <p className="text-sm text-gray-500 dark:text-gray-400">Add group photo</p>
               </div>
 
-              {/* Group Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Group Name *
@@ -546,7 +517,6 @@ export default function CreateGroupModal({
                 </p>
               </div>
 
-              {/* Group Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Description (Optional)
@@ -564,7 +534,6 @@ export default function CreateGroupModal({
                 </p>
               </div>
 
-              {/* Members Preview */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Members ({selectedUsers.length})
@@ -590,7 +559,6 @@ export default function CreateGroupModal({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-6 border-t border-gray-200 dark:border-gray-800 flex gap-3">
           {step === 'details' && (
             <Button onClick={() => setStep('members')} variant="outline" className="flex-1">

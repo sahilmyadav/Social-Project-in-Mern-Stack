@@ -10,7 +10,6 @@ import { Clock, Search, UserCheck, UserPlus, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
-// Helper to check if a string is a valid image URL path
 const isValidImageUrl = (url: string | undefined | null): boolean => {
   if (!url) return false;
   return url.startsWith('http') || url.startsWith('/uploads') || url.startsWith('uploads');
@@ -43,7 +42,6 @@ export default function ExplorePage() {
   const [loadingPosts, setLoadingPosts] = useState(false)
   const [postsError, setPostsError] = useState<string | null>(null)
 
-
   const router = useRouter()
 
   useEffect(() => {
@@ -52,7 +50,6 @@ export default function ExplorePage() {
       router.push("/")
     } else {
       setUser(JSON.parse(userData))
-      // Load initial data
       loadSuggestions()
       loadExplorePosts()
     }
@@ -69,7 +66,6 @@ export default function ExplorePage() {
         setExplorePosts([])
       }
     } catch (error: any) {
-      console.error('Error loading explore posts:', error)
       setPostsError(error.message || 'Failed to load posts')
       setExplorePosts([])
     } finally {
@@ -77,7 +73,6 @@ export default function ExplorePage() {
     }
   }
 
-  // Debounced search
   useEffect(() => {
     if (searchTimeout) {
       clearTimeout(searchTimeout)
@@ -103,7 +98,6 @@ export default function ExplorePage() {
     try {
       const response = await followService.getSuggestions({ limit: 20 })
       if (response.success && response.data) {
-        // Handle different response structures - data might be an array or an object with suggestions
         const suggestions = Array.isArray(response.data) ? response.data : response.data.suggestions || []
 
         const formattedCreators = suggestions.map((user: any) => ({
@@ -122,7 +116,6 @@ export default function ExplorePage() {
         setCreators(formattedCreators)
       }
     } catch (error) {
-      console.error("Error loading suggestions:", error)
     }
   }
 
@@ -136,7 +129,6 @@ export default function ExplorePage() {
       if (response.success && response.data?.users) {
         let users = response.data.users || [];
 
-        // Frontend Filtering: Remove blocked users and current user
         if (user) {
           const blockedUsers = user.blockedUsers || [];
           users = users.filter((u: any) =>
@@ -167,7 +159,6 @@ export default function ExplorePage() {
         setCreators([])
       }
     } catch (error) {
-      console.error("Error searching users:", error)
       setCreators([])
     } finally {
       setIsSearching(false)
@@ -179,15 +170,12 @@ export default function ExplorePage() {
       const currentStatus = followingStatus[userId] || 'none'
 
       if (currentStatus === 'following') {
-        // Unfollow
         await followService.unfollowUser(userId)
         setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }))
       } else if (currentStatus === 'pending') {
-        // Cancel request
         await followService.cancelFollowRequest(userId)
         setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }))
       } else {
-        // Follow or send request
         if (isPrivate) {
           await followService.sendFollowRequest(userId)
           setFollowingStatus(prev => ({ ...prev, [userId]: 'pending' }))
@@ -197,7 +185,6 @@ export default function ExplorePage() {
         }
       }
     } catch (error) {
-      console.error("Error with follow action:", error)
     }
   }
 
@@ -225,7 +212,6 @@ export default function ExplorePage() {
     }
   }
 
-  // Handle opening/closing comments on a post
   const handleOpenPostDetails = useCallback((post: any) => {
     setExplorePosts(prevPosts =>
       prevPosts.map(item => {
@@ -237,7 +223,6 @@ export default function ExplorePage() {
     )
   }, [])
 
-  // Handle like updates on posts
   const handlePostLikeUpdate = useCallback((postId: string, isLiked: boolean, likeCount: number) => {
     setExplorePosts(prevPosts =>
       prevPosts.map(item => {
@@ -265,12 +250,10 @@ export default function ExplorePage() {
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pb-20 lg:pb-0">
-        {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-2">
           <div className="sticky top-0 z-20 mb-6 bg-background pt-4">
             <div className="relative bg-card rounded-2xl border border-border p-4">
@@ -291,7 +274,6 @@ export default function ExplorePage() {
                 </button>
               )}
 
-              {/* Search Results Dropdown */}
               {searchQuery && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-2xl shadow-lg max-h-96 overflow-y-auto">
                   {isSearching ? (
@@ -322,7 +304,6 @@ export default function ExplorePage() {
                                 alt={creator.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
-                                  // Fallback to initials if image fails to load
                                   const target = e.target as HTMLImageElement;
                                   target.style.display = 'none';
                                   if (target.nextSibling) {
@@ -364,7 +345,6 @@ export default function ExplorePage() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="flex gap-4 mb-6 border-b border-border">
             <button
               onClick={() => setActiveTab("posts")}
@@ -386,7 +366,6 @@ export default function ExplorePage() {
             </button>
           </div>
 
-          {/* Posts Tab */}
           {activeTab === "posts" && (
             <div className="space-y-4">
               {loadingPosts ? (
@@ -418,7 +397,6 @@ export default function ExplorePage() {
             </div>
           )}
 
-          {/* Creators Tab */}
           {activeTab === "creators" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {creators.length === 0 ? (
@@ -436,7 +414,6 @@ export default function ExplorePage() {
                       key={creator.id}
                       className="bg-card rounded-2xl border border-border p-6 hover:shadow-lg transition group"
                     >
-                      {/* User Info - Clickable */}
                       <div
                         onClick={() => router.push(`/profile/${creator.id}`)}
                         className="cursor-pointer mb-4"
@@ -482,7 +459,6 @@ export default function ExplorePage() {
                           {creator.bio}
                         </p>
 
-                        {/* Stats */}
                         <div className="flex justify-center gap-6 mb-4 pb-4 border-b border-border">
                           <div className="text-center">
                             <p className="font-bold text-foreground">{creator.posts || 0}</p>
@@ -499,7 +475,6 @@ export default function ExplorePage() {
                         </div>
                       </div>
 
-                      {/* Action Buttons */}
                       <div className="flex gap-2">
                         <Button
                           onClick={(e) => {
@@ -531,7 +506,6 @@ export default function ExplorePage() {
           )}
         </section>
 
-        {/* Right Sidebar - Categories */}
         <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4">
           <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
             <h3 className="font-bold text-lg mb-4">Popular Categories</h3>
@@ -547,7 +521,6 @@ export default function ExplorePage() {
         </aside>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   )

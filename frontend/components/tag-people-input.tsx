@@ -4,7 +4,6 @@ import { searchService } from '@/lib/api-services';
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-// Simple type for a user
 interface TaggedUser {
   _id: string;
   firstName: string;
@@ -34,7 +33,6 @@ export default function TagPeopleInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Search for users when typing
   useEffect(() => {
     const searchUsers = async () => {
       if (searchQuery.trim().length < 2) {
@@ -50,26 +48,22 @@ export default function TagPeopleInput({
         });
 
         if (response.success && response.data?.users) {
-          // Filter out already selected users
           const filtered = response.data.users.filter(
             (user: TaggedUser) => !selectedUsers.some((selected) => selected._id === user._id)
           );
           setSearchResults(filtered);
         }
       } catch (error) {
-        console.error('Failed to search users:', error);
         setSearchResults([]);
       } finally {
         setIsSearching(false);
       }
     };
 
-    // Wait a bit before searching (debounce)
     const timer = setTimeout(searchUsers, 300);
     return () => clearTimeout(timer);
   }, [searchQuery, selectedUsers]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -86,7 +80,6 @@ export default function TagPeopleInput({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Add a user to the selected list
   const handleSelectUser = (user: TaggedUser) => {
     if (selectedUsers.length >= maxTags) {
       return; // Don't add more than max
@@ -97,30 +90,25 @@ export default function TagPeopleInput({
     setShowDropdown(false);
   };
 
-  // Remove a user from the selected list
   const handleRemoveUser = (userId: string) => {
     onUsersChange(selectedUsers.filter((user) => user._id !== userId));
   };
 
-  // Get display name
   const getDisplayName = (user: TaggedUser) => {
     if (user.username) return `@${user.username}`;
     return `${user.firstName} ${user.lastName}`;
   };
 
-  // Get profile image
   const getProfileImage = (user: TaggedUser) => {
     return user.profileImage || user.avatar;
   };
 
   return (
     <div className="space-y-2">
-      {/* Label */}
       <label className="text-foreground font-semibold block text-sm md:text-base">
         Tag People <span className="text-muted-foreground font-normal">(optional)</span>
       </label>
 
-      {/* Selected Users - Show as chips */}
       {selectedUsers.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {selectedUsers.map((user) => (
@@ -128,7 +116,6 @@ export default function TagPeopleInput({
               key={user._id}
               className="flex items-center gap-1 bg-primary/10 text-primary rounded-full pl-1 pr-1.5 py-0.5"
             >
-              {/* Small avatar */}
               <div className="w-5 h-5 rounded-full bg-muted overflow-hidden flex items-center justify-center">
                 {getProfileImage(user) ? (
                   <img
@@ -141,7 +128,6 @@ export default function TagPeopleInput({
                 )}
               </div>
               <span className="text-xs font-medium">{getDisplayName(user)}</span>
-              {/* Remove button */}
               <button
                 type="button"
                 onClick={() => handleRemoveUser(user._id)}
@@ -155,7 +141,6 @@ export default function TagPeopleInput({
         </div>
       )}
 
-      {/* Search Input */}
       {selectedUsers.length < maxTags && (
         <div className="relative">
           <input
@@ -172,7 +157,6 @@ export default function TagPeopleInput({
             disabled={disabled}
           />
 
-          {/* Dropdown with search results */}
           {showDropdown && (searchResults.length > 0 || isSearching) && (
             <div
               ref={dropdownRef}
@@ -190,7 +174,6 @@ export default function TagPeopleInput({
                     onClick={() => handleSelectUser(user)}
                     className="w-full flex items-center gap-2 p-2 hover:bg-muted transition text-left"
                   >
-                    {/* Avatar */}
                     <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex items-center justify-center flex-shrink-0">
                       {getProfileImage(user) ? (
                         <img
@@ -202,7 +185,6 @@ export default function TagPeopleInput({
                         <span className="text-sm">👤</span>
                       )}
                     </div>
-                    {/* User info */}
                     <div className="min-w-0">
                       <p className="font-semibold text-foreground truncate text-sm">
                         {user.firstName} {user.lastName}
@@ -217,7 +199,6 @@ export default function TagPeopleInput({
             </div>
           )}
 
-          {/* No results message */}
           {showDropdown &&
             searchQuery.trim().length >= 2 &&
             !isSearching &&
@@ -232,7 +213,6 @@ export default function TagPeopleInput({
         </div>
       )}
 
-      {/* Helper text */}
       <p className="text-[10px] md:text-xs text-muted-foreground">
         Tagged people get notified
         {selectedUsers.length > 0 && ` (${selectedUsers.length}/${maxTags})`}

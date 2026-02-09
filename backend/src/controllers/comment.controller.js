@@ -1,6 +1,7 @@
 import { Comment } from '../models/comment.model.js';
 import { Like } from '../models/like.model.js';
 import { Post } from '../models/post.model.js';
+import { getLikedIds } from '../services/enrichment.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
@@ -30,12 +31,15 @@ export const likeComment = asyncHandler(async (req, res) => {
     // Unlike - remove the like
     await Like.deleteOne({ _id: existingLike._id });
 
-    // Decrement likes count
-    comment.likes_count = Math.max(0, comment.likes_count - 1);
-    await comment.save();
+    // Decrement likes count (atomic)
+    const updated = await Comment.findOneAndUpdate(
+      { _id: commentId, likes_count: { $gt: 0 } },
+      { $inc: { likes_count: -1 } },
+      { new: true }
+    );
 
     isLiked = false;
-    likesCount = comment.likes_count;
+    likesCount = updated?.likes_count ?? comment.likes_count;
   } else {
     // Like - create new like
     await Like.create({
@@ -44,12 +48,15 @@ export const likeComment = asyncHandler(async (req, res) => {
       target_id: commentId,
     });
 
-    // Increment likes count
-    comment.likes_count += 1;
-    await comment.save();
+    // Increment likes count (atomic)
+    const updated = await Comment.findByIdAndUpdate(
+      commentId,
+      { $inc: { likes_count: 1 } },
+      { new: true }
+    );
 
     isLiked = true;
-    likesCount = comment.likes_count;
+    likesCount = updated?.likes_count ?? comment.likes_count + 1;
   }
 
   return res.status(200).json(
@@ -132,21 +139,14 @@ export const getCommentReplies = asyncHandler(async (req, res) => {
     .limit(parseInt(limit))
     .skip((parseInt(page) - 1) * parseInt(limit));
 
-  // Add isLiked status for each reply
-  const repliesWithLikeStatus = await Promise.all(
-    replies.map(async (reply) => {
-      const isLiked = await Like.exists({
-        target_type: 'comment',
-        target_id: reply._id,
-        user_id: userId,
-      });
+  // Add isLiked status for each reply (batch — no N+1)
+  const replyIds = replies.map((r) => r._id);
+  const replyLikedSet = await getLikedIds(replyIds, 'comment', userId);
 
-      return {
-        ...reply.toObject(),
-        isLikedByCurrentUser: !!isLiked,
-      };
-    })
-  );
+  const repliesWithLikeStatus = replies.map((reply) => ({
+    ...reply.toObject(),
+    isLikedByCurrentUser: replyLikedSet.has(reply._id.toString()),
+  }));
 
   const totalReplies = await Comment.countDocuments({
     reply_to_comment_id: commentId,
@@ -281,16 +281,19 @@ export const unlikeComment = asyncHandler(async (req, res) => {
 
   await Like.deleteOne({ _id: existingLike._id });
 
-  // Decrement likes count
-  comment.likes_count = Math.max(0, comment.likes_count - 1);
-  await comment.save();
+  // Decrement likes count (atomic)
+  const updated = await Comment.findOneAndUpdate(
+    { _id: commentId, likes_count: { $gt: 0 } },
+    { $inc: { likes_count: -1 } },
+    { new: true }
+  );
 
   return res.status(200).json(
     new ApiResponse(
       200,
       {
         isLiked: false,
-        likes_count: comment.likes_count,
+        likes_count: updated?.likes_count ?? comment.likes_count,
       },
       'Comment unliked successfully'
     )

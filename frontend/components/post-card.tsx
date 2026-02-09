@@ -4,28 +4,29 @@ import ReportPostModal from '@/components/report-post-modal';
 import ShareModal from '@/components/share-modal';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
 import { useVideoSafe } from '@/contexts/video-context';
-import { commentService, postService } from '@/lib/api-services';
+import { useComments } from '@/hooks/useComments';
+import { postService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
-    Download,
-    Eye,
-    Heart,
-    MessageCircle,
-    MoreHorizontal,
-    Play,
-    Send,
-    Share2,
-    Trash2,
-    Volume2,
-    VolumeX,
+  Download,
+  Eye,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Send,
+  Share2,
+  Trash2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -39,7 +40,6 @@ interface PostCardProps {
   showComments?: boolean;
 }
 
-// Custom Video Player Component for Posts (same as reel-card)
 function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,7 +48,6 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
   const [isInView, setIsInView] = useState(false);
   const [userPaused, setUserPaused] = useState(false); // Auto-play when in view
 
-  // Intersection Observer for auto-play/pause
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -72,7 +71,6 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
     };
   }, []);
 
-  // Auto-play when in view, pause when out of view
   useEffect(() => {
     if (!videoRef.current) return;
 
@@ -83,7 +81,6 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
     }
   }, [isInView, userPaused]);
 
-  // Sync video muted state with global mute
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = globalMuted;
@@ -123,7 +120,6 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
         preload="metadata"
       />
 
-      {/* Play Button Overlay - Always show when not playing */}
       {!isPlaying && (
         <div
           className="absolute inset-0 flex items-center justify-center cursor-pointer"
@@ -135,7 +131,6 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
         </div>
       )}
 
-      {/* Pause on click when playing */}
       {isPlaying && (
         <div
           className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 hover:opacity-100 transition"
@@ -147,7 +142,6 @@ function PostVideoPlayer({ src, poster }: { src: string; poster?: string }) {
         </div>
       )}
 
-      {/* Mute/Unmute Button */}
       <button
         className="absolute bottom-4 right-4 p-2 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition cursor-pointer"
         onClick={handleMuteToggle}
@@ -167,7 +161,6 @@ function PostCard({
   showComments,
 }: PostCardProps) {
   const router = useRouter();
-  // Backend may return is_liked (snake_case) or isLiked (camelCase)
   const [liked, setLiked] = useState(post.isLiked || post.is_liked || false);
   const [likeCount, setLikeCount] = useState(post.likes_count || 0);
   const [saved, setSaved] = useState(post.isSaved || post.is_saved || false);
@@ -178,10 +171,7 @@ function PostCard({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [comments, setComments] = useState<any[]>([]);
-  const [commentsLoading, setCommentsLoading] = useState(false);
   const [newComment, setNewComment] = useState('');
-  const [submittingComment, setSubmittingComment] = useState(false);
   const [commentCount, setCommentCount] = useState(
     Math.max(0, post.comments_count || post.comments || 0)
   );
@@ -189,17 +179,31 @@ function PostCard({
     null
   );
   const [replyText, setReplyText] = useState('');
-  const [submittingReply, setSubmittingReply] = useState(false);
-  const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
-  const [repliesData, setRepliesData] = useState<Map<string, any[]>>(new Map());
-  const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
+
+  const {
+    comments,
+    repliesData,
+    expandedReplies,
+    loadingReplies,
+    isLoading: commentsLoading,
+    isSubmitting,
+    loadComments,
+    addComment,
+    deleteComment,
+    toggleLikeComment,
+    addReply,
+    toggleReplies,
+  } = useComments({
+    postId: post._id,
+    onCommentCountChange: setCommentCount,
+  });
+
   const [sharesCount, setSharesCount] = useState(post.shares_count || post.shares || 0);
   const [viewCount, setViewCount] = useState(post.views_count || 0);
   const [hasTrackedView, setHasTrackedView] = useState(false);
   const postCardRef = useRef<HTMLDivElement>(null);
   const { confirm, dialogProps } = useConfirmDialog();
 
-  // Track view when post comes into view
   useEffect(() => {
     if (hasTrackedView || !post?._id) return;
 
@@ -207,7 +211,6 @@ function PostCard({
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && !hasTrackedView) {
-            // Track the view
             postService.trackView(post._id).catch(() => {});
             setViewCount((prev: number) => prev + 1);
             setHasTrackedView(true);
@@ -228,82 +231,27 @@ function PostCard({
     };
   }, [post?._id, hasTrackedView]);
 
-  // Sync with API data when it changes
   useEffect(() => {
     setLiked(post.isLiked || false);
     setLikeCount(post.likes_count || 0);
     setCommentCount(Math.max(0, post.comments_count || post.comments || 0));
   }, [post._id, post.isLiked, post.likes_count, post.comments_count, post.comments]);
 
-  // Load comments when showComments becomes true
   useEffect(() => {
     if (showComments && post?._id && comments.length === 0) {
       loadComments();
     }
   }, [showComments, post?._id]);
 
-  // If post is hidden (reported), don't render it
-  // IMPORTANT: This must come AFTER all hooks to follow React's Rules of Hooks
   if (isHidden) {
     return null;
   }
 
-  const loadComments = async () => {
-    try {
-      setCommentsLoading(true);
-      const response = await postService.getPostComments(post._id, { limit: 20 });
-      if (response.success && response.data) {
-        setComments(response.data.comments || []);
-      }
-    } catch (error) {
-      console.error('Error loading comments:', error);
-    } finally {
-      setCommentsLoading(false);
-    }
-  };
-
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim() || submittingComment) return;
-
-    try {
-      setSubmittingComment(true);
-      const response = await postService.commentOnPost(post._id, { text: newComment.trim() });
-
-      if (response.success && response.data) {
-        // Get current user data from localStorage
-        const currentUserData = localStorage.getItem('user');
-        const user = currentUserData ? JSON.parse(currentUserData) : {};
-
-        // Ensure the comment has complete user data
-        // The API might return user_id but without all fields like profileImage
-        const newCommentData = {
-          ...response.data,
-          user_id: {
-            // Merge API user_id with localStorage user data
-            ...(response.data.user_id || {}),
-            _id: response.data.user_id?._id || user._id || user.id,
-            firstName: response.data.user_id?.firstName || user.firstName,
-            lastName: response.data.user_id?.lastName || user.lastName,
-            username: response.data.user_id?.username || user.username,
-            profileImage: response.data.user_id?.profileImage || user.profileImage,
-            profilePicture:
-              response.data.user_id?.profilePicture || user.profilePicture || user.profileImage,
-            avatar: response.data.user_id?.avatar || user.avatar,
-          },
-        };
-
-        // API returns the comment directly in data, not data.comment
-        setComments((prev) => [newCommentData, ...prev]);
-        setCommentCount((prev) => Math.max(0, prev + 1)); // Increment comment count with safeguard
-        setNewComment('');
-      }
-    } catch (error) {
-      console.error('Error posting comment:', error);
-      showToast.error('Failed to post comment. Please try again.');
-    } finally {
-      setSubmittingComment(false);
-    }
+    if (!newComment.trim() || isSubmitting) return;
+    const success = await addComment(newComment.trim());
+    if (success) setNewComment('');
   };
 
   const handleReplyClick = (commentId: string, username: string) => {
@@ -313,270 +261,29 @@ function PostCard({
 
   const handleSubmitReply = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!replyText.trim() || !replyingTo || submittingReply) return;
-
-    setSubmittingReply(true);
-    try {
-      // Call the reply API
-      const response = await commentService.replyToComment(replyingTo.commentId, {
-        text: replyText,
-      });
-
-      if (response.success) {
-        // Clear the reply state
-        setReplyText('');
-        const commentId = replyingTo.commentId;
-        setReplyingTo(null);
-
-        // Increment the total comment count (replies count as comments)
-        setCommentCount((prev) => prev + 1);
-
-        // Update the parent comment's reply count
-        setComments((prev) =>
-          prev.map((c) =>
-            c._id === commentId ? { ...c, replies_count: (c.replies_count || 0) + 1 } : c
-          )
-        );
-
-        // Auto-expand the replies for this comment
-        setExpandedReplies((prev) => new Set(prev).add(commentId));
-
-        // Reload replies for this specific comment
-        try {
-          const repliesResponse = await commentService.getCommentReplies(commentId, {
-            page: 1,
-            limit: 20,
-          });
-          if (repliesResponse.success && repliesResponse.data?.replies) {
-            setRepliesData((prev) => new Map(prev).set(commentId, repliesResponse.data.replies));
-          }
-        } catch (error) {
-          console.error('Error loading replies:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error posting reply:', error);
-      showToast.error('Failed to post reply. Please try again.');
-    } finally {
-      setSubmittingReply(false);
+    if (!replyText.trim() || !replyingTo || isSubmitting) return;
+    const success = await addReply(replyingTo.commentId, replyText.trim());
+    if (success) {
+      setReplyText('');
+      setReplyingTo(null);
     }
   };
 
-  const handleToggleReplies = async (commentId: string) => {
-    const isExpanded = expandedReplies.has(commentId);
+  const handleToggleReplies = toggleReplies;
+  const handleLikeComment = toggleLikeComment;
 
-    if (isExpanded) {
-      // Just collapse
-      setExpandedReplies((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(commentId);
-        return newSet;
-      });
-    } else {
-      // Expand and fetch replies if not already loaded
-      setExpandedReplies((prev) => new Set(prev).add(commentId));
-
-      if (!repliesData.has(commentId)) {
-        // Fetch replies from API
-        setLoadingReplies((prev) => new Set(prev).add(commentId));
-
-        try {
-          const response = await commentService.getCommentReplies(commentId, {
-            page: 1,
-            limit: 20,
-          });
-
-          if (response.success && response.data?.replies) {
-            setRepliesData((prev) => new Map(prev).set(commentId, response.data.replies));
-          }
-        } catch (error) {
-          console.error('Error loading replies:', error);
-          showToast.error('Failed to load replies');
-        } finally {
-          setLoadingReplies((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(commentId);
-            return newSet;
-          });
-        }
-      }
-    }
-  };
-
-  const handleLikeComment = async (commentId: string) => {
-    try {
-      // Check if it's a main comment or a reply
-      let isCurrentlyLiked = false;
-      let isReply = false;
-
-      // First check main comments
-      const comment = comments.find((c) => c._id === commentId);
-      if (comment) {
-        isCurrentlyLiked = comment.isLiked || false;
-      } else {
-        // Check if it's a reply in repliesData
-        for (const [parentId, replies] of repliesData.entries()) {
-          const reply = replies.find((r: any) => r._id === commentId);
-          if (reply) {
-            isCurrentlyLiked = reply.isLiked || reply.isLikedByCurrentUser || false;
-            isReply = true;
-            break;
-          }
-        }
-      }
-
-      // Optimistically update the UI for main comments
-      setComments((prev) =>
-        prev.map((c) =>
-          c._id === commentId
-            ? {
-                ...c,
-                isLiked: !c.isLiked,
-                likes_count: c.isLiked ? (c.likes_count || 1) - 1 : (c.likes_count || 0) + 1,
-              }
-            : c
-        )
-      );
-
-      // Optimistically update the UI for replies
-      setRepliesData((prev) => {
-        const newMap = new Map(prev);
-        for (const [parentId, replies] of newMap.entries()) {
-          const updatedReplies = replies.map((r: any) =>
-            r._id === commentId
-              ? {
-                  ...r,
-                  isLiked: !r.isLiked,
-                  isLikedByCurrentUser: !r.isLikedByCurrentUser,
-                  likes_count:
-                    r.isLiked || r.isLikedByCurrentUser
-                      ? (r.likes_count || 1) - 1
-                      : (r.likes_count || 0) + 1,
-                }
-              : r
-          );
-          if (updatedReplies !== replies) {
-            newMap.set(parentId, updatedReplies);
-          }
-        }
-        return newMap;
-      });
-
-      // Call the appropriate API
-      if (isCurrentlyLiked) {
-        await commentService.unlikeComment(commentId);
-      } else {
-        await commentService.likeComment(commentId);
-      }
-    } catch (error) {
-      console.error('Error liking comment:', error);
-      // Revert on error for main comments
-      setComments((prev) =>
-        prev.map((c) =>
-          c._id === commentId
-            ? {
-                ...c,
-                isLiked: !c.isLiked,
-                likes_count: c.isLiked ? (c.likes_count || 1) - 1 : (c.likes_count || 0) + 1,
-              }
-            : c
-        )
-      );
-      // Revert on error for replies
-      setRepliesData((prev) => {
-        const newMap = new Map(prev);
-        for (const [parentId, replies] of newMap.entries()) {
-          const updatedReplies = replies.map((r: any) =>
-            r._id === commentId
-              ? {
-                  ...r,
-                  isLiked: !r.isLiked,
-                  isLikedByCurrentUser: !r.isLikedByCurrentUser,
-                  likes_count:
-                    r.isLiked || r.isLikedByCurrentUser
-                      ? (r.likes_count || 1) - 1
-                      : (r.likes_count || 0) + 1,
-                }
-              : r
-          );
-          if (updatedReplies !== replies) {
-            newMap.set(parentId, updatedReplies);
-          }
-        }
-        return newMap;
-      });
-    }
-  };
-
-  const handleDeleteComment = async (commentId: string) => {
+  const handleDeleteComment = (commentId: string) => {
     confirm({
       title: 'Delete Comment',
       message: 'Are you sure you want to delete this comment?',
       confirmText: 'Delete',
       variant: 'danger',
-      onConfirm: async () => {
-        try {
-          // Check if it's a main comment or a reply
-          const isMainComment = comments.find((c) => c._id === commentId);
-          let parentCommentId: string | null = null;
-
-          // If it's a reply, find the parent comment
-          if (!isMainComment) {
-            for (const [parentId, replies] of repliesData.entries()) {
-              const reply = replies.find((r: any) => r._id === commentId);
-              if (reply) {
-                parentCommentId = parentId;
-                break;
-              }
-            }
-          }
-
-          // Optimistically remove from UI
-          if (isMainComment) {
-            // Remove main comment
-            setComments((prev) => prev.filter((c) => c._id !== commentId));
-            setCommentCount((prev) => Math.max(0, prev - 1));
-          } else if (parentCommentId) {
-            // Remove reply from repliesData
-            setRepliesData((prev) => {
-              const newMap = new Map(prev);
-              const replies = newMap.get(parentCommentId!) || [];
-              newMap.set(
-                parentCommentId!,
-                replies.filter((r: any) => r._id !== commentId)
-              );
-              return newMap;
-            });
-
-            // Decrease the reply count on the parent comment
-            setComments((prev) =>
-              prev.map((c) =>
-                c._id === parentCommentId
-                  ? { ...c, replies_count: Math.max(0, (c.replies_count || 1) - 1) }
-                  : c
-              )
-            );
-
-            // Decrease the total comment count (replies are also counted as comments)
-            setCommentCount((prev) => Math.max(0, prev - 1));
-          }
-
-          // Call the delete API
-          await commentService.deleteComment(commentId);
-        } catch (error) {
-          console.error('Error deleting comment:', error);
-          // Revert on error
-          loadComments();
-          showToast.error('Failed to delete comment');
-        }
-      },
+      onConfirm: () => deleteComment(commentId),
     });
   };
 
-  // Check if current user is the post author
   const isOwnPost = currentUserId && post.user_id?._id === currentUserId;
 
-  // Get post data
   const postId = post._id || post.id;
   const authorName = post.user_id?.firstName
     ? `${post.user_id.firstName} ${post.user_id.lastName || ''}`.trim()
@@ -587,7 +294,6 @@ function PostCard({
     post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.image || post.file_url;
   const mediaUrl = getMediaUrl(rawMediaUrl);
 
-  // Format timestamp
   const formatTimestamp = (timestamp: string) => {
     if (!timestamp) return 'Just now';
     const date = new Date(timestamp);
@@ -610,22 +316,18 @@ function PostCard({
     const previousLiked = liked;
     const previousCount = likeCount;
 
-    // Optimistic update
     setLiked(!liked);
     setLikeCount(liked ? Math.max(0, likeCount - 1) : likeCount + 1);
 
     try {
       let response;
       if (previousLiked) {
-        // Unlike the post (was liked before)
         response = await postService.unlikePost(postId);
       } else {
-        // Like the post (was not liked before)
         response = await postService.likePost(postId);
       }
 
       if (response.success && response.data) {
-        // Always use server response for final state
         const serverIsLiked = response.data.isLiked ?? !previousLiked;
         const serverLikeCount =
           response.data.likes_count ?? response.data.likesCount ?? previousCount;
@@ -633,13 +335,10 @@ function PostCard({
         setLikeCount(serverLikeCount);
         onLikeUpdate?.(postId, serverIsLiked, serverLikeCount);
       } else {
-        // Revert on failure
         setLiked(previousLiked);
         setLikeCount(previousCount);
       }
     } catch (error: any) {
-      console.error('Error toggling like:', error);
-      // Revert to previous state on error
       setLiked(previousLiked);
       setLikeCount(previousCount);
     } finally {
@@ -671,7 +370,6 @@ function PostCard({
             throw new Error(response.message || 'Failed to delete post');
           }
         } catch (error: any) {
-          console.error('Error deleting post:', error.message || error);
           showToast.error('Delete failed', error.message || 'Failed to delete post');
         } finally {
           setIsDeleting(false);
@@ -687,7 +385,6 @@ function PostCard({
     setIsSaving(true);
     const previousSaved = saved;
 
-    // Optimistic update
     setSaved(!saved);
 
     try {
@@ -707,23 +404,17 @@ function PostCard({
         }
       }
     } catch (error: any) {
-      console.error('Error toggling save:', error.message || error);
-
-      // Check if error is "already saved" or "already unsaved"
       const errorMessage = error?.message || error?.error || '';
 
       if (errorMessage.toLowerCase().includes('already saved')) {
-        // Post is already saved - sync state to saved
         setSaved(true);
         toasts.postSaved();
       } else if (
         errorMessage.toLowerCase().includes('not saved') ||
         errorMessage.toLowerCase().includes('already unsaved')
       ) {
-        // Post is not saved - sync state to not saved
         setSaved(false);
       } else {
-        // Other error - revert to previous state
         setSaved(previousSaved);
         toasts.saveError();
       }
@@ -733,18 +424,13 @@ function PostCard({
   };
 
   const handleDownloadPost = async () => {
-    // Check if it's own post - always allow download of own content
     const isOwnPost = currentUserId && post.user_id?._id === currentUserId;
 
     if (isOwnPost) {
-      // Allow downloading own posts
     } else {
-      // For other users' posts, check if download is explicitly allowed
-      // If allowDownloads is explicitly set to false, block download
       const allowDownloads = post.user_id?.allowDownloads;
       const canDownload = post.canDownload;
 
-      // Block if either flag is explicitly false
       if (allowDownloads === false || canDownload === false) {
         showToast.error('Download not allowed', 'The creator has disabled downloads for this post');
         return;
@@ -757,14 +443,12 @@ function PostCard({
     }
 
     try {
-      // Download the media file
       const response = await fetch(mediaUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
 
-      // Determine file extension from media type or URL
       const fileExtension = post.media?.[0]?.type === 'video' ? 'mp4' : 'jpg';
       link.download = `post_${postId}.${fileExtension}`;
 
@@ -775,7 +459,6 @@ function PostCard({
 
       showToast.success('Downloaded', 'Post media downloaded successfully');
     } catch (error) {
-      console.error('Error downloading post:', error);
       showToast.error('Download failed', 'Failed to download post media');
     }
   };
@@ -785,7 +468,6 @@ function PostCard({
       ref={postCardRef}
       className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto"
     >
-      {/* Header */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-3">
           <div
@@ -880,7 +562,6 @@ function PostCard({
                   e.preventDefault();
                   const postUrl = `${window.location.origin}/post/${post._id || post.id}`;
 
-                  // Use a timeout to ensure the dropdown closes first
                   setTimeout(() => {
                     navigator.clipboard
                       .writeText(postUrl)
@@ -888,7 +569,6 @@ function PostCard({
                         showToast.success('Copied!', 'Post link copied to clipboard');
                       })
                       .catch(() => {
-                        // Fallback for older browsers
                         const textArea = document.createElement('textarea');
                         textArea.value = postUrl;
                         textArea.style.position = 'fixed';
@@ -915,7 +595,6 @@ function PostCard({
         </div>
       </div>
 
-      {/* Image/Video */}
       {mediaUrl && (
         <div className="relative w-full bg-black aspect-square overflow-hidden">
           {post.media?.[0]?.type === 'video' ? (
@@ -932,7 +611,6 @@ function PostCard({
         </div>
       )}
 
-      {/* Caption/Content - Below Media */}
       {content && (
         <div className="px-4 pt-3">
           <p className="text-foreground leading-relaxed whitespace-pre-wrap line-clamp-3">
@@ -941,7 +619,6 @@ function PostCard({
         </div>
       )}
 
-      {/* Interactions - Same format as Reel */}
       <div className="p-4">
         <div className="flex items-center gap-4">
           <button
@@ -978,7 +655,6 @@ function PostCard({
             <Share2 size={20} />
             <span className="text-sm">{sharesCount}</span>
           </button>
-          {/* View Count */}
           <div className="flex items-center gap-1 text-muted-foreground ml-auto">
             <Eye size={20} />
             <span className="text-sm">{viewCount}</span>
@@ -986,15 +662,12 @@ function PostCard({
         </div>
       </div>
 
-      {/* Inline Comments Section (Mobile) */}
       {showComments && (
         <div className="border-t border-border bg-muted/30" onClick={(e) => e.stopPropagation()}>
-          {/* Comments Header */}
           <div className="p-4 border-b border-border">
             <h4 className="font-semibold text-foreground">Comments</h4>
           </div>
 
-          {/* Comments List */}
           <div className="max-h-64 overflow-y-auto p-4">
             {commentsLoading ? (
               <div className="flex items-center justify-center py-8">
@@ -1006,7 +679,6 @@ function PostCard({
                   .filter((comment) => comment?.user_id)
                   .map((comment) => (
                     <div key={comment._id} className="space-y-2">
-                      {/* Main Comment */}
                       <div className="flex gap-3">
                         <UserAvatar user={comment.user_id} size="sm" />
                         <div className="flex-1 min-w-0">
@@ -1022,7 +694,6 @@ function PostCard({
                             <p className="text-sm text-foreground break-words">{comment.text}</p>
                           </div>
 
-                          {/* Comment Actions */}
                           <div className="flex items-center gap-4 mt-1 px-3">
                             <button
                               onClick={() => handleLikeComment(comment._id)}
@@ -1071,7 +742,6 @@ function PostCard({
                         </div>
                       </div>
 
-                      {/* Nested Replies */}
                       {expandedReplies.has(comment._id) && (
                         <div className="ml-12 mt-3 space-y-3 border-l-2 border-muted pl-4">
                           {loadingReplies.has(comment._id) ? (
@@ -1100,7 +770,6 @@ function PostCard({
                                     </p>
                                   </div>
 
-                                  {/* Reply Actions */}
                                   <div className="flex items-center gap-3 mt-1 px-2">
                                     <button
                                       onClick={() => handleLikeComment(reply._id)}
@@ -1161,7 +830,6 @@ function PostCard({
             )}
           </div>
 
-          {/* Comment/Reply Input */}
           <div className="p-4 border-t border-border">
             {replyingTo && (
               <div className="mb-3 bg-primary/5 border border-primary/20 rounded-lg p-3">
@@ -1202,14 +870,14 @@ function PostCard({
                 }
                 placeholder={replyingTo ? `Reply to ${replyingTo.username}...` : 'Add a comment...'}
                 className="flex-1 bg-background rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary border border-border"
-                disabled={submittingComment || submittingReply}
+                disabled={isSubmitting}
               />
               <button
                 type="submit"
                 disabled={
                   replyingTo
-                    ? !replyText.trim() || submittingReply
-                    : !newComment.trim() || submittingComment
+                    ? !replyText.trim() || isSubmitting
+                    : !newComment.trim() || isSubmitting
                 }
                 className="cursor-pointer p-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1220,7 +888,6 @@ function PostCard({
         </div>
       )}
 
-      {/* Report Post Modal */}
       <ReportPostModal
         open={isReportModalOpen}
         onOpenChange={setIsReportModalOpen}
@@ -1229,7 +896,6 @@ function PostCard({
         onReported={() => setIsHidden(true)}
       />
 
-      {/* Share Modal */}
       <ShareModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
@@ -1237,7 +903,6 @@ function PostCard({
         contentId={postId}
       />
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </article>
   );

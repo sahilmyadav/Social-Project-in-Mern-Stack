@@ -20,6 +20,9 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import VideoCallModal from '@/components/video-call-modal';
 import VoiceCallModal from '@/components/voice-call-modal';
+import { useCallState } from '@/contexts/call-context';
+import { useLocationSharing } from '@/hooks/useLocationSharing';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { authService, chatService, groupService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
@@ -63,6 +66,7 @@ import {
   onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
+import { formatCallDuration } from '@/lib/webrtc';
 import {
   Ban,
   Camera,
@@ -92,7 +96,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
 interface Conversation {
-  id: string; // threadId - unique identifier for the conversation
+  id: string;
   name: string;
   avatar: string;
   lastMessage: string;
@@ -102,11 +106,11 @@ interface Conversation {
   online: boolean;
   participantId: string; // The other user's ID for matching online/offline events
   isGroup?: boolean;
-  members?: any[]; // Array of member objects
-  memberCount?: number; // Number of members for display
+  members?: any[];
+  memberCount?: number;
   threadId?: string;
-  hasStory?: boolean; // Whether the user has an active story
-  createdBy?: string; // Group owner ID
+  hasStory?: boolean;
+  createdBy?: string;
 }
 
 interface Message {
@@ -119,7 +123,6 @@ interface Message {
   status?: 'sent' | 'delivered' | 'seen';
   isEdited?: boolean;
   isDeleted?: boolean;
-  // System message fields
   type?: string;
   messageType?: string;
   senderId?: string;
@@ -131,11 +134,10 @@ interface Message {
     type: 'image' | 'video' | 'file' | 'document' | 'audio';
     publicId?: string;
     fileName?: string;
-    filename?: string; // Backend uses lowercase
+    filename?: string;
     size?: number;
-    duration?: number; // For audio/video
+    duration?: number;
   }[];
-  // Location fields
   location?: {
     latitude: number;
     longitude: number;
@@ -144,7 +146,6 @@ interface Message {
     isLiveLocation?: boolean;
     expiresAt?: string;
   };
-  // Reply fields
   replyTo?: {
     _id: string;
     content: string;
@@ -156,6 +157,7 @@ interface Message {
 function ChatPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isInCall } = useCallState();
   const [user, setUser] = useState<any>(null);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -200,22 +202,10 @@ function ChatPageContent() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { confirm, dialogProps } = useConfirmDialog();
 
-  // Reply and Forward states
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
   const [messageToForward, setMessageToForward] = useState<Message | null>(null);
   const [forwardSearchQuery, setForwardSearchQuery] = useState('');
-
-  // Location states
-  const [showLocationMenu, setShowLocationMenu] = useState(false);
-  const [isSendingLocation, setIsSendingLocation] = useState(false);
-
-  // Voice recording states
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleOpenProfile = (userId: string) => {
     router.push(`/profile/${userId}`);
@@ -225,27 +215,14 @@ function ChatPageContent() {
   const groupsRef = useRef<Conversation[]>([]);
   const conversationsRef = useRef<Conversation[]>([]);
 
-  // Keep groupsRef in sync with groups state
   useEffect(() => {
     groupsRef.current = groups;
   }, [groups]);
 
-  // Keep conversationsRef in sync with conversations state
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
 
-  // Helper function to format call duration
-  const formatCallDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (mins > 0) {
-      return `${mins}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${secs}s`;
-  };
-
-  // Keep ref in sync with state
   useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
   }, [selectedThreadId]);
@@ -260,16 +237,13 @@ function ChatPageContent() {
     const parsedUser = JSON.parse(userData);
     setUser(parsedUser);
 
-    // Load all conversations immediately
     const loadConvs = async () => {
       try {
         const response = await chatService.getThreads();
 
         if (response.success && response.data) {
-          // Handle the actual backend structure: data.threads is an array
           const threadsArray = response.data.threads || response.data || [];
 
-          // Deduplicate threads by threadId (in case backend returns duplicates)
           const seenThreadIds = new Set<string>();
           const seenParticipantIds = new Set<string>();
           const uniqueThreads = threadsArray.filter((thread: any) => {
@@ -278,9 +252,7 @@ function ChatPageContent() {
 
             if (!threadId || !participantId) return false;
 
-            // Check both threadId and participantId for duplicates
             if (seenThreadIds.has(threadId) || seenParticipantIds.has(participantId)) {
-              console.warn('⚠️ Duplicate thread detected:', { threadId, participantId });
               return false;
             }
 
@@ -289,26 +261,15 @@ function ChatPageContent() {
             return true;
           });
 
-          // Transform threads to conversations
           const convList = uniqueThreads.map((thread: any) => {
-            console.log('📦 Raw thread data:', JSON.stringify(thread, null, 2));
             const otherParticipant = thread.participant;
-            console.log('👤 Other participant:', JSON.stringify(otherParticipant, null, 2));
-            console.log(
-              '🆔 Participant ID:',
-              otherParticipant?._id,
-              'Type:',
-              typeof otherParticipant?._id
-            );
 
-            // Get the last message text - check all possible field names
             let lastMessageText =
               thread.lastMessage?.text ||
               thread.lastMessage?.content ||
               thread.lastMessage?.message ||
               null;
 
-            // If text is null but there's media, show media indicator
             if (
               !lastMessageText &&
               thread.lastMessage?.media &&
@@ -328,15 +289,12 @@ function ChatPageContent() {
               }
             }
 
-            // If still no message, check if there's an encrypted content field
             if (!lastMessageText && thread.lastMessage?.encryptedContent) {
               lastMessageText = '[Encrypted Message]';
             }
 
-            // Instagram style - show message or empty
             const displayMessage = lastMessageText || '';
 
-            // Build full name from firstName and lastName
             const fullName =
               otherParticipant?.firstName && otherParticipant?.lastName
                 ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
@@ -346,8 +304,8 @@ function ChatPageContent() {
                   'Unknown';
 
             const conversationObj = {
-              id: thread._id, // Use threadId as unique identifier, not participant ID
-              participantId: otherParticipant?._id?.toString() || otherParticipant?._id, // Ensure string conversion
+              id: thread._id,
+              participantId: otherParticipant?._id?.toString() || otherParticipant?._id,
               name: fullName,
               avatar:
                 otherParticipant?.profileImage ||
@@ -363,18 +321,14 @@ function ChatPageContent() {
                 : 'Just now',
               unread: (thread.unreadCount || 0) > 0,
               unreadCount: thread.unreadCount || 0,
-              online: otherParticipant?.isOnline || false, // Use actual online status
+              online: otherParticipant?.isOnline || false,
               threadId: thread._id,
-              hasStory: otherParticipant?.hasActiveStory || false, // Check if user has active story
+              hasStory: otherParticipant?.hasActiveStory || false,
             };
-            console.log('Created conversation object:', conversationObj);
             return conversationObj;
           });
-          console.log('All conversations:', convList);
           setConversations(convList);
 
-          // Request online users list AFTER conversations are loaded
-          // Use a small delay to ensure socket listeners are attached
           setTimeout(() => {
             const socket = getSocket();
             if (socket?.connected) {
@@ -382,32 +336,25 @@ function ChatPageContent() {
             }
           }, 500);
         } else {
-          console.warn(' No data in response:', response);
           setConversations([]);
         }
       } catch (error) {
-        console.error(' Error loading conversations:', error);
         setConversations([]);
       }
     };
 
-    // Load groups
     const loadGroups = async () => {
       try {
-        console.log('📦 Loading groups...');
         const response = await groupService.getMyGroups({ limit: 50 });
-        console.log('📦 Groups response:', response);
 
         if (response.success && response.data) {
           const groupsArray = response.data.groups || response.data || [];
-          console.log('📦 Groups array:', groupsArray);
 
           const groupsList = groupsArray.map((group: any) => ({
             id: group._id,
             threadId: group._id,
             name: group.name || 'Unnamed Group',
             avatar: group.avatar || '👥',
-            // Use decrypted text field, NOT encryptedContent
             lastMessage: group.lastMessage?.text || '',
             timestamp: group.lastMessageAt
               ? new Date(group.lastMessageAt).toLocaleTimeString([], {
@@ -425,18 +372,14 @@ function ChatPageContent() {
           }));
 
           setGroups(groupsList);
-          console.log('📦 Groups loaded successfully:', groupsList.length);
 
-          // Join all group socket rooms to receive real-time messages
           groupsArray.forEach((group: any) => {
             emitJoinGroup(group._id);
           });
         } else {
-          console.log('📦 Groups response not successful or no data:', response);
           setGroups([]);
         }
       } catch (error) {
-        console.error('📦 Error loading groups:', error);
         setGroups([]);
       }
     };
@@ -444,27 +387,20 @@ function ChatPageContent() {
     loadConvs();
     loadGroups();
 
-    // Initialize socket connection FIRST
     const token = localStorage.getItem('accessToken');
     if (token) {
       const initSock = initSocket(token);
 
-      // Emit user online status ONLY after socket connects
       if (initSock?.connected) {
         emitUserOnline(parsedUser._id);
       } else {
-        // Wait for connection and then emit online status
         initSock?.once('connect', () => {
           emitUserOnline(parsedUser._id);
         });
       }
 
-      // Setup socket event listeners
       const handleNewMessage = (data: any) => {
-        console.log('📩 New message received:', data);
-
         if (data.threadId && data.message) {
-          // Skip if this is our own message (we already added it optimistically)
           const isOwnMessage = data.message.senderId?._id === parsedUser._id;
 
           const newMessage: Message = {
@@ -491,10 +427,8 @@ function ChatPageContent() {
               : undefined,
           };
 
-          // Add message to chat if thread is currently open
           setSelectedThreadId((currentThreadId) => {
             if (currentThreadId === data.threadId) {
-              // Only add message if it's from another user (not our own)
               if (!isOwnMessage) {
                 setMessages((prev) => {
                   const messageExists = prev.some((msg) => msg.id === data.message._id);
@@ -504,7 +438,6 @@ function ChatPageContent() {
                   return [...prev, newMessage];
                 });
               }
-              // Emit message delivered acknowledgment
               if (data.message._id) {
                 emitMessageDelivered(data.message._id);
               }
@@ -512,11 +445,9 @@ function ChatPageContent() {
             return currentThreadId;
           });
 
-          // Update conversation list with new message
           setConversations((prev) => {
             const threadId = data.threadId?.toString();
 
-            // Determine display message
             let displayMessage = data.message.text || '';
             if (!displayMessage && data.message.media && data.message.media.length > 0) {
               const mediaType = data.message.media[0].type;
@@ -534,7 +465,6 @@ function ChatPageContent() {
             const updatedConvs = prev.map((conv) => {
               const convId = conv.id.toString();
 
-              // Match by conversation id (which is threadId)
               if (convId === threadId) {
                 return {
                   ...conv,
@@ -546,11 +476,8 @@ function ChatPageContent() {
               return conv;
             });
 
-            // Check if conversation was updated
             const conversationUpdated = updatedConvs.some((c) => c.id === threadId);
 
-            // If thread is not in conversations, add it
-            // This should be rare since newThread event should handle new threads
             if (!conversationUpdated && data.message.senderId?._id !== parsedUser._id) {
               const senderFullName =
                 data.message.senderId?.firstName && data.message.senderId?.lastName
@@ -559,7 +486,7 @@ function ChatPageContent() {
                     data.message.senderId?.username ||
                     'Unknown';
               const newConv: Conversation = {
-                id: threadId, // Use threadId as unique identifier
+                id: threadId,
                 participantId: data.message.senderId._id,
                 name: senderFullName,
                 avatar:
@@ -576,7 +503,6 @@ function ChatPageContent() {
               return [newConv, ...updatedConvs];
             }
 
-            // Move updated conversation to top
             const conversationIndex = updatedConvs.findIndex((c) => c.id === threadId);
 
             if (conversationIndex > 0) {
@@ -587,14 +513,12 @@ function ChatPageContent() {
             return updatedConvs;
           });
 
-          // Also update groups list if this is a group message
           setGroups((prev) => {
             const threadId = data.threadId?.toString();
             const isGroupMessage = prev.some((g) => g.id === threadId);
 
             if (!isGroupMessage) return prev;
 
-            // Determine display message
             let displayMessage = data.message.text || '';
             if (!displayMessage && data.message.media && data.message.media.length > 0) {
               const mediaType = data.message.media[0].type;
@@ -616,7 +540,6 @@ function ChatPageContent() {
                   ...group,
                   lastMessage: displayMessage,
                   timestamp: 'Now',
-                  // Only mark as unread if it's not our own message and we're not viewing this chat
                   unread: !isOwnMessage,
                   unreadCount: !isOwnMessage ? (group.unreadCount || 0) + 1 : group.unreadCount,
                 };
@@ -624,7 +547,6 @@ function ChatPageContent() {
               return group;
             });
 
-            // Move updated group to top
             const groupIndex = updatedGroups.findIndex((g) => g.id === threadId);
             if (groupIndex > 0) {
               const [movedGroup] = updatedGroups.splice(groupIndex, 1);
@@ -634,9 +556,7 @@ function ChatPageContent() {
             return updatedGroups;
           });
 
-          // Show browser notification and play sound if not focused
           if (!document.hasFocus() && data.message.senderId?._id !== parsedUser._id) {
-            // Play notification sound
             try {
               const audio = new Audio(
                 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSqBzvLZiTYIG2m98OWhUBALUKnn77RgGgU7k9nx0HwqBiZzxvDdk0MLFmS36OyrWRQLR6Hf8bllHgU0gtDy2Ik2CBxqvfDoqlQQDFGp6O+zYBoFOpPY8dF8KgYmcsXv3ZNDC'
@@ -659,7 +579,6 @@ function ChatPageContent() {
       };
 
       const handleMessageStatus = (data: any) => {
-        // Update message status (delivered, read, etc.)
         if (data.messageId && data.status) {
           setMessages((prev) =>
             prev.map((msg) => (msg.id === data.messageId ? { ...msg, status: data.status } : msg))
@@ -668,7 +587,6 @@ function ChatPageContent() {
       };
 
       const handleMessagesSeen = (data: any) => {
-        // Update all messages in thread as seen
         if (data.threadId) {
           setMessages((prev) => prev.map((msg) => ({ ...msg, status: 'seen' })));
         }
@@ -691,7 +609,6 @@ function ChatPageContent() {
           const messageIdStr = data.messageId.toString();
 
           if (data.deleteFor === 'everyone') {
-            // Remove message for everyone
             setMessages((prev) => {
               const filtered = prev.filter((msg) => {
                 const matches = msg.id.toString() === messageIdStr;
@@ -702,7 +619,6 @@ function ChatPageContent() {
               return filtered;
             });
           } else {
-            // Mark as deleted for current user
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id.toString() === messageIdStr
@@ -712,14 +628,12 @@ function ChatPageContent() {
             );
           }
         } else {
-          console.error('No messageId in delete event!');
         }
       };
 
       const handleUserTyping = (data: any) => {
         const currentThreadId = selectedThreadIdRef.current;
 
-        // Show/hide typing indicator based on isTyping flag
         if (currentThreadId && data.threadId === currentThreadId) {
           if (data.isTyping === true) {
             setIsOtherUserTyping(true);
@@ -732,14 +646,12 @@ function ChatPageContent() {
 
       const handleUserStopTyping = (data: any) => {
         const currentThreadId = selectedThreadIdRef.current;
-        // This handler might not be needed since we use isTyping flag
         if (currentThreadId && data.threadId === currentThreadId) {
           setIsOtherUserTyping(false);
         }
       };
 
       const handleUserOnline = (data: any) => {
-        // Handle multiple data formats
         const userId = data?.userId || data?.user?._id || data?._id || data?.id;
         const userIdStr = userId?.toString();
 
@@ -755,7 +667,6 @@ function ChatPageContent() {
             return updated;
           });
 
-          // Also update selectedConversation if it matches
           setSelectedConversation((prev) => {
             if (prev && prev.participantId?.toString() === userIdStr) {
               return { ...prev, online: true };
@@ -766,7 +677,6 @@ function ChatPageContent() {
       };
 
       const handleUserOffline = (data: any) => {
-        // Handle multiple data formats
         const userId = data?.userId || data?.user?._id || data?._id || data?.id;
         const userIdStr = userId?.toString();
 
@@ -782,7 +692,6 @@ function ChatPageContent() {
             return updated;
           });
 
-          // Also update selectedConversation if it matches
           setSelectedConversation((prev) => {
             if (prev && prev.participantId?.toString() === userIdStr) {
               return { ...prev, online: false };
@@ -793,10 +702,8 @@ function ChatPageContent() {
       };
 
       const handleNewThread = (data: any) => {
-        // Add new thread to conversations list when another user messages you
         if (data && data.threadId && data.participant) {
           setConversations((prev) => {
-            // Check if conversation already exists (by threadId or participantId)
             const exists = prev.some(
               (c) => c.id === data.threadId || c.participantId === data.participant._id
             );
@@ -805,7 +712,6 @@ function ChatPageContent() {
               return prev;
             }
 
-            // Build full name
             const participantFullName =
               data.participant.firstName && data.participant.lastName
                 ? `${data.participant.firstName} ${data.participant.lastName}`
@@ -814,10 +720,9 @@ function ChatPageContent() {
                   data.participant.username ||
                   'Unknown';
 
-            // Create new conversation from thread data
             const newConv: Conversation = {
-              id: data.threadId, // Use threadId as unique identifier
-              participantId: data.participant._id, // Store participant ID for online/offline matching
+              id: data.threadId,
+              participantId: data.participant._id,
               name: participantFullName,
               avatar:
                 data.participant.profileImage ||
@@ -828,7 +733,7 @@ function ChatPageContent() {
               timestamp: 'Now',
               unread: true,
               unreadCount: 1,
-              online: data.participant.isOnline || false, // Use actual online status
+              online: data.participant.isOnline || false,
               threadId: data.threadId,
             };
 
@@ -837,41 +742,30 @@ function ChatPageContent() {
         }
       };
 
-      // Voice call handlers
       const handleIncomingCall = (data: any) => {
-        console.log('Incoming call received:', data);
-
-        // Backend sends 'callerId', not 'from'
         const callerId = data?.callerId || data?.from;
         const threadId = data?.threadId;
         const callerInfo = data?.callerInfo;
-        const callType = data?.callType || 'voice'; // Default to voice if not specified
+        const callType = data?.callType || 'voice';
         const isGroupCall = data?.isGroupCall || false;
         const groupInfo = data?.groupInfo;
 
-        console.log('Call details:', { callerId, threadId, callType, isGroupCall, groupInfo });
-        console.log('Raw isGroupCall value:', data?.isGroupCall, typeof data?.isGroupCall);
-
         if (!callerId || !threadId) {
-          console.warn('Invalid incoming call data:', data);
           return;
         }
 
-        // Find the conversation by threadId - use ref to get latest state
+        // Busy signal — reject if already in a call
+        if (isInCall) {
+          const socket = getSocket();
+          if (socket) socket.emit('callBusy', { callerId, threadId });
+          return;
+        }
+
         const currentConversations = conversationsRef.current;
         const conversation = currentConversations.find(
           (c) => c.threadId === threadId || c.id === threadId || c.participantId === callerId
         );
 
-        console.log(
-          'Found conversation:',
-          conversation,
-          'from',
-          currentConversations.length,
-          'conversations'
-        );
-
-        // Use priority: conversation name > callerInfo from backend > Unknown
         const callerName = conversation?.name || callerInfo?.name || 'Unknown User';
         const callerAvatar = conversation?.avatar || callerInfo?.avatar || '👤';
 
@@ -891,18 +785,14 @@ function ChatPageContent() {
             : undefined,
         });
 
-        // Open the appropriate call modal for group calls
-        console.log('Opening modal - isGroupCall:', isGroupCall, 'callType:', callType);
+        // Open modals — the modals themselves handle accept/reject via hasUserAccepted gate
         if (isGroupCall) {
-          console.log('Opening GROUP call modal');
           if (callType === 'video') {
             setIsGroupVideoCallOpen(true);
           } else {
             setIsGroupVoiceCallOpen(true);
           }
         } else {
-          console.log('Opening 1-to-1 call modal');
-          // For 1-to-1 calls, the existing modals will handle it
           if (callType === 'video') {
             setIsVideoCallOpen(true);
           } else {
@@ -910,7 +800,6 @@ function ChatPageContent() {
           }
         }
 
-        // Add system message for incoming call if it's the selected conversation
         if (
           threadId === selectedThreadIdRef.current ||
           threadId === selectedConversation?.threadId
@@ -931,7 +820,6 @@ function ChatPageContent() {
           setMessages((prev) => [...prev, callMessage]);
         }
 
-        // Show browser notification
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
           new Notification('Incoming Call', {
             body: `${callerName} is calling...`,
@@ -941,7 +829,6 @@ function ChatPageContent() {
         }
 
         if (!conversation) {
-          console.warn('Conversation not found. ThreadId:', threadId, 'CallerId:', callerId);
         }
       };
 
@@ -950,7 +837,6 @@ function ChatPageContent() {
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
 
-        // Add system message for rejected call
         if (
           data.threadId === selectedThreadIdRef.current ||
           data.threadId === selectedConversation?.threadId
@@ -980,7 +866,6 @@ function ChatPageContent() {
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
 
-        // Add system message for ended call
         if (
           data.threadId === selectedThreadIdRef.current ||
           data.threadId === selectedConversation?.threadId
@@ -1006,15 +891,12 @@ function ChatPageContent() {
       };
 
       const handleCallFailed = (data: any) => {
-        console.log('Call failed:', data);
         setIncomingCall(null);
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
 
-        // Show toast notification for call failure
         showToast.error('Call Failed', data.reason || 'Unable to connect the call');
 
-        // Add system message for failed call
         if (
           data.threadId === selectedThreadIdRef.current ||
           data.threadId === selectedConversation?.threadId ||
@@ -1049,16 +931,13 @@ function ChatPageContent() {
       onCallEnded(handleCallEnded);
       onCallFailed(handleCallFailed);
 
-      // Handle group messages from socket
       const handleGroupMessage = (data: { groupId: string; message: any }) => {
         const { groupId, message } = data;
 
-        // Check if this message is from the current user
         const currentUserId = (parsedUser._id || parsedUser.id || '').toString();
         const messageSenderId = (message.senderId?._id || message.senderId || '').toString();
         const isOwnMessage = currentUserId && messageSenderId && currentUserId === messageSenderId;
 
-        // Update messages if we're viewing this group
         if (selectedThreadIdRef.current === groupId) {
           const isSystemMsg = message.messageType === 'system';
           const newMessage = {
@@ -1096,7 +975,6 @@ function ChatPageContent() {
               : undefined,
           };
 
-          // Only add message if it's from another user (we already added our own optimistically)
           if (!isOwnMessage) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === newMessage.id)) return prev;
@@ -1105,7 +983,6 @@ function ChatPageContent() {
           }
         }
 
-        // Update groups list (reuse isOwnMessage from above)
         setGroups((prev) => {
           const displayMessage =
             message.systemMessage ||
@@ -1129,7 +1006,6 @@ function ChatPageContent() {
             return group;
           });
 
-          // Move updated group to top
           const groupIndex = updatedGroups.findIndex((g) => g.id === groupId);
           if (groupIndex > 0) {
             const [movedGroup] = updatedGroups.splice(groupIndex, 1);
@@ -1140,7 +1016,6 @@ function ChatPageContent() {
         });
       };
 
-      // Handle group message notifications (when not in the group chat room)
       const handleGroupMessageNotification = (data: {
         groupId: string;
         groupName: string;
@@ -1148,7 +1023,6 @@ function ChatPageContent() {
       }) => {
         const { groupId, message, groupName } = data;
 
-        // Update groups list with unread
         setGroups((prev) => {
           const displayMessage = message.text || (message.media?.length > 0 ? '📎 Media' : '');
 
@@ -1168,7 +1042,6 @@ function ChatPageContent() {
             return group;
           });
 
-          // Move updated group to top
           const groupIndex = updatedGroups.findIndex((g) => g.id === groupId);
           if (groupIndex > 0) {
             const [movedGroup] = updatedGroups.splice(groupIndex, 1);
@@ -1178,7 +1051,6 @@ function ChatPageContent() {
           return updatedGroups;
         });
 
-        // Show notification if not focused
         if (!document.hasFocus()) {
           if (Notification.permission === 'granted') {
             new Notification(groupName, {
@@ -1198,7 +1070,6 @@ function ChatPageContent() {
         currentSocket.on('messageEdited', handleMessageEdited);
         currentSocket.on('messageDeleted', handleMessageDeleted);
 
-        // Handle group created event (when you or others create a group)
         currentSocket.on('groupCreated', (data: any) => {
           if (data?.group) {
             const group = data.group;
@@ -1218,7 +1089,6 @@ function ChatPageContent() {
               participantId: '',
             };
 
-            // Add to groups if not already there
             setGroups((prev) => {
               const exists = prev.some((g) => g.id === group._id);
               if (exists) return prev;
@@ -1227,20 +1097,15 @@ function ChatPageContent() {
           }
         });
 
-        // Handle reconnection - re-emit online status and rejoin group rooms
         currentSocket.on('connect', () => {
           emitUserOnline(parsedUser._id);
-          // Request online users list on connect
           currentSocket.emit('getOnlineUsers');
-          // Rejoin all group rooms after reconnection
           groupsRef.current.forEach((group) => {
             emitJoinGroup(group.id);
           });
         });
 
-        // Listen for initial online users list
         currentSocket.on('onlineUsersList', (data: { users: string[] }) => {
-          // Update all conversations with online status
           setConversations((prev) => {
             return prev.map((conv) => {
               const isOnline =
@@ -1253,7 +1118,6 @@ function ChatPageContent() {
             });
           });
 
-          // Update selected conversation if needed
           setSelectedConversation((prev) => {
             if (prev && data.users.includes(prev.participantId)) {
               return { ...prev, online: true };
@@ -1262,22 +1126,16 @@ function ChatPageContent() {
           });
         });
 
-        // Request initial online users list (immediately if connected, otherwise wait for connect)
         if (currentSocket.connected) {
-          console.log('🔌 Socket already connected, requesting online users...');
           currentSocket.emit('getOnlineUsers');
         }
-        // Socket not connected yet - the 'connect' handler will request online users
       } else {
-        console.error('Socket not available!');
       }
 
-      // Request notification permission
       if (typeof window !== 'undefined' && Notification.permission === 'default') {
         Notification.requestPermission();
       }
 
-      // Cleanup on unmount
       return () => {
         const currentSocket = getSocket();
         if (currentSocket) {
@@ -1298,28 +1156,21 @@ function ChatPageContent() {
         offGroupMessage(handleGroupMessage);
         offGroupMessageNotification(handleGroupMessageNotification);
 
-        // Clear typing timeout
         if (typingTimeoutRef.current) {
           clearTimeout(typingTimeoutRef.current);
         }
-
-        // NOTE: Do NOT disconnect socket here - keep it alive until logout
-        // Socket will be disconnected in handleLogout()
       };
     }
   }, []);
 
   useEffect(() => {
-    // Wait for user to be loaded
     if (!user) return;
 
-    // Check if there's a userId in URL params to open chat with specific user
     const userId = searchParams.get('userId');
     const userName = searchParams.get('userName');
     const userAvatar = searchParams.get('avatar');
 
     if (userId && userName) {
-      // Check if conversation already exists in the loaded list
       const existingConv = conversations.find((c) => c.participantId === userId);
 
       if (existingConv) {
@@ -1332,9 +1183,8 @@ function ChatPageContent() {
           handleGetThread(userId);
         }
       } else {
-        // Open chat with specific user
         const newConversation: Conversation = {
-          id: userId, // Temporarily use userId
+          id: userId,
           participantId: userId,
           name: decodeURIComponent(userName),
           avatar: userAvatar ? decodeURIComponent(userAvatar) : '👤',
@@ -1348,16 +1198,13 @@ function ChatPageContent() {
 
         setConversations((prev) => [newConversation, ...prev]);
         setSelectedConversation(newConversation);
-        // Clear messages initially
         setMessages([]);
-        // Create/get thread and load messages
         handleGetThread(userId);
       }
 
-      // Clear URL params
       router.replace('/chat', { scroll: false });
     }
-  }, [searchParams, user, conversations.length]); // Depend on conversations.length to retry if loaded later
+  }, [searchParams, user, conversations.length]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1368,15 +1215,12 @@ function ChatPageContent() {
   }, [messages]);
 
   const handleLogout = () => {
-    // Emit offline status before disconnecting
     if (user?._id) {
       emitUserOffline(user._id);
     }
 
-    // Disconnect socket
     disconnectSocket();
 
-    // Clear storage and redirect
     localStorage.removeItem('user');
     localStorage.removeItem('accessToken');
     router.push('/');
@@ -1398,9 +1242,7 @@ function ChatPageContent() {
             setSelectedThreadId(null);
             setMessages([]);
           }
-        } catch (error: any) {
-          console.error('Error blocking user:', error);
-        }
+        } catch (error: any) {}
       },
     });
   };
@@ -1420,81 +1262,6 @@ function ChatPageContent() {
     }
   };
 
-  // Voice Recording Handlers
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4',
-      });
-
-      audioChunksRef.current = [];
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: mediaRecorder.mimeType || 'audio/webm',
-        });
-        const audioFile = new File([audioBlob], `voice_message_${Date.now()}.webm`, {
-          type: audioBlob.type,
-        });
-
-        // Stop all tracks
-        stream.getTracks().forEach((track) => track.stop());
-
-        // Send the voice message
-        await sendVoiceMessage(audioFile);
-      };
-
-      mediaRecorder.start(100); // Collect data every 100ms
-      setIsRecording(true);
-      setRecordingDuration(0);
-
-      // Start duration timer
-      recordingIntervalRef.current = setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
-      }, 1000);
-    } catch (error) {
-      console.error('Error starting recording:', error);
-      showToast.error(
-        'Microphone access denied',
-        'Please allow microphone access to record voice messages'
-      );
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-    if (recordingIntervalRef.current) {
-      clearInterval(recordingIntervalRef.current);
-      recordingIntervalRef.current = null;
-    }
-  };
-
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current) {
-      const stream = mediaRecorderRef.current.stream;
-      stream.getTracks().forEach((track) => track.stop());
-      mediaRecorderRef.current = null;
-    }
-    audioChunksRef.current = [];
-    setIsRecording(false);
-    setRecordingDuration(0);
-    if (recordingIntervalRef.current) {
-      clearInterval(recordingIntervalRef.current);
-      recordingIntervalRef.current = null;
-    }
-  };
-
   const sendVoiceMessage = async (audioFile: File) => {
     if (!selectedThreadId || isSendingMessage) return;
 
@@ -1504,7 +1271,6 @@ function ChatPageContent() {
     setIsSendingMessage(true);
     setReplyingTo(null);
 
-    // Create optimistic message
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
       sender: 'You',
@@ -1559,7 +1325,6 @@ function ChatPageContent() {
           )
         );
 
-        // Update conversation last message
         setConversations((prev) => {
           const updated = prev.map((conv) =>
             conv.id === selectedConversation?.id
@@ -1572,31 +1337,29 @@ function ChatPageContent() {
         });
       }
     } catch (error) {
-      console.error('Error sending voice message:', error);
       setMessages((prev) => prev.filter((msg) => msg.id !== tempMessage.id));
       showToast.error('Failed to send voice message', 'Please try again');
     } finally {
       setIsSendingMessage(false);
-      setRecordingDuration(0);
     }
   };
 
-  const formatRecordingDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  const {
+    isRecording,
+    recordingDuration,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+    formatRecordingDuration,
+  } = useVoiceRecorder({ onRecordingComplete: sendVoiceMessage });
 
-  // Handle emoji selection
   const handleEmojiSelect = (emoji: string) => {
     setMessageInput((prev) => prev + emoji);
   };
 
   const handleSendMessage = async () => {
-    // Allow sending if there is text OR a file
     if ((!messageInput.trim() && !selectedFile) || !selectedThreadId || isSendingMessage) return;
 
-    // Stop typing indicator when sending
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
@@ -1648,7 +1411,6 @@ function ChatPageContent() {
       const isGroup = selectedConversation?.isGroup || false;
 
       if (isGroup) {
-        // Use group messaging API
         if (fileToSend) {
           response = await groupService.sendGroupMessage(selectedThreadId, {
             text: messageText || undefined,
@@ -1662,13 +1424,11 @@ function ChatPageContent() {
           });
         }
       } else {
-        // Use direct message API
         if (fileToSend) {
           const formData = new FormData();
           if (messageText) formData.append('text', messageText);
           if (replyToId) formData.append('reply_to', replyToId);
 
-          // Strictly use "media" key for backend
           formData.append('media', fileToSend);
 
           response = await chatService.sendMessage(selectedThreadId, formData);
@@ -1681,20 +1441,18 @@ function ChatPageContent() {
       }
 
       if (response.success && response.data) {
-        // Update with actual message from server
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === tempMessage.id
               ? {
                   ...msg,
                   id: response.data._id,
-                  media: response.data.media || msg.media, // Update media URL from server
+                  media: response.data.media || msg.media,
                 }
               : msg
           )
         );
 
-        // Update conversation last message and move to top
         setConversations((prev) => {
           const updated = prev.map((conv) =>
             conv.id === selectedConversation?.id
@@ -1712,37 +1470,28 @@ function ChatPageContent() {
                 }
               : conv
           );
-          // Move updated conversation to top
           const updatedConv = updated.find((c) => c.id === selectedConversation?.id);
           const others = updated.filter((c) => c.id !== selectedConversation?.id);
           return updatedConv ? [updatedConv, ...others] : updated;
         });
       }
     } catch (error: any) {
-      console.error('Error sending message:', error);
       if (error && typeof error === 'object') {
-        console.error('Error Details:', JSON.stringify(error, null, 2));
       }
 
-      // Error is logged to console, no need to show alert
-
-      // Remove temp message on error
       setMessages((prev) => prev.filter((msg) => msg.id !== tempMessage.id));
       setMessageInput(messageText);
-      // Note: we can't easily restore file selection programmatically for security reasons
     } finally {
       setIsSendingMessage(false);
     }
   };
 
-  // Handle forwarding a message to a conversation
   const handleForwardMessage = async (targetConversation: Conversation) => {
     if (!messageToForward) return;
 
     try {
       let targetThreadId: string | undefined = targetConversation.threadId;
 
-      // If no threadId exists, create/get the thread first
       if (!targetThreadId) {
         const threadResponse = await chatService.getThread(targetConversation.participantId);
         if (threadResponse.success && threadResponse.data?.thread?._id) {
@@ -1758,14 +1507,12 @@ function ChatPageContent() {
         return;
       }
 
-      // Send the forwarded message
       const forwardedText = messageToForward.content;
       let response: any;
 
       if (targetConversation.isGroup) {
         response = await groupService.sendGroupMessage(targetThreadId, {
           text: forwardedText,
-          // Note: Group API may handle forwarding differently
         });
       } else {
         response = await chatService.sendMessage(targetThreadId, {
@@ -1783,212 +1530,33 @@ function ChatPageContent() {
         showToast.error('Failed to forward message');
       }
     } catch (error) {
-      console.error('Error forwarding message:', error);
       showToast.error('Failed to forward message');
     }
   };
 
-  // Handle sending current location
-  const handleSendCurrentLocation = async () => {
-    if (!selectedThreadId || isSendingLocation) return;
-
-    setIsSendingLocation(true);
-    setShowAttachmentMenu(false);
-    setShowLocationMenu(false);
-
-    try {
-      // Get current position
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error('Geolocation is not supported by your browser'));
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        });
-      });
-
-      const { latitude, longitude } = position.coords;
-
-      // Try to get address using reverse geocoding (free API)
-      let address = '';
-      try {
-        const geoResponse = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
-        );
-        const geoData = await geoResponse.json();
-        address = geoData.display_name || '';
-      } catch (geoError) {
-        console.log('Could not fetch address:', geoError);
-      }
-
-      // Create temp message for optimistic UI
-      const tempMessage: Message = {
-        id: Date.now(),
-        sender: 'You',
-        content: '📍 Location',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isSent: true,
-        messageType: 'location',
-        location: {
-          latitude,
-          longitude,
-          address,
-          isLiveLocation: false,
-        },
-      };
-
-      setMessages((prev) => [...prev, tempMessage]);
-
-      // Send to server - use appropriate API based on conversation type
-      const isGroup = selectedConversation?.isGroup || false;
-      let response: any;
-
-      if (isGroup) {
-        response = await groupService.sendGroupMessage(selectedThreadId, {
-          messageType: 'location',
-          location: {
-            latitude,
-            longitude,
-            address,
-            isLive: false,
-          },
-        });
-      } else {
-        response = await chatService.sendMessage(selectedThreadId, {
-          messageType: 'location',
-          location: {
-            latitude,
-            longitude,
-            address,
-            isLiveLocation: false,
-          },
-        });
-      }
-
-      if (response.success && response.data) {
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === tempMessage.id ? { ...msg, id: response.data._id } : msg))
-        );
-        showToast.success('Location sent');
-      }
-    } catch (error: any) {
-      console.error('Error sending location:', error);
-      if (error.code === 1) {
-        showToast.error('Location permission denied');
-      } else if (error.code === 2) {
-        showToast.error('Unable to get your location');
-      } else if (error.code === 3) {
-        showToast.error('Location request timed out');
-      } else {
-        showToast.error(error.message || 'Failed to send location');
-      }
-    } finally {
-      setIsSendingLocation(false);
-    }
-  };
-
-  // Handle sending live location
-  const handleSendLiveLocation = async (durationMinutes: number = 15) => {
-    if (!selectedThreadId || isSendingLocation) return;
-
-    setIsSendingLocation(true);
-    setShowAttachmentMenu(false);
-    setShowLocationMenu(false);
-
-    try {
-      // Get current position
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error('Geolocation is not supported by your browser'));
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        });
-      });
-
-      const { latitude, longitude } = position.coords;
-
-      // Create temp message
-      const tempMessage: Message = {
-        id: Date.now(),
-        sender: 'You',
-        content: '📍 Live Location',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isSent: true,
-        messageType: 'location',
-        location: {
-          latitude,
-          longitude,
-          isLiveLocation: true,
-          expiresAt: new Date(Date.now() + durationMinutes * 60 * 1000).toISOString(),
-        },
-      };
-
-      setMessages((prev) => [...prev, tempMessage]);
-
-      // Send to server - use appropriate API based on conversation type
-      const isGroup = selectedConversation?.isGroup || false;
-      let response: any;
-
-      if (isGroup) {
-        response = await groupService.sendGroupMessage(selectedThreadId, {
-          messageType: 'location',
-          location: {
-            latitude,
-            longitude,
-            isLive: true,
-            duration: durationMinutes,
-          },
-        });
-      } else {
-        response = await chatService.sendMessage(selectedThreadId, {
-          messageType: 'location',
-          location: {
-            latitude,
-            longitude,
-            isLiveLocation: true,
-            duration: durationMinutes,
-          },
-        });
-      }
-
-      if (response.success && response.data) {
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === tempMessage.id ? { ...msg, id: response.data._id } : msg))
-        );
-        showToast.success(`Live location shared for ${durationMinutes} minutes`);
-      }
-    } catch (error: any) {
-      console.error('Error sending live location:', error);
-      if (error.code === 1) {
-        showToast.error('Location permission denied');
-      } else {
-        showToast.error(error.message || 'Failed to send live location');
-      }
-    } finally {
-      setIsSendingLocation(false);
-    }
-  };
+  const {
+    isSendingLocation,
+    showLocationMenu,
+    setShowLocationMenu,
+    sendCurrentLocation,
+    sendLiveLocation,
+  } = useLocationSharing({
+    selectedThreadId,
+    isGroup: selectedConversation?.isGroup || false,
+    setMessages,
+    setShowAttachmentMenu,
+  });
 
   const handleMessageInputChange = (value: string) => {
     setMessageInput(value);
 
-    // Emit typing event
     if (selectedThreadId && selectedConversation?.participantId) {
       emitTyping(selectedThreadId, selectedConversation.participantId);
 
-      // Clear previous timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
 
-      // Set new timeout to emit stop typing after 3 seconds of inactivity
       typingTimeoutRef.current = setTimeout(() => {
         emitStopTyping(selectedThreadId, selectedConversation.participantId);
       }, 3000);
@@ -2000,7 +1568,6 @@ function ChatPageContent() {
       const file = e.target.files[0];
       setSelectedFile(file);
 
-      // Create preview URL
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
     }
@@ -2023,7 +1590,6 @@ function ChatPageContent() {
     try {
       await chatService.editMessage(messageId, { text: editingMessageText });
 
-      // Update message in UI
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id.toString() === messageId
@@ -2034,25 +1600,20 @@ function ChatPageContent() {
 
       setEditingMessageId(null);
       setEditingMessageText('');
-    } catch (error) {
-      console.error('Error editing message:', error);
-    }
+    } catch (error) {}
   };
 
   const handleDeleteMessage = async (messageId: string, deleteFor: 'me' | 'everyone') => {
     try {
       let response;
 
-      // Use appropriate service based on whether we're in a group chat or direct message
       if (activeTab === 'groups' && selectedThreadId) {
-        // Group message - use groupService
         response = await groupService.deleteMessage(
           selectedThreadId,
           messageId,
           deleteFor === 'everyone'
         );
       } else {
-        // Direct message - use chatService
         response = await chatService.deleteMessage(messageId, deleteFor);
       }
 
@@ -2060,8 +1621,6 @@ function ChatPageContent() {
         throw new Error(response.message || 'Failed to delete message');
       }
 
-      // Remove message from UI immediately for both cases
-      // Socket event will also update other user's UI for "everyone"
       setMessages((prev) => prev.filter((msg) => msg.id.toString() !== messageId));
 
       showToast.success(
@@ -2069,7 +1628,6 @@ function ChatPageContent() {
         deleteFor === 'everyone' ? 'Message deleted for everyone' : 'Message deleted for you'
       );
     } catch (error: any) {
-      console.error('Error deleting message:', JSON.stringify(error, null, 2));
       const errorMessage = error?.message || error?.error || 'Failed to delete message';
       showToast.error('Delete failed', errorMessage);
     }
@@ -2080,33 +1638,24 @@ function ChatPageContent() {
       const response = await chatService.getThread(userId);
 
       if (response.success && response.data) {
-        // Handle both direct _id and nested structure
         const threadId = response.data._id || response.data.thread?._id || response.data.threadId;
 
         if (threadId) {
           setSelectedThreadId(threadId);
-          // Join thread room via socket
           joinThread(threadId);
-          // Load messages for this thread (direct message, not group)
           loadMessages(threadId, false);
-          // Mark as seen (direct message, not group)
           markThreadAsRead(threadId, userId, false);
         } else {
-          console.error('No thread ID in response');
         }
       }
-    } catch (error) {
-      console.error('Error getting thread:', error);
-    }
+    } catch (error) {}
   };
 
   const markThreadAsRead = async (threadId: string, userId: string, isGroup: boolean = false) => {
     try {
-      // For now, groups don't have a mark-as-read endpoint, but we can add it later
       if (!isGroup) {
         await chatService.markThreadAsRead(threadId);
       }
-      // Update conversation to mark as read and reset unread count
       setConversations((prev) =>
         prev.map((conv) =>
           conv.id === threadId || conv.threadId === threadId
@@ -2114,7 +1663,6 @@ function ChatPageContent() {
             : conv
         )
       );
-      // Also update groups list if it's a group
       if (isGroup) {
         setGroups((prev) =>
           prev.map((group) =>
@@ -2124,21 +1672,17 @@ function ChatPageContent() {
           )
         );
       }
-    } catch {
-      // Silently handle error
-    }
+    } catch {}
   };
 
   const loadMessages = async (threadId: string, isGroup: boolean = false) => {
     setIsLoadingMessages(true);
     try {
-      // Use group endpoint for group chats, chat endpoint for direct messages
       const response = isGroup
         ? await groupService.getGroupMessages(threadId)
         : await chatService.getMessages(threadId);
 
       if (response.success && response.data) {
-        // Handle both array and object responses
         let messagesList = [];
 
         if (Array.isArray(response.data)) {
@@ -2192,18 +1736,15 @@ function ChatPageContent() {
 
         setMessages(formattedMessages);
       } else {
-        // No messages yet
         setMessages([]);
       }
     } catch {
-      // Silently handle error - messages will show as empty
       setMessages([]);
     } finally {
       setIsLoadingMessages(false);
     }
   };
 
-  // Deduplicate conversations by id before filtering
   const uniqueConversations = conversations.filter(
     (conv, index, self) => index === self.findIndex((c) => c.id === conv.id)
   );
@@ -2212,7 +1753,6 @@ function ChatPageContent() {
     conv.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Deduplicate groups by id before filtering
   const uniqueGroups = groups.filter(
     (group, index, self) => index === self.findIndex((g) => g.id === group.id)
   );
@@ -2230,19 +1770,16 @@ function ChatPageContent() {
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 h-[100dvh]">
-        {/* Sidebar - Hidden on mobile */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Conversations List - Hidden on mobile when chat is selected */}
         <section
           className={`lg:col-span-1 border-r border-border flex flex-col h-[100dvh] overflow-hidden ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
         >
           <div className="p-4 border-b border-border">
             <h1 className="text-2xl font-bold mb-4 text-foreground">Chats</h1>
 
-            {/* Tabs */}
             <div className="flex gap-2 mb-4">
               <Button
                 variant={activeTab === 'messages' ? 'default' : 'outline'}
@@ -2263,7 +1800,6 @@ function ChatPageContent() {
               </Button>
             </div>
 
-            {/* Create Group Button */}
             {activeTab === 'groups' && (
               <button
                 onClick={() => setIsCreateGroupOpen(true)}
@@ -2284,20 +1820,16 @@ function ChatPageContent() {
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {/* Quick Access - Instagram Style (Online users first, then recent chats) */}
             {conversations.length > 0 && (
               <div className="p-3 border-b border-border">
                 <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
-                  {/* Sort: Online users first, then by recent message */}
                   {[...uniqueConversations]
                     .sort((a, b) => {
-                      // Online users come first
                       if (a.online && !b.online) return -1;
                       if (!a.online && b.online) return 1;
-                      // Then sort by timestamp (most recent first)
-                      return 0; // Keep original order (already sorted by recent)
+                      return 0;
                     })
-                    .slice(0, 15) // Limit to 15 users
+                    .slice(0, 15)
                     .map((friend, friendIndex) => (
                       <div
                         key={`friend-${friend.id}-${friendIndex}`}
@@ -2314,7 +1846,6 @@ function ChatPageContent() {
                         className="flex flex-col items-center gap-1.5 cursor-pointer min-w-[64px] hover:opacity-80 transition"
                       >
                         <div className="relative">
-                          {/* Story ring gradient if has story, gray border if no story */}
                           <div
                             className={`w-14 h-14 rounded-full p-[2px] ${
                               friend.hasStory
@@ -2337,7 +1868,6 @@ function ChatPageContent() {
                               </div>
                             </div>
                           </div>
-                          {/* Online indicator */}
                           {friend.online && (
                             <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-green-500 border-2 border-background" />
                           )}
@@ -2363,7 +1893,6 @@ function ChatPageContent() {
                   onClick={() => {
                     setSelectedConversation(conversation);
                     if (conversation.threadId) {
-                      // Use threadId directly if available
                       setSelectedThreadId(conversation.threadId);
                       joinThread(conversation.threadId);
                       loadMessages(conversation.threadId, conversation.isGroup);
@@ -2373,7 +1902,6 @@ function ChatPageContent() {
                         conversation.isGroup
                       );
                     } else {
-                      // Fallback: create/get thread
                       handleGetThread(conversation.id.toString());
                     }
                   }}
@@ -2448,7 +1976,6 @@ function ChatPageContent() {
                   </div>
                 </button>
 
-                {/* Options Dropdown Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -2461,9 +1988,7 @@ function ChatPageContent() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     {conversation.isGroup ? (
-                      // For groups - Check if user is owner
                       conversation.createdBy === user?._id ? (
-                        // Owner sees Delete Group option
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation();
@@ -2478,12 +2003,10 @@ function ChatPageContent() {
                                   const response = await groupService.deleteGroup(groupId);
 
                                   if (response.success) {
-                                    // Remove from groups list
                                     setGroups((prev) =>
                                       prev.filter((g) => g.id !== conversation.id)
                                     );
 
-                                    // Clear selected conversation if it was this group
                                     if (selectedConversation?.id === conversation.id) {
                                       setSelectedConversation(null);
                                       setSelectedThreadId(null);
@@ -2494,7 +2017,6 @@ function ChatPageContent() {
                                     showToast.error(response.message || 'Failed to delete group');
                                   }
                                 } catch (error: any) {
-                                  console.error('Error deleting group:', error);
                                   showToast.error(error.message || 'Failed to delete group');
                                 }
                               },
@@ -2506,7 +2028,6 @@ function ChatPageContent() {
                           Delete Group
                         </DropdownMenuItem>
                       ) : (
-                        // Members see Leave Group option
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation();
@@ -2524,12 +2045,10 @@ function ChatPageContent() {
                                   );
 
                                   if (response.success) {
-                                    // Remove from groups list
                                     setGroups((prev) =>
                                       prev.filter((g) => g.id !== conversation.id)
                                     );
 
-                                    // Clear selected conversation if it was this group
                                     if (selectedConversation?.id === conversation.id) {
                                       setSelectedConversation(null);
                                       setSelectedThreadId(null);
@@ -2540,7 +2059,6 @@ function ChatPageContent() {
                                     showToast.error(response.message || 'Failed to leave group');
                                   }
                                 } catch (error: any) {
-                                  console.error('Error leaving group:', error);
                                   showToast.error(error.message || 'Failed to leave group');
                                 }
                               },
@@ -2553,7 +2071,6 @@ function ChatPageContent() {
                         </DropdownMenuItem>
                       )
                     ) : (
-                      // For DMs - Delete Conversation option
                       <DropdownMenuItem
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2568,12 +2085,10 @@ function ChatPageContent() {
                                 const response = await chatService.deleteThread(threadId);
 
                                 if (response.success) {
-                                  // Remove from conversations list
                                   setConversations((prev) =>
                                     prev.filter((c) => c.id !== conversation.id)
                                   );
 
-                                  // Clear selected conversation if it was deleted
                                   if (selectedConversation?.id === conversation.id) {
                                     setSelectedConversation(null);
                                     setSelectedThreadId(null);
@@ -2586,7 +2101,6 @@ function ChatPageContent() {
                                   );
                                 }
                               } catch (error: any) {
-                                console.error('Error deleting thread:', error);
                                 showToast.error(error.message || 'Failed to delete conversation');
                               }
                             },
@@ -2615,13 +2129,10 @@ function ChatPageContent() {
           </div>
         </section>
 
-        {/* Chat Area - Show on mobile when conversation is selected */}
         {selectedConversation ? (
           <section className="lg:col-span-2 flex flex-col h-[100dvh] overflow-hidden">
-            {/* Chat Header */}
             <div className="p-4 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-3">
-                {/* Back Button - Only visible on mobile */}
                 <button
                   onClick={() => {
                     setSelectedConversation(null);
@@ -2686,12 +2197,10 @@ function ChatPageContent() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Voice/Video calls - available for both direct messages and groups */}
                 <button
                   type="button"
                   onClick={() => {
                     if (selectedConversation?.isGroup && selectedConversation?.id) {
-                      // Group voice call - notify all online group members
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
@@ -2706,14 +2215,12 @@ function ChatPageContent() {
                         systemMessageType: 'call-initiated',
                       };
                       setMessages((prev) => [...prev, callMessage]);
-                      // Emit group call to notify all online members
                       emitInitiateGroupCall(selectedConversation.id, 'voice');
                       setIsGroupVoiceCallOpen(true);
                     } else if (
                       selectedConversation?.participantId &&
                       selectedConversation?.threadId
                     ) {
-                      // Direct message voice call
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
@@ -2735,7 +2242,6 @@ function ChatPageContent() {
                       );
                       setIsVoiceCallOpen(true);
                     } else {
-                      console.error('Cannot initiate call: Missing participant or thread info');
                     }
                   }}
                   className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
@@ -2747,7 +2253,6 @@ function ChatPageContent() {
                   type="button"
                   onClick={() => {
                     if (selectedConversation?.isGroup && selectedConversation?.id) {
-                      // Group video call - notify all online group members
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
@@ -2762,14 +2267,12 @@ function ChatPageContent() {
                         systemMessageType: 'call-initiated',
                       };
                       setMessages((prev) => [...prev, callMessage]);
-                      // Emit group call to notify all online members
                       emitInitiateGroupCall(selectedConversation.id, 'video');
                       setIsGroupVideoCallOpen(true);
                     } else if (
                       selectedConversation?.participantId &&
                       selectedConversation?.threadId
                     ) {
-                      // Direct message video call
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
                         sender: 'System',
@@ -2791,9 +2294,6 @@ function ChatPageContent() {
                       );
                       setIsVideoCallOpen(true);
                     } else {
-                      console.error(
-                        'Cannot initiate video call: Missing participant or thread info'
-                      );
                     }
                   }}
                   className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
@@ -2802,7 +2302,6 @@ function ChatPageContent() {
                   <Video size={20} className="text-primary" />
                 </button>
 
-                {/* Only show dropdown menu for direct messages */}
                 {!selectedConversation.isGroup && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -2841,7 +2340,6 @@ function ChatPageContent() {
               </div>
             </div>
 
-            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center h-full">
@@ -2850,7 +2348,6 @@ function ChatPageContent() {
               ) : (
                 <>
                   {messages.map((message, msgIndex) => {
-                    // Render system messages differently
                     if ((message as any).isSystemMessage) {
                       return (
                         <div
@@ -2960,17 +2457,14 @@ function ChatPageContent() {
                                   : 'bg-muted rounded-bl-none'
                               }`}
                             >
-                              {/* Show sender name for group messages (when not your own message) */}
                               {selectedConversation?.isGroup && !message.isSent && (
                                 <p className="text-xs font-semibold text-primary mb-1">
                                   {message.sender}
                                 </p>
                               )}
-                              {/* Reply preview if this message is a reply */}
                               {message.replyTo && (
                                 <div
                                   onClick={() => {
-                                    // Scroll to the original message
                                     const replyId = message.replyTo?._id;
                                     if (replyId) {
                                       const originalMessage = document.getElementById(
@@ -3003,7 +2497,6 @@ function ChatPageContent() {
                                   </p>
                                 </div>
                               )}
-                              {/* Forwarded indicator */}
                               {message.isForwarded && (
                                 <div
                                   className={`flex items-center gap-1 text-xs mb-1 ${message.isSent ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}
@@ -3088,7 +2581,6 @@ function ChatPageContent() {
                                 </p>
                               )}
 
-                              {/* Shared Content Preview */}
                               {((message as any).messageType === 'shared_post' ||
                                 (message as any).messageType === 'shared_reel') &&
                                 (message as any).sharedContent?.contentData && (
@@ -3098,7 +2590,6 @@ function ChatPageContent() {
                                   />
                                 )}
 
-                              {/* Location Message */}
                               {(message.location || (message as any).messageType === 'location') &&
                                 message.location &&
                                 message.location.latitude !== undefined &&
@@ -3109,14 +2600,12 @@ function ChatPageContent() {
                                     rel="noopener noreferrer"
                                     className="block mt-2 rounded-lg overflow-hidden border border-border hover:border-primary/50 transition"
                                   >
-                                    {/* Map Preview */}
                                     <div className="relative w-[250px] h-[150px] bg-muted">
                                       <img
                                         src={`https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-s+ef4444(${message.location.longitude},${message.location.latitude})/${message.location.longitude},${message.location.latitude},14,0/250x150@2x?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw`}
                                         alt="Location"
                                         className="w-full h-full object-cover"
                                         onError={(e) => {
-                                          // Fallback to OpenStreetMap static image only if coordinates are valid
                                           const lat = message.location?.latitude;
                                           const lng = message.location?.longitude;
                                           if (lat !== undefined && lng !== undefined) {
@@ -3132,7 +2621,6 @@ function ChatPageContent() {
                                         </div>
                                       )}
                                     </div>
-                                    {/* Location Info */}
                                     <div className="p-2 bg-card">
                                       <div className="flex items-center gap-2">
                                         <MapPin
@@ -3174,7 +2662,6 @@ function ChatPageContent() {
                             </div>
                           )}
 
-                          {/* Dropdown for received messages */}
                           {!message.isSent && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -3210,7 +2697,6 @@ function ChatPageContent() {
                     );
                   })}
 
-                  {/* Typing Indicator */}
                   {isOtherUserTyping && (
                     <div className="flex justify-start mb-4">
                       <div className="flex items-center gap-2">
@@ -3256,9 +2742,7 @@ function ChatPageContent() {
               )}
             </div>
 
-            {/* Message Input */}
             <div className="relative">
-              {/* File Preview */}
               {selectedFile && (
                 <div className="absolute bottom-full left-0 right-0 p-4 bg-background border-t border-border flex items-center gap-4 z-20 shadow-md">
                   <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border bg-muted">
@@ -3293,7 +2777,6 @@ function ChatPageContent() {
                 </div>
               )}
 
-              {/* Reply Preview */}
               {replyingTo && (
                 <div className="px-4 py-2 border-t border-border bg-muted/50">
                   <div className="flex items-center justify-between">
@@ -3321,7 +2804,6 @@ function ChatPageContent() {
               )}
 
               <div className="p-4 border-t border-border flex items-end gap-2 mb-24 lg:mb-4 bg-background relative z-10 w-full">
-                {/* Hidden file inputs */}
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -3345,7 +2827,6 @@ function ChatPageContent() {
                   capture="environment"
                 />
 
-                {/* Attachment Menu Button */}
                 <div className="relative">
                   <Button
                     variant="ghost"
@@ -3360,7 +2841,6 @@ function ChatPageContent() {
                     />
                   </Button>
 
-                  {/* Attachment Options Menu */}
                   {showAttachmentMenu && (
                     <div className="absolute bottom-12 left-0 bg-card rounded-xl shadow-lg border border-border p-2 min-w-[180px] z-50">
                       <button
@@ -3400,10 +2880,9 @@ function ChatPageContent() {
                         <span>Document</span>
                       </button>
 
-                      {/* Location Options */}
                       <div className="border-t border-border my-1"></div>
                       <button
-                        onClick={handleSendCurrentLocation}
+                        onClick={sendCurrentLocation}
                         disabled={isSendingLocation}
                         className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm disabled:opacity-50"
                       >
@@ -3425,23 +2904,22 @@ function ChatPageContent() {
                         <span>Live Location</span>
                       </button>
 
-                      {/* Live Location Duration Options */}
                       {showLocationMenu && (
                         <div className="ml-11 space-y-1 mt-1">
                           <button
-                            onClick={() => handleSendLiveLocation(15)}
+                            onClick={() => sendLiveLocation(15)}
                             className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
                           >
                             Share for 15 minutes
                           </button>
                           <button
-                            onClick={() => handleSendLiveLocation(60)}
+                            onClick={() => sendLiveLocation(60)}
                             className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
                           >
                             Share for 1 hour
                           </button>
                           <button
-                            onClick={() => handleSendLiveLocation(480)}
+                            onClick={() => sendLiveLocation(480)}
                             className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
                           >
                             Share for 8 hours
@@ -3452,10 +2930,8 @@ function ChatPageContent() {
                   )}
                 </div>
 
-                {/* Emoji Picker */}
                 <EmojiPicker onEmojiSelect={handleEmojiSelect} showQuickReactions={true} />
 
-                {/* Message Input or Recording UI */}
                 {isRecording ? (
                   <div className="flex-1 flex items-center gap-3 px-4 py-2 bg-red-500/10 rounded-lg border border-red-500/30">
                     <div className="flex items-center gap-2">
@@ -3494,7 +2970,6 @@ function ChatPageContent() {
                       />
                     </div>
 
-                    {/* Send or Mic Button */}
                     {messageInput.trim() || selectedFile ? (
                       <Button
                         onClick={handleSendMessage}
@@ -3528,10 +3003,8 @@ function ChatPageContent() {
         )}
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
 
-      {/* Voice Call Modal */}
       <VoiceCallModal
         isOpen={isVoiceCallOpen}
         onClose={() => {
@@ -3550,7 +3023,6 @@ function ChatPageContent() {
         }}
       />
 
-      {/* Video Call Modal */}
       <VideoCallModal
         isOpen={isVideoCallOpen}
         onClose={() => {
@@ -3560,13 +3032,15 @@ function ChatPageContent() {
         recipientName={incomingCall?.callerName || selectedConversation?.name || 'User'}
         recipientAvatar={incomingCall?.callerAvatar || selectedConversation?.avatar || '👤'}
         recipientId={incomingCall?.callerId || selectedConversation?.participantId || ''}
-        isIncoming={!!incomingCall && incomingCall.callType === 'video'}
-        callId={incomingCall?.threadId || selectedConversation?.threadId}
+        currentUserId={user?._id || ''}
+        isIncomingCall={!!incomingCall && incomingCall.callType === 'video'}
         callerId={incomingCall?.callerId}
         threadId={incomingCall?.threadId || selectedConversation?.threadId}
+        onCallEnd={() => {
+          setIncomingCall(null);
+        }}
       />
 
-      {/* Group Voice Call Modal */}
       <GroupVoiceCallModal
         isOpen={isGroupVoiceCallOpen}
         onClose={() => {
@@ -3590,7 +3064,6 @@ function ChatPageContent() {
         }
       />
 
-      {/* Group Video Call Modal */}
       <GroupVideoCallModal
         isOpen={isGroupVideoCallOpen}
         onClose={() => {
@@ -3614,12 +3087,10 @@ function ChatPageContent() {
         }
       />
 
-      {/* Create Group Modal */}
       <CreateGroupModal
         isOpen={isCreateGroupOpen}
         onClose={() => setIsCreateGroupOpen(false)}
         onGroupCreated={(group) => {
-          // Add new group to groups list
           const newGroup = {
             id: group._id,
             threadId: group._id,
@@ -3636,19 +3107,16 @@ function ChatPageContent() {
             participantId: '',
           };
           setGroups((prev) => [newGroup, ...prev]);
-          // Switch to groups tab to show the new group
           setActiveTab('groups');
         }}
       />
 
-      {/* Group Info Modal */}
       <GroupInfoModal
         isOpen={isGroupInfoOpen}
         onClose={() => setIsGroupInfoOpen(false)}
         groupId={selectedConversation?.isGroup ? selectedConversation.id : ''}
         currentUserId={user?._id || ''}
         onGroupUpdated={() => {
-          // Reload conversations and messages
           const loadConvs = async () => {
             try {
               const response = await chatService.getThreads();
@@ -3702,20 +3170,16 @@ function ChatPageContent() {
                   }
                 });
                 setConversations(convList);
-                // Update selected conversation if it's the current one
                 const updatedConv = convList.find((c: any) => c.id === selectedConversation?.id);
                 if (updatedConv) {
                   setSelectedConversation(updatedConv);
                 }
               }
-            } catch (error) {
-              console.error('Error reloading conversations:', error);
-            }
+            } catch (error) {}
           };
           loadConvs();
         }}
         onLeaveGroup={() => {
-          // Close modal, clear selection, reload conversations
           setIsGroupInfoOpen(false);
           setSelectedConversation(null);
           setSelectedThreadId(null);
@@ -3774,14 +3238,11 @@ function ChatPageContent() {
                 });
                 setConversations(convList);
               }
-            } catch (error) {
-              console.error('Error reloading conversations:', error);
-            }
+            } catch (error) {}
           };
           loadConvs();
         }}
         onDeleteGroup={() => {
-          // Close modal, clear selection, remove group from list
           setIsGroupInfoOpen(false);
           setGroups((prev) => prev.filter((g) => g.id !== selectedConversation?.id));
           setSelectedConversation(null);
@@ -3790,14 +3251,12 @@ function ChatPageContent() {
         }}
       />
 
-      {/* Forward Message Modal */}
       <Dialog open={isForwardModalOpen} onOpenChange={setIsForwardModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Forward Message</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* Message Preview */}
             {messageToForward && (
               <div className="p-3 rounded-lg bg-muted">
                 <p className="text-sm text-muted-foreground mb-1">Message:</p>
@@ -3807,14 +3266,12 @@ function ChatPageContent() {
               </div>
             )}
 
-            {/* Search */}
             <Input
               placeholder="Search conversations..."
               value={forwardSearchQuery}
               onChange={(e) => setForwardSearchQuery(e.target.value)}
             />
 
-            {/* Conversations List */}
             <ScrollArea className="h-[300px]">
               <div className="space-y-2">
                 {conversations
@@ -3860,7 +3317,6 @@ function ChatPageContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirmation Dialog */}
       <ConfirmDialog {...dialogProps} />
     </main>
   );

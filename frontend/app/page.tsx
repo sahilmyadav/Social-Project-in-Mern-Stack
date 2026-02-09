@@ -30,7 +30,6 @@ export default function Home() {
   ];
 
   useEffect(() => {
-    // Check if user is logged in
     const user = localStorage.getItem('user');
     setIsLoggedIn(!!user);
   }, []);
@@ -44,7 +43,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-white dark:bg-black">
-      {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -73,21 +71,15 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Hero Section */}
       <section className="pt-24 pb-16 md:pt-32 md:pb-24 px-4">
         <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Phone Mockup */}
             <div className="order-2 lg:order-1 flex justify-center">
               <div className="relative">
-                {/* Phone Frame */}
                 <div className="relative w-[280px] h-[580px] bg-gray-900 rounded-[3rem] p-2 shadow-2xl border border-gray-700">
-                  {/* Notch */}
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-7 bg-gray-900 rounded-b-2xl z-20"></div>
 
-                  {/* Screen */}
                   <div className="w-full h-full bg-black rounded-[2.5rem] overflow-hidden flex flex-col">
-                    {/* Status Bar */}
                     <div className="h-10 flex items-end justify-between px-6 pb-1 text-white text-xs flex-shrink-0">
                       <span className="font-medium">9:41</span>
                       <div className="flex gap-1 items-center">
@@ -113,7 +105,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* App Header */}
                     <div className="px-4 py-2 flex items-center justify-between border-b border-gray-800 flex-shrink-0">
                       <span className="text-white font-semibold text-lg">ClickME</span>
                       <div className="flex gap-4">
@@ -122,7 +113,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Stories */}
                     <div className="px-3 py-2 flex gap-3 overflow-hidden border-b border-gray-800 flex-shrink-0">
                       {['Your Story', 'emma', 'mike', 'sara'].map((name, i) => (
                         <div key={i} className="flex flex-col items-center gap-1">
@@ -144,9 +134,7 @@ export default function Home() {
                       ))}
                     </div>
 
-                    {/* Post */}
                     <div className="flex-1 flex flex-col min-h-0">
-                      {/* Post Header */}
                       <div className="px-3 py-2 flex items-center gap-2 flex-shrink-0">
                         <div className="w-7 h-7 rounded-full overflow-hidden">
                           <img
@@ -159,7 +147,6 @@ export default function Home() {
                         <span className="text-gray-500 text-[10px]">• 2h</span>
                       </div>
 
-                      {/* Post Image with Animation */}
                       <div className="relative h-[200px] overflow-hidden flex-shrink-0">
                         {images.map((img, i) => (
                           <img
@@ -169,13 +156,11 @@ export default function Home() {
                             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${i === currentImage ? 'opacity-100' : 'opacity-0'}`}
                           />
                         ))}
-                        {/* Reel Play Icon */}
                         <div className="absolute inset-0 flex items-center justify-center">
                           <div className="w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
                             <Play className="w-5 h-5 text-white fill-white ml-1" />
                           </div>
                         </div>
-                        {/* Image Indicators */}
                         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
                           {images.map((_, i) => (
                             <div
@@ -186,7 +171,6 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* Post Actions */}
                       <div className="px-3 py-2 flex items-center justify-between flex-shrink-0">
                         <div className="flex gap-4">
                           <Heart className="w-5 h-5 text-white hover:text-red-500 cursor-pointer transition-colors" />
@@ -196,7 +180,6 @@ export default function Home() {
                         <Bookmark className="w-5 h-5 text-white" />
                       </div>
 
-                      {/* Likes */}
                       <div className="px-3 pb-3 flex-shrink-0">
                         <p className="text-white text-xs font-medium">12,458 likes</p>
                         <p className="text-white text-xs mt-1">
@@ -210,7 +193,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Content */}
             <div className="order-1 lg:order-2 text-center lg:text-left">
               <h1 className="text-4xl md:text-6xl font-bold mb-6 text-gray-900 dark:text-white leading-tight">
                 Connect, Share & <br />
@@ -247,7 +229,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Features Section */}
       <section className="py-16 md:py-24 bg-gray-50 dark:bg-gray-900/50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-16">
@@ -263,7 +244,6 @@ export default function Home() {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Feature Cards */}
             {[
               {
                 icon: Camera,
@@ -323,7 +303,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* App Preview Section */}
       <section className="py-16 md:py-24 overflow-hidden">
         <div className="max-w-6xl mx-auto px-4">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
@@ -377,7 +356,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA Section */}
       <section className="py-16 md:py-24 bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400">
         <div className="max-w-4xl mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-5xl font-bold text-white mb-6">
@@ -408,7 +386,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="bg-gray-900 text-gray-400 py-12">
         <div className="max-w-6xl mx-auto px-4">
           <div className="grid md:grid-cols-4 gap-8 mb-8">

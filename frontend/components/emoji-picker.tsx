@@ -8,7 +8,6 @@ import {
 import { Smile } from 'lucide-react';
 import { useState } from 'react';
 
-// Common emojis organized by category
 const EMOJI_CATEGORIES = {
   smileys: [
     '😀',
@@ -215,7 +214,6 @@ const EMOJI_CATEGORIES = {
   ],
 };
 
-// Quick reaction emojis (shown in a row for fast access)
 const QUICK_REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👍', '👎', '🔥', '💯', '🙏'];
 
 interface EmojiPickerProps {
@@ -250,7 +248,6 @@ export default function EmojiPicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-80 p-0" align="end" side="top" sideOffset={8}>
         <div className="flex flex-col max-h-80" onClick={(e) => e.stopPropagation()}>
-          {/* Quick Reactions */}
           {showQuickReactions && (
             <div className="p-2 border-b border-border">
               <p className="text-xs text-muted-foreground mb-2 px-1">Quick Reactions</p>
@@ -270,7 +267,6 @@ export default function EmojiPicker({
             </div>
           )}
 
-          {/* Category Tabs */}
           <div className="flex gap-1 p-2 border-b border-border overflow-x-auto">
             {Object.keys(EMOJI_CATEGORIES).map((category) => (
               <button
@@ -288,7 +284,6 @@ export default function EmojiPicker({
             ))}
           </div>
 
-          {/* Emoji Grid */}
           <div className="p-2 overflow-y-auto max-h-48">
             <div className="grid grid-cols-8 gap-1">
               {EMOJI_CATEGORIES[activeCategory].map((emoji, index) => (
@@ -310,7 +305,6 @@ export default function EmojiPicker({
   );
 }
 
-// Compact emoji reactions for comments (inline reactions)
 interface CommentReactionsProps {
   commentId: string;
   onReact: (commentId: string, emoji: string) => void;
@@ -331,7 +325,6 @@ export function CommentReactions({
 
   return (
     <div className="flex items-center gap-1">
-      {/* Existing reactions */}
       {existingReactions.map((reaction) => (
         <button
           key={reaction.emoji}
@@ -347,7 +340,6 @@ export function CommentReactions({
         </button>
       ))}
 
-      {/* Add reaction button */}
       <DropdownMenu open={showPicker} onOpenChange={setShowPicker}>
         <DropdownMenuTrigger asChild>
           <button

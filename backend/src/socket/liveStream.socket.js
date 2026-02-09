@@ -4,6 +4,7 @@ import { LiveStreamComment } from '../models/liveStreamComment.model.js';
 import { LiveStreamViewer } from '../models/liveStreamViewer.model.js';
 import { Notification } from '../models/notification.model.js';
 import { User } from '../models/user.model.js';
+import logger from '../utils/logger.js';
 
 export const liveStreamSocket = (io, socket, userId) => {
   // ==================== LIVE STREAMING EVENTS ====================
@@ -84,7 +85,9 @@ export const liveStreamSocket = (io, socket, userId) => {
             notification: notification.toObject(),
           });
         } catch (err) {
-          console.error(`Failed to create notification for follower ${followerId}:`, err);
+          logger.error(`Failed to create notification for follower ${followerId}`, {
+            error: err.message,
+          });
         }
       });
 
@@ -92,7 +95,7 @@ export const liveStreamSocket = (io, socket, userId) => {
 
       socket.emit('liveStreamStartSuccess', { streamId, status: 'live' });
     } catch (error) {
-      console.error('Error starting live stream:', error);
+      logger.error('Error starting live stream', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to start stream' });
     }
   });
@@ -131,7 +134,7 @@ export const liveStreamSocket = (io, socket, userId) => {
 
       socket.emit('liveStreamEndSuccess', { streamId });
     } catch (error) {
-      console.error('Error ending live stream:', error);
+      logger.error('Error ending live stream', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to end stream' });
     }
   });
@@ -140,23 +143,22 @@ export const liveStreamSocket = (io, socket, userId) => {
   socket.on('joinLiveStream', async (data) => {
     try {
       const { streamId } = data;
-      console.log(`👤 User ${userId} joining stream ${streamId}`);
 
       const liveStream = await LiveStream.findById(streamId);
 
       if (!liveStream) {
-        console.log('  Stream not found');
+        logger.info('Stream not found');
         socket.emit('liveStreamError', { error: 'Live stream not found' });
         return;
       }
 
       if (liveStream.status !== 'live') {
-        console.log('  Stream not live, status:', liveStream.status);
+        logger.info(`Stream not live, status: ${liveStream.status}`);
         socket.emit('liveStreamError', { error: 'Stream is not live' });
         return;
       }
 
-      console.log(`Stream is live, broadcaster: ${liveStream.streamerId}`);
+      logger.info(`Stream is live, broadcaster: ${liveStream.streamerId}`);
 
       // Join the stream room
       socket.join(`stream:${streamId}`);
@@ -175,17 +177,15 @@ export const liveStreamSocket = (io, socket, userId) => {
           joinedAt: new Date(),
         });
 
-        // Increment viewer count
-        liveStream.viewerCount += 1;
-        await liveStream.save();
+        // Increment viewer count (atomic)
+        await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
       } else if (viewer.leftAt) {
         // Viewer rejoining
         viewer.leftAt = null;
         viewer.joinedAt = new Date();
         await viewer.save();
 
-        liveStream.viewerCount += 1;
-        await liveStream.save();
+        await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
       }
 
       // Get viewer info
@@ -232,7 +232,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         broadcasterId: liveStream.streamerId.toString(),
       });
     } catch (error) {
-      console.error('Error joining live stream:', error);
+      logger.error('Error joining live stream', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to join stream' });
     }
   });
@@ -252,12 +252,14 @@ export const liveStreamSocket = (io, socket, userId) => {
         viewer.leftAt = new Date();
         await viewer.save();
 
-        // Decrement viewer count
-        const liveStream = await LiveStream.findById(streamId);
-        if (liveStream && liveStream.viewerCount > 0) {
-          liveStream.viewerCount -= 1;
-          await liveStream.save();
+        // Decrement viewer count (atomic)
+        const liveStream = await LiveStream.findOneAndUpdate(
+          { _id: streamId, viewerCount: { $gt: 0 } },
+          { $inc: { viewerCount: -1 } },
+          { new: true }
+        );
 
+        if (liveStream) {
           // Notify all viewers about updated count
           io.to(`stream:${streamId}`).emit('viewerLeft', {
             streamId,
@@ -272,7 +274,7 @@ export const liveStreamSocket = (io, socket, userId) => {
 
       socket.emit('liveStreamLeaveSuccess', { streamId });
     } catch (error) {
-      console.error('Error leaving live stream:', error);
+      logger.error('Error leaving live stream', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to leave stream' });
     }
   });
@@ -313,7 +315,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         timestamp: new Date(),
       });
     } catch (error) {
-      console.error('Error handling live reaction:', error);
+      logger.error('Error handling live reaction', { error: error.message });
     }
   });
 
@@ -366,7 +368,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         },
       });
     } catch (error) {
-      console.error('Error pinning comment:', error);
+      logger.error('Error pinning comment', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to pin comment' });
     }
   });
@@ -385,7 +387,7 @@ export const liveStreamSocket = (io, socket, userId) => {
       // Broadcast unpin to all viewers
       io.to(`stream:${streamId}`).emit('commentUnpinned', { streamId });
     } catch (error) {
-      console.error('Error unpinning comment:', error);
+      logger.error('Error unpinning comment', { error: error.message });
     }
   });
 
@@ -434,7 +436,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         },
       });
     } catch (error) {
-      console.error('Error sending live comment:', error);
+      logger.error('Error sending live comment', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to send comment' });
     }
   });
@@ -445,7 +447,7 @@ export const liveStreamSocket = (io, socket, userId) => {
   socket.on('liveStreamOffer', async (data) => {
     try {
       const { streamId, viewerId, offer } = data;
-      console.log(`Relaying offer from ${userId} to viewer ${viewerId}`);
+      logger.info(`Relaying offer from ${userId} to viewer ${viewerId}`);
 
       // Send offer to specific viewer
       io.to(viewerId).emit('liveStreamOffer', {
@@ -453,9 +455,9 @@ export const liveStreamSocket = (io, socket, userId) => {
         broadcasterId: userId,
         offer,
       });
-      console.log(`Offer sent to ${viewerId}`);
+      logger.info(`Offer sent to ${viewerId}`);
     } catch (error) {
-      console.error('Error sending live stream offer:', error);
+      logger.error('Error sending live stream offer', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to send offer' });
     }
   });
@@ -464,7 +466,7 @@ export const liveStreamSocket = (io, socket, userId) => {
   socket.on('liveStreamAnswer', async (data) => {
     try {
       const { streamId, broadcasterId, answer } = data;
-      console.log(`Relaying answer from ${userId} to broadcaster ${broadcasterId}`);
+      logger.info(`Relaying answer from ${userId} to broadcaster ${broadcasterId}`);
 
       // Send answer back to broadcaster
       io.to(broadcasterId).emit('liveStreamAnswer', {
@@ -472,9 +474,9 @@ export const liveStreamSocket = (io, socket, userId) => {
         viewerId: userId,
         answer,
       });
-      console.log(`Answer sent to ${broadcasterId}`);
+      logger.info(`Answer sent to ${broadcasterId}`);
     } catch (error) {
-      console.error('Error sending live stream answer:', error);
+      logger.error('Error sending live stream answer', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to send answer' });
     }
   });
@@ -491,7 +493,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         candidate,
       });
     } catch (error) {
-      console.error('Error sending ICE candidate:', error);
+      logger.error('Error sending ICE candidate', { error: error.message });
       socket.emit('liveStreamError', { error: 'Failed to send ICE candidate' });
     }
   });
@@ -535,12 +537,14 @@ export const liveStreamSocket = (io, socket, userId) => {
         viewer.leftAt = new Date();
         await viewer.save();
 
-        // Decrement viewer count
-        const stream = await LiveStream.findById(viewer.liveStreamId);
-        if (stream && stream.viewerCount > 0) {
-          stream.viewerCount -= 1;
-          await stream.save();
+        // Decrement viewer count (atomic)
+        const stream = await LiveStream.findOneAndUpdate(
+          { _id: viewer.liveStreamId, viewerCount: { $gt: 0 } },
+          { $inc: { viewerCount: -1 } },
+          { new: true }
+        );
 
+        if (stream) {
           // Notify remaining viewers
           io.to(`stream:${viewer.liveStreamId}`).emit('viewerLeft', {
             streamId: viewer.liveStreamId,
@@ -550,7 +554,7 @@ export const liveStreamSocket = (io, socket, userId) => {
         }
       }
     } catch (error) {
-      console.error('Error handling disconnect for live stream:', error);
+      logger.error('Error handling disconnect for live stream', { error: error.message });
     }
   });
 };

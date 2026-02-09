@@ -29,7 +29,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <div className="flex h-screen bg-background">
-      {/* Sidebar */}
       <aside className="w-64 border-r border-border bg-card">
         <div className="p-6">
           <div className="flex items-center gap-2 mb-8">
@@ -59,7 +58,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-auto">
         <div className="p-8">{children}</div>
       </main>

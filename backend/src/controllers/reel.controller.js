@@ -2,17 +2,27 @@ import mongoose from 'mongoose';
 import { Comment } from '../models/comment.model.js';
 import { Followers } from '../models/followers.model.js';
 import { Like } from '../models/like.model.js';
-import { Notification } from '../models/notification.model.js';
 import { Reel } from '../models/reel.model.js';
 import { ReelView } from '../models/reelView.model.js';
-import { Report } from '../models/report.model.js';
 import { Save } from '../models/save.model.js';
 import { User } from '../models/user.model.js';
+import {
+  addComment as addCommentService,
+  parseMusicData,
+  parseTagIds,
+  reportContent,
+  saveContent,
+  sendTagNotifications,
+  toggleLike,
+  unsaveContent,
+} from '../services/content.service.js';
+import { getLikedIds } from '../services/enrichment.service.js';
 import { notifyNewReel } from '../services/notification.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { deleteLocalFile, saveFileLocally } from '../utils/localStorage.js';
+import logger from '../utils/logger.js';
 
 const MAX_CAPTION_LENGTH = 2000;
 
@@ -53,15 +63,7 @@ export const uploadReel = asyncHandler(async (req, res) => {
     size: savedFile.size,
   };
 
-  let parsedTags = [];
-  if (tags) {
-    try {
-      parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
-    } catch {
-      parsedTags = [];
-    }
-  }
-  parsedTags = parsedTags.slice(0, 30);
+  let parsedTags = parseTagIds(tags).slice(0, 30);
 
   // Filter to only valid user IDs
   const validTags = parsedTags.filter((tag) => {
@@ -71,16 +73,7 @@ export const uploadReel = asyncHandler(async (req, res) => {
     return false;
   });
 
-  // Parse music data if provided
-  let musicData = null;
-  if (music) {
-    try {
-      musicData = typeof music === 'string' ? JSON.parse(music) : music;
-    } catch (error) {
-      console.error('Error parsing music data:', error);
-      // Don't throw error, just log it and continue without music
-    }
-  }
+  const musicData = parseMusicData(music);
 
   let reel;
   try {
@@ -95,30 +88,12 @@ export const uploadReel = asyncHandler(async (req, res) => {
 
     // Send notifications to tagged users
     if (validTags.length > 0) {
-      const reelCreator = await User.findById(userId).select('firstName lastName');
-
-      for (const taggedUserId of validTags) {
-        // Don't notify yourself if you tag yourself
-        if (taggedUserId.toString() === userId.toString()) continue;
-
-        try {
-          await Notification.create({
-            recipient_id: taggedUserId,
-            sender_id: userId,
-            type: 'tag',
-            reference_id: reel._id,
-            reference_type: 'Reel',
-            title: 'You were tagged',
-            message: `${reelCreator.firstName} ${reelCreator.lastName} tagged you in a reel`,
-            thumbnail: reel.media?.thumbnail || reel.media?.url || null,
-            is_read: false,
-            action_url: `/reel/${reel._id}`,
-          });
-        } catch (notifError) {
-          // Don't fail reel creation if notification fails
-          console.error('Failed to send tag notification:', notifError);
-        }
-      }
+      sendTagNotifications({
+        taggedUserIds: validTags,
+        senderId: userId,
+        contentId: reel._id,
+        contentType: 'reel',
+      }).catch((err) => logger.error('Tag notification error:', { error: err.message }));
     }
   } catch (dbError) {
     await deleteLocalFile(savedFile.url);
@@ -127,7 +102,7 @@ export const uploadReel = asyncHandler(async (req, res) => {
 
   // Notify all followers about the new reel (async, don't block response)
   notifyNewReel(reel._id, userId, reel.media?.thumbnail || reel.media?.url || null).catch((err) => {
-    console.error('Error sending new reel notifications:', err);
+    logger.error('Error sending new reel notifications:', { error: err.message });
   });
 
   return res.status(201).json(new ApiResponse(201, reel, 'Reel created successfully'));
@@ -199,286 +174,49 @@ export const getReelDetails = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, reelData, 'Reel details fetched successfully'));
 });
 
-// // Like a reel
-// export const likeReel = asyncHandler(async (req, res) => {
-//   const { reelId } = req.params;
-//   const userId = req.user._id;
-
-//   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
-
-//   if (!reel) {
-//     throw new ApiError(404, "Reel not found");
-//   }
-
-//   // Check if already liked
-//   const existingLike = await Like.findOne({
-//     user_id: userId,
-//     target_type: "reel",
-//     target_id: reelId,
-//   });
-
-//   if (existingLike) {
-//     throw new ApiError(400, "You already liked this reel");
-//   }
-
-//   await Like.create({
-//     user_id: userId,
-//     target_type: "reel",
-//     target_id: reelId,
-//   });
-
-//   // Increment likes count
-//   reel.likes_count += 1;
-//   await reel.save();
-
-//   return res
-//     .status(200)
-//     .json(new ApiResponse(200, { likes_count: reel.likes_count }, "Reel liked successfully"));
-// });
-
-// // Toggle like/unlike a reel
-// export const toggleLikeReel = asyncHandler(async (req, res) => {
-//   const { reelId } = req.params;
-//   const userId = req.user._id;
-
-//   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
-
-//   if (!reel) {
-//     throw new ApiError(404, "Reel not found");
-//   }
-
-//   // Check if already liked
-//   const existingLike = await Like.findOne({
-//     user_id: userId,
-//     target_type: "reel",
-//     target_id: reelId,
-//   });
-
-//   let isLiked;
-//   let message;
-
-//   if (existingLike) {
-//     // Unlike the reel
-//     await Like.findOneAndDelete({
-//       user_id: userId,
-//       target_type: "reel",
-//       target_id: reelId,
-//     });
-
-//     // Decrement likes count
-//     if (reel.likes_count > 0) {
-//       reel.likes_count -= 1;
-//       await reel.save();
-//     }
-
-//     isLiked = false;
-//     message = "Reel unliked successfully";
-//   } else {
-//     // Like the reel
-//     await Like.create({
-//       user_id: userId,
-//       target_type: "reel",
-//       target_id: reelId,
-//     });
-
-//     // Increment likes count
-//     reel.likes_count += 1;
-//     await reel.save();
-
-//     isLiked = true;
-//     message = "Reel liked successfully";
-//   }
-
-//   return res
-//     .status(200)
-//     .json(
-//       new ApiResponse(
-//         200,
-//         {
-//           likes_count: reel.likes_count,
-//           isLiked: isLiked
-//         },
-//         message
-//       )
-//     );
-// });
-
-// // Unlike a reel
-// export const unlikeReel = asyncHandler(async (req, res) => {
-//   const { reelId } = req.params;
-//   const userId = req.user._id;
-
-//   const like = await Like.findOneAndDelete({
-//     user_id: userId,
-//     target_type: "reel",
-//     target_id: reelId,
-//   });
-
-//   if (!like) {
-//     throw new ApiError(404, "Like not found");
-//   }
-
-//   // Decrement likes count
-//   const reel = await Reel.findById(reelId);
-//   if (reel && reel.likes_count > 0) {
-//     reel.likes_count -= 1;
-//     await reel.save();
-//   }
-
-//   return res
-//     .status(200)
-//     .json(new ApiResponse(200, null, "Reel unliked successfully"));
-// });
-
 export const toggleLikeReel = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
-  const userId = req.user._id;
 
-  const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
-  if (!reel) {
-    throw new ApiError(404, 'Reel not found');
-  }
-
-  const existingLike = await Like.findOne({
-    user_id: userId,
-    target_type: 'reel',
-    target_id: reelId,
+  const result = await toggleLike({
+    Model: Reel,
+    contentId: reelId,
+    userId: req.user._id,
+    contentType: 'reel',
   });
-
-  let isLiked;
-  let message;
-
-  if (existingLike) {
-    // Unlike
-    await Like.findOneAndDelete({
-      user_id: userId,
-      target_type: 'reel',
-      target_id: reelId,
-    });
-
-    if (reel.likes_count > 0) {
-      reel.likes_count -= 1;
-    }
-    isLiked = false;
-    message = 'Reel unliked successfully';
-  } else {
-    // Like
-    await Like.create({
-      user_id: userId,
-      target_type: 'reel',
-      target_id: reelId,
-    });
-
-    reel.likes_count += 1;
-    isLiked = true;
-    message = 'Reel liked successfully';
-
-    // Create notification for reel owner (only if liker is not the reel owner)
-    if (reel.user_id.toString() !== userId.toString()) {
-      try {
-        // Get the liker's details for the notification message
-        const liker = await User.findById(userId).select('firstName lastName profilePicture');
-
-        await Notification.create({
-          recipient_id: reel.user_id,
-          sender_id: userId,
-          type: 'reel_like',
-          reference_id: reelId,
-          reference_type: 'Reel',
-          title: 'New Like',
-          message: `${liker.firstName} ${liker.lastName} liked your reel`,
-          thumbnail: reel.media?.url || null,
-          is_read: false,
-          action_url: `/reel/${reelId}`,
-        });
-      } catch (notifError) {
-        // Don't fail the like operation if notification creation fails
-        console.error('Failed to create notification:', notifError);
-      }
-    }
-  }
-
-  await reel.save();
 
   return res.status(200).json(
     new ApiResponse(
       200,
       {
-        likes_count: reel.likes_count,
-        isLiked: isLiked,
+        likes_count: result.likesCount,
+        isLiked: result.isLiked,
       },
-      message
+      result.message
     )
   );
 });
 
-// Add comment to a reel
-// Comment on a reel
 export const commentOnReel = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
   const { text, reply_to_comment_id } = req.body;
-  const userId = req.user._id;
 
-  // Validate input
-  if (!text || text.trim().length === 0) {
-    throw new ApiError(400, 'Comment text is required');
-  }
-
-  // Check if reel exists
-  const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
-  if (!reel) {
-    throw new ApiError(404, 'Reel not found');
-  }
-
-  // Create comment
-  const comment = await Comment.create({
-    user_id: userId,
-    target_type: 'reel',
-    target_id: reelId,
-    text: text.trim(),
-    reply_to_comment_id: reply_to_comment_id || null,
+  const comment = await addCommentService({
+    Model: Reel,
+    contentId: reelId,
+    userId: req.user._id,
+    text,
+    replyToCommentId: reply_to_comment_id,
+    contentType: 'reel',
   });
 
-  // Populate comment with user details
-  const populatedComment = await Comment.findById(comment._id)
-    .populate('user_id', 'firstName lastName profilePicture')
-    .populate('reply_to_comment_id', 'text user_id')
-    .populate('reply_to_comment_id.user_id', 'firstName lastName');
-
-  // Update reel comments count
-  reel.comments_count += 1;
-  await reel.save();
-
-  // Create notification for reel owner (only if commenter is not the reel owner)
-  if (reel.user_id.toString() !== userId.toString()) {
-    try {
-      // Get the commenter's details for the notification message
-      const commenter = await User.findById(userId).select('firstName lastName profilePicture');
-
-      await Notification.create({
-        recipient_id: reel.user_id,
-        sender_id: userId,
-        type: 'reel_comment',
-        reference_id: reelId,
-        reference_type: 'Reel',
-        title: 'New Comment',
-        message: `${commenter.firstName} ${commenter.lastName} commented on your reel`,
-        thumbnail: reel.media?.url || null,
-        is_read: false,
-        action_url: `/reel/${reelId}`,
-      });
-    } catch (notifError) {
-      // Don't fail the comment operation if notification creation fails
-      console.error('Failed to create notification:', notifError);
-    }
-  }
+  const reel = await Reel.findById(reelId).select('comments_count');
 
   return res.status(201).json(
     new ApiResponse(
       201,
       {
-        comment: populatedComment,
-        comments_count: reel.comments_count,
+        comment,
+        comments_count: reel?.comments_count || 0,
       },
       'Comment added successfully'
     )
@@ -578,20 +316,17 @@ export const getUserReels = asyncHandler(async (req, res) => {
     .skip((page - 1) * limit)
     .lean();
 
-  // Add isLiked status for each reel
-  const reelsWithLikeStatus = await Promise.all(
-    reels.map(async (reel) => {
-      const isLiked = currentUserId
-        ? await Like.exists({ target_type: 'reel', target_id: reel._id, user_id: currentUserId })
-        : null;
+  // Add isLiked status for each reel (batch — no N+1)
+  const reelIds = reels.map((r) => r._id);
+  const reelLikedSet = currentUserId
+    ? await getLikedIds(reelIds, 'reel', currentUserId)
+    : new Set();
 
-      return {
-        ...reel,
-        isLiked: !!isLiked,
-        canDownload: reel.user_id?.allowDownloads !== false,
-      };
-    })
-  );
+  const reelsWithLikeStatus = reels.map((reel) => ({
+    ...reel,
+    isLiked: reelLikedSet.has(reel._id.toString()),
+    canDownload: reel.user_id?.allowDownloads !== false,
+  }));
 
   // Get total count for pagination
   const total = await Reel.countDocuments({
@@ -617,64 +352,28 @@ export const getUserReels = asyncHandler(async (req, res) => {
   );
 });
 
-// Save a reel
 export const saveReel = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
-  const userId = req.user._id;
 
-  const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
-
-  if (!reel) {
-    throw new ApiError(404, 'Reel not found');
-  }
-
-  // Check if already saved
-  const existingSave = await Save.findOne({
-    user_id: userId,
-    target_type: 'reel',
-    target_id: reelId,
+  await saveContent({
+    Model: Reel,
+    contentId: reelId,
+    userId: req.user._id,
+    contentType: 'reel',
   });
 
-  if (existingSave) {
-    throw new ApiError(400, 'Reel already saved');
-  }
-
-  await Save.create({
-    user_id: userId,
-    target_type: 'reel',
-    target_id: reelId,
-  });
-
-  // Increment saves count
-  reel.saves_count = (reel.saves_count || 0) + 1;
-  await reel.save();
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, { saves_count: reel.saves_count }, 'Reel saved successfully'));
+  return res.status(200).json(new ApiResponse(200, null, 'Reel saved successfully'));
 });
 
-// Unsave a reel
 export const unsaveReel = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
-  const userId = req.user._id;
 
-  const save = await Save.findOneAndDelete({
-    user_id: userId,
-    target_type: 'reel',
-    target_id: reelId,
+  await unsaveContent({
+    Model: Reel,
+    contentId: reelId,
+    userId: req.user._id,
+    contentType: 'reel',
   });
-
-  if (!save) {
-    throw new ApiError(404, 'Saved reel not found');
-  }
-
-  // Decrement saves count
-  const reel = await Reel.findById(reelId);
-  if (reel && reel.saves_count > 0) {
-    reel.saves_count -= 1;
-    await reel.save();
-  }
 
   return res.status(200).json(new ApiResponse(200, null, 'Reel unsaved successfully'));
 });
@@ -734,32 +433,27 @@ export const getUserSavedReels = asyncHandler(async (req, res) => {
   );
 });
 
-// Report a reel
 export const reportReel = asyncHandler(async (req, res) => {
   const { reelId } = req.params;
-  const { reason, details, attachments } = req.body;
-  const userId = req.user._id;
+  const { reason } = req.body;
 
   if (!reason) {
     throw new ApiError(400, 'Reason is required');
   }
 
   const reel = await Reel.findOne({ _id: reelId, is_deleted: false });
-
   if (!reel) {
     throw new ApiError(404, 'Reel not found');
   }
 
-  const report = await Report.create({
-    user_id: userId,
-    target_type: 'reel',
-    target_id: reelId,
+  await reportContent({
+    contentId: reelId,
+    userId: req.user._id,
     reason,
-    details,
-    attachments,
+    contentType: 'reel',
   });
 
-  return res.status(201).json(new ApiResponse(201, report, 'Reel reported successfully'));
+  return res.status(201).json(new ApiResponse(201, null, 'Reel reported successfully'));
 });
 
 // View a reel (increment view count - unique per user)

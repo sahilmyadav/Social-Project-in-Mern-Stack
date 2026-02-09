@@ -32,12 +32,10 @@ export default function HomePage() {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [trending, setTrending] = useState<any[]>([]);
 
-  // Loading states
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
 
-  // Pagination - cursor based for posts, page based for reels
   const [postsCursor, setPostsCursor] = useState<string | null>(null);
   const [reelsPage, setReelsPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -54,7 +52,6 @@ export default function HomePage() {
     }
   }, [router]);
 
-  // Mobile detection
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768; // md breakpoint
@@ -67,7 +64,6 @@ export default function HomePage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Load home feed - Progressive loading
   const loadFeed = useCallback(
     async (isInitial: boolean = false) => {
       try {
@@ -79,9 +75,7 @@ export default function HomePage() {
 
         const limit = isInitial ? INITIAL_LOAD : LOAD_MORE_COUNT;
 
-        // For initial load, fetch feed first (priority), then others in background
         if (isInitial) {
-          // Priority: Load posts and reels first
           const [postsResponse, reelsResponse] = await Promise.all([
             feedService.getHomeFeed({ limit }).catch(() => ({ success: false, data: null })),
             reelService
@@ -94,21 +88,17 @@ export default function HomePage() {
           const reelsData =
             reelsResponse.success && reelsResponse.data ? reelsResponse.data.reels || [] : [];
 
-          // Store cursor for next page
           if (postsResponse.data?.nextCursor) {
             setPostsCursor(postsResponse.data.nextCursor);
           }
 
-          // Mix posts and reels
           const mixedFeed = mixFeedItems(postsData, reelsData);
           setFeed(mixedFeed);
           setHasMore(postsData.length >= limit || reelsData.length >= limit);
           setInitialLoading(false);
 
-          // Load suggestions and trending in background (non-blocking)
           loadSidebar();
         } else {
-          // Load more - fetch next page using cursor for posts, page for reels
           const nextReelsPage = reelsPage + 1;
 
           const [postsResponse, reelsResponse] = await Promise.all([
@@ -127,7 +117,6 @@ export default function HomePage() {
           const reelsData =
             reelsResponse.success && reelsResponse.data ? reelsResponse.data.reels || [] : [];
 
-          // Update cursor for next page
           if (postsResponse.data?.nextCursor) {
             setPostsCursor(postsResponse.data.nextCursor);
           } else {
@@ -144,7 +133,6 @@ export default function HomePage() {
           }
         }
       } catch (error) {
-        console.error('Error loading feed:', error);
       } finally {
         setInitialLoading(false);
         setLoadingMore(false);
@@ -152,7 +140,6 @@ export default function HomePage() {
     },
     [postsCursor, reelsPage]
   );
-  // Mix posts and reels together
   const mixFeedItems = (postsData: any[], reelsData: any[]) => {
     const mixedFeed: any[] = [];
     const maxLength = Math.max(postsData.length, reelsData.length);
@@ -168,7 +155,6 @@ export default function HomePage() {
     return mixedFeed;
   };
 
-  // Load sidebar content (non-blocking)
   const loadSidebar = async () => {
     setSuggestionsLoading(true);
     try {
@@ -185,13 +171,11 @@ export default function HomePage() {
         setTrending(trendingResponse.data.trending_topics || []);
       }
     } catch (error) {
-      console.error('Error loading sidebar:', error);
     } finally {
       setSuggestionsLoading(false);
     }
   };
 
-  // Load more handler for infinite scroll
   const handleLoadMore = useCallback(() => {
     if (!loadingMore && hasMore) {
       loadFeed(false);
@@ -201,11 +185,9 @@ export default function HomePage() {
     try {
       const response = await followService.followUser(userId);
       if (response.success) {
-        // Remove from suggestions
         setSuggestions((prev) => prev.filter((u) => u._id !== userId));
       }
     } catch (error) {
-      console.error('Failed to follow user:', error);
     }
   };
 
@@ -216,16 +198,12 @@ export default function HomePage() {
   }, [user]);
 
   const handleLogout = () => {
-    console.log('handleLogout called');
     try {
       localStorage.removeItem('user');
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
-      console.log('localStorage cleared, redirecting to /login');
       router.push('/login');
     } catch (error) {
-      console.error('Logout error:', error);
-      // Force redirect even if there's an error
       window.location.href = '/login';
     }
   };
@@ -304,14 +282,11 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Feed */}
         <section className="lg:col-span-2 max-w-2xl mx-auto pb-20 lg:pb-0">
-          {/* Create Post Card */}
           <div className="bg-card rounded-2xl border border-border p-4 mb-6 sticky top-0 z-10">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-xl overflow-hidden">
@@ -348,7 +323,6 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Stories Bar */}
           {initialLoading ? (
             <StoriesBarSkeleton />
           ) : (
@@ -359,7 +333,6 @@ export default function HomePage() {
             />
           )}
 
-          {/* Mixed Posts and Reels Feed */}
           <div className="space-y-4">
             {initialLoading ? (
               <FeedSkeleton count={3} />
@@ -386,7 +359,6 @@ export default function HomePage() {
                     />
                   )
                 )}
-                {/* Infinite Scroll Trigger */}
                 <InfiniteScrollTrigger
                   onLoadMore={handleLoadMore}
                   hasMore={hasMore}
@@ -404,14 +376,11 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Right Sidebar - Suggestions & Trending */}
         <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4 h-screen sticky top-0 overflow-y-auto">
-          {/* Suggested Users */}
           <div className="bg-card rounded-2xl border border-border p-4 mb-4">
             <h3 className="font-bold text-lg mb-4">Suggested for you</h3>
             <div className="space-y-4">
               {suggestionsLoading ? (
-                // Skeleton loading
                 [...Array(3)].map((_, i) => <SuggestionSkeleton key={i} />)
               ) : suggestions.length > 0 ? (
                 suggestions.map((suggestion) => (
@@ -485,15 +454,12 @@ export default function HomePage() {
         </aside>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
 
-      {/* Create Post Modal */}
       <CreatePostModal
         isOpen={showCreateModal}
         onClose={() => {
           setShowCreateModal(false);
-          // Reset and refresh feed after creating post
           setPostsCursor(null);
           setReelsPage(1);
           setFeed([]);
@@ -501,7 +467,6 @@ export default function HomePage() {
         }}
       />
 
-      {/* Reel Comments Modal */}
       {selectedReel && (
         <ReelComments
           reel={selectedReel}

@@ -23,7 +23,6 @@ export default function VerifyOtpPage() {
       lastName: string;
       email: string;
       phone: string;
-      password: string;
       gender: string;
       dob: string;
     };
@@ -47,7 +46,6 @@ export default function VerifyOtpPage() {
   }, []);
 
   useEffect(() => {
-    // Get verification data from localStorage
     const data = localStorage.getItem('otpVerification');
     if (!data) {
       router.push('/signup');
@@ -55,7 +53,6 @@ export default function VerifyOtpPage() {
     }
     setVerificationData(JSON.parse(data));
 
-    // Start countdown timer
     const interval = setInterval(() => {
       setTimer((prev) => {
         if (prev <= 1) {
@@ -76,7 +73,6 @@ export default function VerifyOtpPage() {
     newOtp[index] = value;
     setOtp(newOtp);
 
-    // Auto-focus next input
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
@@ -99,7 +95,6 @@ export default function VerifyOtpPage() {
     }
     setOtp(newOtp);
 
-    // Focus last filled input
     const lastIndex = Math.min(pastedData.length, 5);
     inputRefs.current[lastIndex]?.focus();
   };
@@ -131,7 +126,6 @@ export default function VerifyOtpPage() {
       });
 
       if (response.success) {
-        // Save access token and refresh token
         if (response.data.accessToken) {
           localStorage.setItem('accessToken', response.data.accessToken);
         }
@@ -142,11 +136,10 @@ export default function VerifyOtpPage() {
           localStorage.setItem('user', JSON.stringify(response.data.user));
         }
 
-        // Clear verification data
         localStorage.removeItem('otpVerification');
+        sessionStorage.removeItem('_otpResendKey');
         toast.success('Account verified successfully!');
 
-        // Check if profile is completed
         if (response.data.user && !response.data.user.profileCompleted) {
           router.push('/setup-profile');
         } else {
@@ -170,7 +163,6 @@ export default function VerifyOtpPage() {
   const handleResend = async () => {
     if (timer > 0 || !verificationData) return;
 
-    // Check if we have registration data to resend
     if (!verificationData.registrationData) {
       toast.error('Registration data not found. Please sign up again.');
       localStorage.removeItem('otpVerification');
@@ -178,16 +170,24 @@ export default function VerifyOtpPage() {
       return;
     }
 
+    const resendPassword = sessionStorage.getItem('_otpResendKey');
+    if (!resendPassword) {
+      toast.error('Session expired. Please sign up again.');
+      localStorage.removeItem('otpVerification');
+      router.push('/signup');
+      return;
+    }
+
     setResendLoading(true);
     try {
-      // Re-register with the same data to get a new OTP
-      const response = await authService.register(verificationData.registrationData);
+      const response = await authService.register({
+        ...verificationData.registrationData,
+        password: resendPassword,
+      });
 
       if (response.success && response.data.otpSent) {
         toast.success('New OTP sent to your email!');
-        // Reset timer to 2 minutes
         setTimer(120);
-        // Clear OTP inputs
         setOtp(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
       } else {
@@ -198,7 +198,6 @@ export default function VerifyOtpPage() {
       if (apiError.statusCode === 429) {
         toast.error('Too many attempts. Please wait a few minutes and try again.');
       } else if (apiError.statusCode === 409) {
-        // User already exists - maybe they verified on another device
         toast.error('This account may already be verified. Try logging in.');
       } else {
         toast.error(apiError.message || 'Failed to resend OTP. Please try again.');
@@ -216,16 +215,13 @@ export default function VerifyOtpPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-black flex">
-      {/* Left Side - Phone Mockup */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-black items-center justify-center">
-        {/* Background Pattern */}
         <div className="absolute inset-0 opacity-30">
           <div className="absolute top-20 left-20 w-72 h-72 bg-purple-500 rounded-full blur-[120px]"></div>
           <div className="absolute bottom-20 right-20 w-72 h-72 bg-pink-500 rounded-full blur-[120px]"></div>
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-500 rounded-full blur-[150px]"></div>
         </div>
 
-        {/* Logo */}
         <Link href="/" className="absolute top-8 left-8 flex items-center gap-2 z-20">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
             <Camera className="w-6 h-6 text-white" />
@@ -233,15 +229,11 @@ export default function VerifyOtpPage() {
           <span className="text-2xl font-bold text-white">ClickME</span>
         </Link>
 
-        {/* Phone Mockup */}
         <div className="relative z-10">
           <div className="relative w-[320px] h-[650px] bg-gray-900 rounded-[3rem] p-2 shadow-2xl border border-gray-700">
-            {/* Notch */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-8 bg-gray-900 rounded-b-2xl z-20"></div>
 
-            {/* Screen */}
             <div className="w-full h-full bg-black rounded-[2.5rem] overflow-hidden flex flex-col">
-              {/* Status Bar */}
               <div className="h-10 flex items-end justify-between px-6 pb-1 text-white text-xs flex-shrink-0">
                 <span className="font-medium">9:41</span>
                 <div className="flex gap-1 items-center">
@@ -267,7 +259,6 @@ export default function VerifyOtpPage() {
                 </div>
               </div>
 
-              {/* App Header */}
               <div className="px-4 py-2 flex items-center justify-between border-b border-gray-800 flex-shrink-0">
                 <span className="text-white font-semibold text-lg">ClickME</span>
                 <div className="flex gap-4">
@@ -276,9 +267,7 @@ export default function VerifyOtpPage() {
                 </div>
               </div>
 
-              {/* Post Content */}
               <div className="flex-1 overflow-hidden">
-                {/* User Header */}
                 <div className="px-4 py-3 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 p-0.5">
                     <div className="w-full h-full rounded-full bg-gray-800 flex items-center justify-center">
@@ -291,7 +280,6 @@ export default function VerifyOtpPage() {
                   </div>
                 </div>
 
-                {/* Image Carousel */}
                 <div className="relative aspect-square bg-gray-800">
                   {images.map((img, index) => (
                     <img
@@ -303,13 +291,11 @@ export default function VerifyOtpPage() {
                       }`}
                     />
                   ))}
-                  {/* Play Button Overlay for Reels */}
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-16 h-16 rounded-full bg-black/30 flex items-center justify-center backdrop-blur-sm">
                       <Play className="w-8 h-8 text-white fill-white" />
                     </div>
                   </div>
-                  {/* Carousel Dots */}
                   <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1">
                     {images.map((_, i) => (
                       <div
@@ -322,7 +308,6 @@ export default function VerifyOtpPage() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="px-4 py-3 flex items-center justify-between">
                   <div className="flex gap-4">
                     <Heart className="w-6 h-6 text-white" />
@@ -332,7 +317,6 @@ export default function VerifyOtpPage() {
                   <Bookmark className="w-6 h-6 text-white" />
                 </div>
 
-                {/* Likes */}
                 <div className="px-4 pb-2">
                   <p className="text-white text-sm font-semibold">1,234 likes</p>
                 </div>
@@ -341,17 +325,14 @@ export default function VerifyOtpPage() {
           </div>
         </div>
 
-        {/* Decorative Elements */}
         <div className="absolute bottom-10 left-10 text-white/60 text-sm">
           <p>Join millions of users</p>
           <p>sharing moments worldwide</p>
         </div>
       </div>
 
-      {/* Right Side - OTP Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 lg:p-12">
         <div className="w-full max-w-md">
-          {/* Mobile Logo */}
           <div className="lg:hidden text-center mb-8">
             <Link href="/" className="inline-flex items-center gap-2">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
@@ -361,9 +342,7 @@ export default function VerifyOtpPage() {
             </Link>
           </div>
 
-          {/* OTP Card */}
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-8 shadow-xl">
-            {/* Header */}
             <div className="text-center mb-8">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 mb-4">
                 <svg
@@ -391,9 +370,7 @@ export default function VerifyOtpPage() {
               </p>
             </div>
 
-            {/* OTP Form */}
             <form onSubmit={handleVerify} className="space-y-6">
-              {/* OTP Input Boxes */}
               <div className="flex gap-2 justify-center">
                 {otp.map((digit, index) => (
                   <input
@@ -415,7 +392,6 @@ export default function VerifyOtpPage() {
                 ))}
               </div>
 
-              {/* Timer */}
               <div className="text-center">
                 {timer > 0 ? (
                   <p className="text-gray-600 dark:text-gray-400 text-sm">
@@ -436,7 +412,6 @@ export default function VerifyOtpPage() {
                 )}
               </div>
 
-              {/* Verify Button */}
               <Button
                 type="submit"
                 className="w-full h-12 bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 hover:from-purple-700 hover:via-pink-600 hover:to-orange-500 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl"
@@ -468,7 +443,6 @@ export default function VerifyOtpPage() {
               </Button>
             </form>
 
-            {/* Back Link */}
             <div className="mt-6 text-center">
               <button
                 onClick={() => {
@@ -482,7 +456,6 @@ export default function VerifyOtpPage() {
             </div>
           </div>
 
-          {/* Footer */}
           <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
             <p>
               Didn&apos;t receive the code? Check your spam folder or{' '}

@@ -1,5 +1,6 @@
-import admin from "firebase-admin";
-import { NotificationSettings } from "../models/notificationSettings.model.js";
+import admin from 'firebase-admin';
+import { NotificationSettings } from '../models/notificationSettings.model.js';
+import logger from '../utils/logger.js';
 
 // Initialize Firebase Admin SDK
 let firebaseApp;
@@ -8,16 +9,15 @@ try {
   // Check if service account credentials are provided
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    
+
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
-    
   } else {
-    console.warn("⚠️ Firebase service account not configured. Push notifications will be disabled.");
+    logger.warn('Firebase service account not configured. Push notifications will be disabled.');
   }
 } catch (error) {
-  console.error("❌ Firebase initialization error:", error.message);
+  logger.error('Firebase initialization error:', { error: error.message });
 }
 
 /**
@@ -28,13 +28,13 @@ try {
 export const sendPushNotification = async (userId, notification) => {
   try {
     if (!firebaseApp) {
-      console.warn("Firebase not initialized. Skipping push notification.");
+      logger.warn('Firebase not initialized. Skipping push notification.');
       return null;
     }
 
     // Get user's FCM tokens and preferences
     const settings = await NotificationSettings.findOne({ user_id: userId });
-    
+
     if (!settings || !settings.fcm_tokens || settings.fcm_tokens.length === 0) {
       return null;
     }
@@ -46,9 +46,10 @@ export const sendPushNotification = async (userId, notification) => {
 
     // Check notification type preference
     const notificationType = notification.type;
-    const typePreference = settings.preferences.push[notificationType + "s"] || 
-                          settings.preferences.push[notificationType];
-    
+    const typePreference =
+      settings.preferences.push[notificationType + 's'] ||
+      settings.preferences.push[notificationType];
+
     if (typePreference === false) {
       return null;
     }
@@ -56,9 +57,9 @@ export const sendPushNotification = async (userId, notification) => {
     // Check Do Not Disturb mode
     if (settings.do_not_disturb?.enabled) {
       const now = new Date();
-      const currentTime = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
       const { start_time, end_time } = settings.do_not_disturb;
-      
+
       if (start_time && end_time) {
         if (start_time < end_time) {
           // Same day range (e.g., 09:00 - 22:00)
@@ -76,7 +77,7 @@ export const sendPushNotification = async (userId, notification) => {
 
     // Prepare FCM message
     const tokens = settings.fcm_tokens.map((t) => t.token);
-    
+
     const message = {
       notification: {
         title: notification.title,
@@ -85,21 +86,21 @@ export const sendPushNotification = async (userId, notification) => {
       },
       data: {
         type: notification.type,
-        reference_id: notification.reference_id?.toString() || "",
-        action_url: notification.action_url || "",
-        sender_id: notification.sender_id?.toString() || "",
+        reference_id: notification.reference_id?.toString() || '',
+        action_url: notification.action_url || '',
+        sender_id: notification.sender_id?.toString() || '',
       },
       android: {
-        priority: "high",
+        priority: 'high',
         notification: {
-          sound: settings.preferences.in_app.sound ? "default" : undefined,
-          channelId: "social_media_notifications",
+          sound: settings.preferences.in_app.sound ? 'default' : undefined,
+          channelId: 'social_media_notifications',
         },
       },
       apns: {
         payload: {
           aps: {
-            sound: settings.preferences.in_app.sound ? "default" : undefined,
+            sound: settings.preferences.in_app.sound ? 'default' : undefined,
             badge: 1,
           },
         },
@@ -116,7 +117,7 @@ export const sendPushNotification = async (userId, notification) => {
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
           failedTokens.push(tokens[idx]);
-          console.error(`Failed to send to token ${tokens[idx]}:`, resp.error);
+          logger.error(`Failed to send to token ${tokens[idx]}:`, { error: resp.error });
         }
       });
 
@@ -133,10 +134,9 @@ export const sendPushNotification = async (userId, notification) => {
       }
     }
 
-    
     return response;
   } catch (error) {
-    console.error("Error sending push notification:", error);
+    logger.error('Error sending push notification:', { error: error.message });
     return null;
   }
 };
@@ -163,7 +163,7 @@ export const registerFCMToken = async (userId, token, deviceType, deviceId) => {
     } else {
       // Check if token already exists
       const existingToken = settings.fcm_tokens.find((t) => t.token === token);
-      
+
       if (!existingToken) {
         settings.fcm_tokens.push({
           token,
@@ -176,7 +176,7 @@ export const registerFCMToken = async (userId, token, deviceType, deviceId) => {
 
     return settings;
   } catch (error) {
-    console.error("Error registering FCM token:", error);
+    logger.error('Error registering FCM token:', { error: error.message });
     throw error;
   }
 };
@@ -195,7 +195,7 @@ export const unregisterFCMToken = async (userId, token) => {
       }
     );
   } catch (error) {
-    console.error("Error unregistering FCM token:", error);
+    logger.error('Error unregistering FCM token:', { error: error.message });
     throw error;
   }
 };

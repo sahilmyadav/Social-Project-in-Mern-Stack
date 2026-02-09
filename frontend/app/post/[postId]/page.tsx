@@ -44,7 +44,6 @@ export default function PostPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Post states
   const [liked, setLiked] = useState(false);
   const [savedPost, setSavedPost] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
@@ -52,7 +51,6 @@ export default function PostPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Comments states
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -60,13 +58,11 @@ export default function PostPage() {
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [replyText, setReplyText] = useState('');
 
-  // Modals
   const [showShareModal, setShowShareModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
 
   const commentInputRef = useRef<HTMLInputElement>(null);
 
-  // Load user
   useEffect(() => {
     const userData = localStorage.getItem('user');
     if (userData) {
@@ -76,7 +72,6 @@ export default function PostPage() {
     }
   }, [router]);
 
-  // Load post details
   useEffect(() => {
     const fetchPost = async () => {
       if (!postId) return;
@@ -90,12 +85,10 @@ export default function PostPage() {
         if (response.success && response.data) {
           setPost(response.data);
           setLikeCount(response.data.likes_count || 0);
-          // Backend may return is_liked (snake_case) or isLiked (camelCase)
           setLiked(response.data.isLiked || response.data.is_liked || false);
           setSavedPost(response.data.isSaved || response.data.is_saved || false);
           setComments(response.data.comments || []);
 
-          // Auto-focus comment input if showComments is true
           if (showComments) {
             setTimeout(() => {
               commentInputRef.current?.focus();
@@ -105,10 +98,6 @@ export default function PostPage() {
           setError('Post not found');
         }
       } catch (err: any) {
-        console.error(
-          'Error fetching post:',
-          err?.message || err?.error || JSON.stringify(err) || 'Unknown error'
-        );
         setError(err?.message || err?.error || 'Failed to load post');
       } finally {
         setLoading(false);
@@ -118,7 +107,6 @@ export default function PostPage() {
     fetchPost();
   }, [postId, showComments]);
 
-  // Load comments
   const loadComments = async () => {
     if (!postId) return;
 
@@ -129,13 +117,11 @@ export default function PostPage() {
         setComments(response.data.comments || response.data || []);
       }
     } catch (error) {
-      console.error('Error loading comments:', error);
     } finally {
       setLoadingComments(false);
     }
   };
 
-  // Handle like
   const handleLike = async () => {
     if (isLiking || !post) return;
 
@@ -143,7 +129,6 @@ export default function PostPage() {
     const wasLiked = liked;
     const previousCount = likeCount;
 
-    // Optimistic update
     setLiked(!wasLiked);
     setLikeCount(wasLiked ? Math.max(0, previousCount - 1) : previousCount + 1);
 
@@ -156,19 +141,16 @@ export default function PostPage() {
       }
 
       if (response.success && response.data) {
-        // Always use server response for final state
         const serverIsLiked = response.data.isLiked ?? !wasLiked;
         const serverLikeCount =
           response.data.likes_count ?? response.data.likesCount ?? previousCount;
         setLiked(serverIsLiked);
         setLikeCount(serverLikeCount);
       } else {
-        // Revert on failure
         setLiked(wasLiked);
         setLikeCount(previousCount);
       }
     } catch (error) {
-      // Revert on error
       setLiked(wasLiked);
       setLikeCount(previousCount);
       showToast.error('Failed to update like');
@@ -177,14 +159,12 @@ export default function PostPage() {
     }
   };
 
-  // Handle save
   const handleSave = async () => {
     if (isSaving || !post) return;
 
     setIsSaving(true);
     const wasSaved = savedPost;
 
-    // Optimistic update
     setSavedPost(!wasSaved);
 
     try {
@@ -196,7 +176,6 @@ export default function PostPage() {
         toasts.postSaved();
       }
     } catch (error) {
-      // Revert on error
       setSavedPost(wasSaved);
       showToast.error('Failed to update save');
     } finally {
@@ -204,7 +183,6 @@ export default function PostPage() {
     }
   };
 
-  // Handle delete
   const handleDelete = () => {
     if (isDeleting || !post) return;
 
@@ -228,7 +206,6 @@ export default function PostPage() {
     });
   };
 
-  // Handle comment submit
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || isSubmittingComment || !post) return;
@@ -248,14 +225,12 @@ export default function PostPage() {
     }
   };
 
-  // Handle reply submit
   const handleSubmitReply = async (commentId: string) => {
     if (!replyText.trim() || !post) return;
 
     try {
       const response = await commentService.replyToComment(commentId, { text: replyText.trim() });
       if (response.success && response.data) {
-        // Update the comment with the new reply
         setComments((prev) =>
           prev.map((c) => {
             if (c._id === commentId) {
@@ -276,7 +251,6 @@ export default function PostPage() {
     }
   };
 
-  // Handle delete comment
   const handleDeleteComment = async (commentId: string) => {
     if (!post) return;
 
@@ -308,14 +282,12 @@ export default function PostPage() {
     return date.toLocaleDateString();
   };
 
-  // Get author info
   const author = post?.author || post?.user_id || {};
   const authorName = `${author.firstName || ''} ${author.lastName || ''}`.trim() || 'Unknown';
   const authorUsername = author.username || 'user';
   const authorAvatar = author.profileImage || author.profilePicture || author.avatar;
   const isOwner = user?._id === author._id;
 
-  // Get media
   const mediaUrl = post?.media?.[0]?.url || post?.media?.[0]?.thumbnail || post?.file_url;
   const mediaType = post?.media?.[0]?.type || 'image';
 
@@ -341,22 +313,17 @@ export default function PostPage() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar Navigation */}
       <aside className="hidden lg:block w-64 border-r border-border bg-card fixed left-0 top-0 h-screen overflow-y-auto p-6">
         <Navigation user={user} onLogout={handleLogout} />
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 lg:ml-64 px-4 py-6 sm:px-6 lg:px-8 max-w-4xl mx-auto">
-        {/* Back Button */}
         <Button variant="ghost" size="sm" onClick={() => router.back()} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back
         </Button>
 
-        {/* Post Card */}
         <div className="bg-card rounded-xl border border-border overflow-hidden">
-          {/* Post Header */}
           <div className="flex items-center justify-between p-4">
             <Link href={`/profile/${author.username || author._id}`} className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-semibold overflow-hidden">
@@ -398,7 +365,6 @@ export default function PostPage() {
             </DropdownMenu>
           </div>
 
-          {/* Media */}
           {mediaUrl && (
             <div className="relative aspect-square bg-muted">
               {mediaType === 'video' ? (
@@ -414,7 +380,6 @@ export default function PostPage() {
             </div>
           )}
 
-          {/* Actions */}
           <div className="p-4">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
@@ -446,21 +411,17 @@ export default function PostPage() {
               </Button>
             </div>
 
-            {/* Caption */}
             {post.caption && (
               <p className="text-foreground mb-4">
                 <span className="font-semibold">{authorUsername}</span> {post.caption}
               </p>
             )}
 
-            {/* Timestamp */}
             <p className="text-xs text-muted-foreground mb-4">{getTimeAgo(post.createdAt)}</p>
 
-            {/* Comments Section */}
             <div className="border-t border-border pt-4">
               <h3 className="font-semibold text-foreground mb-4">Comments ({comments.length})</h3>
 
-              {/* Comment Input */}
               <form onSubmit={handleSubmitComment} className="flex gap-2 mb-4">
                 <Input
                   ref={commentInputRef}
@@ -483,7 +444,6 @@ export default function PostPage() {
                 </Button>
               </form>
 
-              {/* Comments List */}
               {loadingComments ? (
                 <div className="flex justify-center py-4">
                   <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -555,7 +515,6 @@ export default function PostPage() {
                             </button>
                           </div>
 
-                          {/* Reply Input */}
                           {replyingTo?._id === comment._id && (
                             <div className="flex gap-2 mt-2 ml-2">
                               <Input
@@ -576,7 +535,6 @@ export default function PostPage() {
                             </div>
                           )}
 
-                          {/* Replies */}
                           {comment.replies && comment.replies.length > 0 && (
                             <div className="mt-3 space-y-2 ml-4 border-l-2 border-border pl-4">
                               {comment.replies.map((reply: any) => {
@@ -631,10 +589,8 @@ export default function PostPage() {
         </div>
       </main>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
 
-      {/* Share Modal */}
       <ShareModal
         isOpen={showShareModal}
         onClose={() => setShowShareModal(false)}
@@ -642,7 +598,6 @@ export default function PostPage() {
         contentId={post._id}
       />
 
-      {/* Report Modal */}
       <ReportPostModal
         open={showReportModal}
         onOpenChange={setShowReportModal}
@@ -650,7 +605,6 @@ export default function PostPage() {
         postAuthor={authorUsername}
       />
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </div>
   );

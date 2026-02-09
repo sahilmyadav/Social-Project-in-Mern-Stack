@@ -3,37 +3,20 @@
 import MusicPickerModal from '@/components/music-picker-modal';
 import { Button } from '@/components/ui/button';
 import { storyService } from '@/lib/api-services';
+import { BG_COLORS, FILTERS, FILTER_STYLES, TEXT_COLORS } from '@/lib/media-filters';
 import '@/styles/filters.css';
 import {
   AlignCenter,
   AlignLeft,
   AlignRight,
-  Aperture,
   Bold,
-  Camera,
-  CloudRain,
-  Coffee,
-  Contrast,
-  Droplet,
-  Flame,
-  Heart,
   Image as ImageIcon,
   Italic,
-  Moon,
   Music,
-  Palette,
-  Snowflake,
-  Sparkles,
-  Star,
-  Sun,
-  Sunrise,
-  Sunset,
   Type,
   Upload,
   Video,
-  Wind,
   X,
-  Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -43,7 +26,6 @@ interface AddStoryModalProps {
   onSuccess?: () => void;
 }
 
-// Text overlay type
 interface TextOverlay {
   id: string;
   text: string;
@@ -56,92 +38,6 @@ interface TextOverlay {
   textAlign: 'left' | 'center' | 'right';
   backgroundColor: string;
 }
-
-// Text colors
-const TEXT_COLORS = [
-  '#FFFFFF',
-  '#000000',
-  '#FF0000',
-  '#00FF00',
-  '#0000FF',
-  '#FFFF00',
-  '#FF00FF',
-  '#00FFFF',
-  '#FF6B6B',
-  '#4ECDC4',
-  '#45B7D1',
-  '#96CEB4',
-  '#FFEAA7',
-  '#DDA0DD',
-];
-
-// Background colors for text
-const BG_COLORS = [
-  'transparent',
-  'rgba(0,0,0,0.7)',
-  'rgba(255,255,255,0.7)',
-  'rgba(255,0,0,0.5)',
-  'rgba(0,0,255,0.5)',
-  'rgba(255,255,0,0.5)',
-];
-
-// Instagram-style filters with icons
-const FILTERS = [
-  { name: 'Normal', value: 'normal', icon: Camera },
-  { name: 'Clarendon', value: 'clarendon', icon: Sun },
-  { name: 'Gingham', value: 'gingham', icon: Sparkles },
-  { name: 'Juno', value: 'juno', icon: Sunset },
-  { name: 'Lark', value: 'lark', icon: Sunrise },
-  { name: 'Ludwig', value: 'ludwig', icon: Palette },
-  { name: 'Valencia', value: 'valencia', icon: Heart },
-  { name: 'X-Pro II', value: 'xpro2', icon: Zap },
-  { name: 'Aden', value: 'aden', icon: CloudRain },
-  { name: 'Brooklyn', value: 'brooklyn', icon: Coffee },
-  { name: 'Earlybird', value: 'earlybird', icon: Sunrise },
-  { name: 'Inkwell', value: 'inkwell', icon: Moon },
-  { name: 'Nashville', value: 'nashville', icon: Star },
-  { name: 'Perpetua', value: 'perpetua', icon: Contrast },
-  { name: 'Reyes', value: 'reyes', icon: Droplet },
-  { name: 'Rise', value: 'rise', icon: Sunrise },
-  { name: 'Slumber', value: 'slumber', icon: Moon },
-  { name: 'Toaster', value: 'toaster', icon: Flame },
-  { name: 'Walden', value: 'walden', icon: Wind },
-  { name: 'Willow', value: 'willow', icon: Snowflake },
-  { name: 'Vintage', value: 'vintage', icon: Camera },
-  { name: 'Cool', value: 'cool', icon: Snowflake },
-  { name: 'Warm', value: 'warm', icon: Flame },
-  { name: 'Dramatic', value: 'dramatic', icon: Zap },
-  { name: 'Vivid', value: 'vivid', icon: Aperture },
-];
-
-// Filter CSS values map
-const FILTER_STYLES: Record<string, string> = {
-  normal: 'none',
-  clarendon: 'contrast(1.2) saturate(1.35) brightness(1.1)',
-  gingham: 'brightness(1.05) hue-rotate(-10deg)',
-  juno: 'contrast(1.2) saturate(1.4) brightness(1.1) sepia(0.2)',
-  lark: 'contrast(0.9) saturate(0.85) brightness(1.08)',
-  ludwig: 'contrast(1.05) brightness(1.05) saturate(2)',
-  valencia: 'contrast(1.08) brightness(1.08) sepia(0.08)',
-  xpro2: 'sepia(0.3) contrast(1.3) brightness(0.95) saturate(1.2)',
-  aden: 'contrast(0.9) brightness(1.2) saturate(0.85) hue-rotate(-20deg)',
-  brooklyn: 'contrast(0.9) brightness(1.1) sepia(0.1)',
-  earlybird: 'contrast(0.9) sepia(0.2) brightness(1.1)',
-  inkwell: 'grayscale(100%) contrast(1.1) brightness(1.1)',
-  nashville: 'sepia(0.2) contrast(1.2) brightness(1.05) saturate(1.2)',
-  perpetua: 'contrast(1.1) saturate(1.2)',
-  reyes: 'sepia(0.22) brightness(1.1) contrast(0.85) saturate(0.75)',
-  rise: 'brightness(1.05) sepia(0.2) contrast(0.9) saturate(0.9)',
-  slumber: 'saturate(0.66) brightness(1.05)',
-  toaster: 'contrast(1.5) brightness(0.9) sepia(0.1)',
-  walden: 'brightness(1.1) hue-rotate(-10deg) sepia(0.3) saturate(1.6)',
-  willow: 'grayscale(50%) contrast(0.95) brightness(0.9)',
-  vintage: 'sepia(0.5) contrast(1.2) brightness(0.9)',
-  cool: 'saturate(1.4) brightness(1.05) hue-rotate(-15deg)',
-  warm: 'saturate(1.2) brightness(1.1) hue-rotate(10deg) sepia(0.15)',
-  dramatic: 'contrast(1.5) saturate(0.8) brightness(0.95)',
-  vivid: 'saturate(1.5) contrast(1.1) brightness(1.05)',
-};
 
 export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -162,7 +58,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
-  // Text overlay state
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
   const [showTextEditor, setShowTextEditor] = useState(false);
   const [activeTextId, setActiveTextId] = useState<string | null>(null);
@@ -174,11 +69,9 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
   const [fontStyle, setFontStyle] = useState<'normal' | 'italic'>('normal');
   const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('center');
 
-  // Dragging state
   const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-  // Text overlay functions
   const addTextOverlay = () => {
     if (!newText.trim()) return;
 
@@ -211,7 +104,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
     if (activeTextId === id) setActiveTextId(null);
   };
 
-  // Drag handlers
   const handleTextDragStart = (e: React.MouseEvent | React.TouchEvent, id: string) => {
     e.preventDefault();
     const overlay = textOverlays.find((t) => t.id === id);
@@ -267,7 +159,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
     }
   }, [draggingTextId, handleTextDrag, handleTextDragEnd]);
 
-  // Process image with filter and text overlays
   const processImageWithEdits = async (): Promise<File | null> => {
     if (!selectedFile || fileType !== 'image') return selectedFile;
 
@@ -275,7 +166,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
       const img = new Image();
       img.crossOrigin = 'anonymous';
 
-      // Set timeout for image loading
       const timeout = setTimeout(() => {
         reject(new Error('Image loading timed out'));
       }, 10000);
@@ -298,40 +188,12 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
           canvas.width = img.width;
           canvas.height = img.height;
 
-          // Apply filter
-          const filterStyles: Record<string, string> = {
-            normal: 'none',
-            clarendon: 'contrast(1.2) saturate(1.35) brightness(1.1)',
-            gingham: 'brightness(1.05) hue-rotate(-10deg)',
-            juno: 'contrast(1.2) saturate(1.4) brightness(1.1) sepia(0.2)',
-            lark: 'contrast(0.9) saturate(0.85) brightness(1.08)',
-            ludwig: 'contrast(1.05) brightness(1.05) saturate(2)',
-            valencia: 'contrast(1.08) brightness(1.08) sepia(0.08)',
-            xpro2: 'sepia(0.3) contrast(1.3) brightness(0.95) saturate(1.2)',
-            aden: 'contrast(0.9) brightness(1.2) saturate(0.85) hue-rotate(-20deg)',
-            brooklyn: 'contrast(0.9) brightness(1.1) sepia(0.1)',
-            earlybird: 'contrast(0.9) sepia(0.2) brightness(1.1)',
-            inkwell: 'grayscale(100%) contrast(1.1) brightness(1.1)',
-            nashville: 'sepia(0.2) contrast(1.2) brightness(1.05) saturate(1.2)',
-            perpetua: 'contrast(1.1) saturate(1.2)',
-            reyes: 'sepia(0.22) brightness(1.1) contrast(0.85) saturate(0.75)',
-            rise: 'brightness(1.05) sepia(0.2) contrast(0.9) saturate(0.9)',
-            slumber: 'saturate(0.66) brightness(1.05)',
-            toaster: 'contrast(1.5) brightness(0.9) sepia(0.1)',
-            walden: 'brightness(1.1) hue-rotate(-10deg) sepia(0.3) saturate(1.6)',
-            willow: 'grayscale(50%) contrast(0.95) brightness(0.9)',
-            vintage: 'sepia(0.5) contrast(1.2) brightness(0.9)',
-            cool: 'saturate(1.4) brightness(1.05) hue-rotate(-15deg)',
-            warm: 'saturate(1.2) brightness(1.1) hue-rotate(10deg) sepia(0.15)',
-            dramatic: 'contrast(1.5) saturate(0.8) brightness(0.95)',
-            vivid: 'saturate(2) contrast(1.2) brightness(1.05)',
-          };
+          const filterStyles = FILTER_STYLES;
 
           ctx.filter = filterStyles[selectedFilter] || 'none';
           ctx.drawImage(img, 0, 0);
           ctx.filter = 'none';
 
-          // Draw text overlays
           textOverlays.forEach((overlay) => {
             const x = (overlay.x / 100) * canvas.width;
             const y = (overlay.y / 100) * canvas.height;
@@ -377,7 +239,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
             0.9
           );
         } catch (error) {
-          console.error('Error processing image:', error);
           resolve(selectedFile);
         }
       };
@@ -389,13 +250,11 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
       setError('Please select an image or video file');
       return;
     }
 
-    // Validate file size (max 50MB)
     if (file.size > 50 * 1024 * 1024) {
       setError('File size must be less than 50MB');
       return;
@@ -406,7 +265,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
     const type = file.type.startsWith('image/') ? 'image' : 'video';
     setFileType(type);
 
-    // Create preview URL
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
   };
@@ -420,7 +278,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
     try {
       let fileToUpload = selectedFile;
 
-      // Only process image files with filters/text overlays
       if (fileType === 'image' && (selectedFilter !== 'normal' || textOverlays.length > 0)) {
         try {
           const processedFile = await processImageWithEdits();
@@ -428,16 +285,13 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
             fileToUpload = processedFile;
           }
         } catch (processError) {
-          console.warn('Image processing failed, using original file:', processError);
-          // Continue with original file if processing fails
+          fileToUpload = selectedFile;
         }
       }
-
       const formData = new FormData();
       formData.append('file', fileToUpload);
       formData.append('filter', selectedFilter);
 
-      // Add music data if selected
       if (selectedMusic) {
         const musicData = {
           trackId: selectedMusic.trackId,
@@ -459,9 +313,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
         setError(response.message || 'Failed to upload story');
       }
     } catch (err: any) {
-      console.error('❌ Error uploading story:', err);
-
-      // Provide more specific error messages based on error type
       let errorMessage = 'Failed to upload story. Please try again.';
 
       if (err?.statusCode === 408) {
@@ -505,7 +356,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div className="bg-background rounded-3xl shadow-2xl max-w-xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border flex-shrink-0">
           <h2 className="text-xl font-bold">Add to Story</h2>
           <button
@@ -517,10 +367,8 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
           </button>
         </div>
 
-        {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 min-h-0">
           {!selectedFile ? (
-            // Upload area
             <div
               onClick={() => fileInputRef.current?.click()}
               className="border-2 border-dashed border-border rounded-2xl p-12 text-center cursor-pointer hover:border-primary transition"
@@ -551,7 +399,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
               </div>
             </div>
           ) : (
-            // Preview area
             <div className="space-y-3">
               <div
                 ref={imageContainerRef}
@@ -574,7 +421,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                   />
                 )}
 
-                {/* Text Overlays */}
                 {textOverlays.map((overlay) => (
                   <div
                     key={overlay.id}
@@ -613,7 +459,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                   </div>
                 ))}
 
-                {/* Add text button */}
                 <button
                   onClick={() => setShowTextEditor(true)}
                   className="absolute top-3 left-3 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition"
@@ -622,7 +467,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                   <Type className="w-5 h-5" />
                 </button>
 
-                {/* Music indicator overlay */}
                 {selectedMusic && (
                   <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-sm rounded-xl p-3 flex items-center gap-3">
                     <div className="w-10 h-10 rounded bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0">
@@ -644,7 +488,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                 )}
               </div>
 
-              {/* Filter Gallery */}
               <div className="space-y-2">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
                   Filters
@@ -669,12 +512,10 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                               : 'border-border'
                           }`}
                         >
-                          {/* Gradient background with filter applied */}
                           <div
                             className="absolute inset-0 bg-gradient-to-br from-purple-400 via-pink-400 to-orange-400"
                             style={{ filter: FILTER_STYLES[filter.value] || 'none' }}
                           />
-                          {/* Icon overlay */}
                           <div className="absolute inset-0 flex items-center justify-center bg-black/10">
                             <IconComponent className="w-6 h-6 text-white drop-shadow-md" />
                           </div>
@@ -688,7 +529,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                 </div>
               </div>
 
-              {/* Text Editor Panel */}
               {showTextEditor && (
                 <div className="p-3 bg-muted rounded-xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -710,7 +550,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                     maxLength={100}
                   />
 
-                  {/* Font Size */}
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground w-12">Size:</span>
                     <input
@@ -724,7 +563,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                     <span className="text-xs w-8">{fontSize}px</span>
                   </div>
 
-                  {/* Text Style Buttons */}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setFontWeight(fontWeight === 'bold' ? 'normal' : 'bold')}
@@ -759,7 +597,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                     </button>
                   </div>
 
-                  {/* Text Colors */}
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground">Text Color:</span>
                     <div className="flex gap-1 flex-wrap">
@@ -774,7 +611,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                     </div>
                   </div>
 
-                  {/* Background Colors */}
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground">Background:</span>
                     <div className="flex gap-1 flex-wrap">
@@ -800,7 +636,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
                 </div>
               )}
 
-              {/* Add Music Button */}
               {!selectedMusic && (
                 <Button
                   variant="outline"
@@ -830,7 +665,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
           />
         </div>
 
-        {/* Footer with Action Buttons - Always Visible */}
         {selectedFile && (
           <div className="border-t border-border p-4 flex gap-3 flex-shrink-0 bg-background">
             <Button
@@ -858,7 +692,6 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
         )}
       </div>
 
-      {/* Music Picker Modal */}
       <MusicPickerModal
         isOpen={showMusicPicker}
         onClose={() => setShowMusicPicker(false)}

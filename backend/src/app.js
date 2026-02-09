@@ -2,6 +2,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import mongoSanitize from 'express-mongo-sanitize';
 import fs from 'fs';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -41,6 +42,14 @@ app.use(
 app.use(express.json({ limit: '16kb' }));
 app.use(express.urlencoded({ extended: true, limit: '16kb' }));
 app.use(cookieParser());
+// express-mongo-sanitize middleware disabled — incompatible with Express v5
+// (req.query is a getter in Express 5, mongoSanitize tries to set it and crashes)
+// Instead, sanitize only req.body and req.params manually:
+app.use((req, res, next) => {
+  if (req.body) mongoSanitize.sanitize(req.body);
+  if (req.params) mongoSanitize.sanitize(req.params);
+  next();
+});
 app.use(express.static('public'));
 
 app.use(
@@ -50,33 +59,10 @@ app.use(
   })
 );
 
-// Rate limiting disabled
-// const apiLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000,
-//   max: 500,
-//   standardHeaders: true,
-//   legacyHeaders: false,
-//   message: { success: false, message: 'Too many requests, please try again later' },
-//   skip: (req) => req.path.startsWith('/uploads'),
-// });
-
-// const uploadLimiter = rateLimit({
-//   windowMs: 60 * 60 * 1000,
-//   max: 50,
-//   standardHeaders: true,
-//   legacyHeaders: false,
-//   message: { success: false, message: 'Upload limit exceeded. Try again in an hour.' },
-// });
-
-// const authLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000,
-//   max: 10,
-//   standardHeaders: true,
-//   legacyHeaders: false,
-//   message: { success: false, message: 'Too many login attempts. Try again later.' },
-// });
-
-// app.use('/api', apiLimiter);
+// ─── Rate Limiting ──────────────────────────────────────────────
+// Rate limiting is DISABLED per client request.
+// The rate limiter module exists at middleware/rateLimiter.js
+// and can be re-enabled if needed in the future.
 
 // Redirect legacy storys path to stories (for old URLs in database)
 app.use('/uploads/storys', (req, res) => {
@@ -194,13 +180,7 @@ import searchRoutes from './routes/search.routes.js';
 import storyRoutes from './routes/story.routes.js';
 import systemRoutes from './routes/system.routes.js';
 import { userRoutes } from './routes/user.routes.js';
-
-// Rate limiting disabled
-// app.use('/api/v1/users/login', authLimiter);
-// app.use('/api/v1/users/register', authLimiter);
-// app.use('/api/v1/post/upload', uploadLimiter);
-// app.use('/api/v1/reel/upload', uploadLimiter);
-// app.use('/api/v1/story/upload', uploadLimiter);
+import webrtcRoutes from './routes/webrtc.routes.js';
 
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/follow', followRoutes);
@@ -216,6 +196,7 @@ app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/comment', commentRoutes);
 app.use('/api/v1/live', liveStreamRoutes);
+app.use('/api/v1/webrtc', webrtcRoutes);
 app.use(healthRoutes);
 
 app.use((req, res, next) => {

@@ -11,7 +11,6 @@ interface VideoContextType {
 const VideoContext = createContext<VideoContextType | undefined>(undefined);
 
 export function VideoProvider({ children }: { children: ReactNode }) {
-  // Global mute state - starts muted like Instagram
   const [isMuted, setIsMuted] = useState(true);
 
   const setMuted = useCallback((muted: boolean) => {
@@ -37,7 +36,6 @@ export function useVideo() {
   return context;
 }
 
-// Safe hook that doesn't throw if used outside provider
 export function useVideoSafe() {
   const context = useContext(VideoContext);
   return context ?? { isMuted: true, setMuted: () => {}, toggleMute: () => {} };

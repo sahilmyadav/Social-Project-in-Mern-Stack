@@ -1,5 +1,7 @@
 // SMS Service for sending OTP via SMS
-// You can integrate with Twilio, AWS SNS, or any other SMS provider
+// Integrate with Twilio, AWS SNS, or any other SMS provider
+
+import logger from '../utils/logger.js';
 
 class SMSService {
   constructor() {
@@ -8,43 +10,45 @@ class SMSService {
   }
 
   /**
-   * Send OTP via SMS
-   * @param {string} phoneNumber - Recipient phone number
-   * @param {string} otp - OTP code
-   * @param {string} type - Type of OTP (registration, login, etc.)
+   * Send OTP via SMS.
+   * In production, throws if no SMS provider is configured.
    */
-  async sendOTP(phoneNumber, otp, type = "verification") {
-    try {
-      // Example with Twilio (uncomment and configure when ready)
+  async sendOTP(phoneNumber, otp, type = 'verification') {
+    const isProd = process.env.NODE_ENV === 'production';
+
+    if (isProd && !SMSService.isConfigured()) {
+      throw new Error(
+        'SMS service is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER.'
+      );
+    }
+
+    if (SMSService.isConfigured()) {
+      // Uncomment when Twilio is integrated:
       /*
       const message = await this.client.messages.create({
-        body: `Your ${type} OTP is: ${otp}. Valid for 2 minutes. Do not share this code.`,
+        body: `Your ${type} OTP is: ${otp}. Valid for 10 minutes.`,
         from: process.env.TWILIO_PHONE_NUMBER,
-        to: phoneNumber
+        to: phoneNumber,
       });
-      
-      return message;
+      return { success: true, messageId: message.sid };
       */
-
-      // For development/testing - just log the OTP
-
-      // Simulate successful SMS send
-      return {
-        success: true,
-        message: "OTP sent successfully (development mode)",
-      };
-    } catch (error) {
-      console.error("SMS Service Error:", error);
-      throw new Error(`Failed to send SMS: ${error.message}`);
     }
+
+    // Development mode only
+    logger.warn('SMS not configured — OTP logged for dev only', {
+      phoneLast4: phoneNumber.slice(-4),
+      type,
+    });
+
+    return {
+      success: true,
+      message: 'OTP sent successfully (development mode)',
+      development: true,
+    };
   }
 
-  /**
-   * Check if SMS service is configured
-   */
   static isConfigured() {
-    // Check if required environment variables are set
-    return (
+    return !!(
       process.env.TWILIO_ACCOUNT_SID &&
       process.env.TWILIO_AUTH_TOKEN &&
       process.env.TWILIO_PHONE_NUMBER

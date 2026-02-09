@@ -1,13 +1,10 @@
-// API Configuration
 export const API_CONFIG = {
   BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3333/api/v1',
   SOCKET_URL: process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3333',
-  TIMEOUT: 30000, // 30 seconds
+  TIMEOUT: 30000,
 };
 
-// API Endpoints
 export const API_ENDPOINTS = {
-  // Auth
   AUTH: {
     REGISTER: '/users/register',
     VERIFY_REGISTER: '/users/verify-register',
@@ -37,7 +34,6 @@ export const API_ENDPOINTS = {
     VERIFY_PHONE_CHANGE: '/users/verify-phone-change',
   },
 
-  // Posts
   POSTS: {
     CREATE: '/post/upload',
     DELETE: (postId: string) => `/post/delete/${postId}`,
@@ -53,10 +49,9 @@ export const API_ENDPOINTS = {
     REPORT: (postId: string) => `/post/report/${postId}`,
     EXPLORE: '/post/explore',
 
-    TOTAL_COUNT: '/post/totalPostCount', // todo update this into total followers and total following
+    TOTAL_COUNT: '/post/totalPostCount',
   },
 
-  // Comments
   COMMENTS: {
     LIKE: (commentId: string) => `/comment/like/${commentId}`,
     UNLIKE: (commentId: string) => `/comment/unlike/${commentId}`,
@@ -66,7 +61,6 @@ export const API_ENDPOINTS = {
     DELETE: (commentId: string) => `/comment/delete/${commentId}`,
   },
 
-  // Reels
   REELS: {
     UPLOAD: '/reel/upload',
     DELETE: (reelId: string) => `/reel/delete/${reelId}`,
@@ -83,7 +77,6 @@ export const API_ENDPOINTS = {
     VIEW: (reelId: string) => `/reel/view/${reelId}`,
   },
 
-  // Stories
   STORIES: {
     UPLOAD: '/story/upload',
     DELETE: (storyId: string) => `/story/delete/${storyId}`,
@@ -94,7 +87,6 @@ export const API_ENDPOINTS = {
     GET_VIEWERS: (storyId: string) => `/story/viewers/${storyId}`,
   },
 
-  // Feed
   FEED: {
     HOME: '/feed/home',
     REELS: '/feed/reels',
@@ -102,11 +94,9 @@ export const API_ENDPOINTS = {
     USER_POSTS: (userId: string) => `/feed/posts/${userId}`,
   },
 
-  // Follow
   FOLLOW: {
     FOLLOW_USER: (userId: string) => `/follow/request/${userId}`,
     UNFOLLOW_USER: (userId: string) => `/follow/unfollow/${userId}`,
-    SEND_REQUEST: (userId: string) => `/follow/request/${userId}`,
     ACCEPT_REQUEST: (requestId: string) => `/follow/accept/${requestId}`,
     REJECT_REQUEST: (requestId: string) => `/follow/reject/${requestId}`,
     CANCEL_REQUEST: (userId: string) => `/follow/cancel/${userId}`,
@@ -118,7 +108,6 @@ export const API_ENDPOINTS = {
     FOLLOW_BACK: (userId: string) => `/follow/follow-back/${userId}`,
   },
 
-  // Chat
   CHAT: {
     GET_THREAD: (userId: string) => `/chat/thread/${userId}`,
     SEND_MESSAGE: (threadId: string) => `/chat/message/send/${threadId}`,
@@ -130,19 +119,8 @@ export const API_ENDPOINTS = {
     DELETE_THREAD: (threadId: string) => `/chat/thread/delete/${threadId}`,
     UPLOAD_MEDIA: '/chat/media/upload',
     GET_UNREAD_COUNT: '/chat/unread-count',
-
-    // Group Chat Endpoints
-    CREATE_GROUP: '/group',
-    GET_GROUP_DETAILS: (groupId: string) => `/group/${groupId}`,
-    UPDATE_GROUP: (groupId: string) => `/group/${groupId}`,
-    ADD_MEMBERS: (groupId: string) => `/group/${groupId}/members`,
-    REMOVE_MEMBER: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}`,
-    LEAVE_GROUP: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}`,
-    MAKE_ADMIN: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}/role`,
-    UPDATE_GROUP_AVATAR: (groupId: string) => `/group/${groupId}`,
   },
 
-  // Notifications
   NOTIFICATIONS: {
     GET_ALL: '/notifications/list',
     MARK_READ: (notificationId: string) => `/notifications/read/${notificationId}`,
@@ -152,7 +130,6 @@ export const API_ENDPOINTS = {
     UPDATE_SETTINGS: '/notifications/settings/update',
   },
 
-  // Search
   SEARCH: {
     GLOBAL: '/search/global',
     USERS: '/search/users',
@@ -163,7 +140,6 @@ export const API_ENDPOINTS = {
     CLEAR_HISTORY: '/search/history',
   },
 
-  // Admin
   ADMIN: {
     LOGIN: '/admin/login',
     DASHBOARD: '/admin/dashboard',
@@ -179,7 +155,6 @@ export const API_ENDPOINTS = {
     ANALYTICS: '/admin/analytics',
   },
 
-  // Live Streaming
   LIVE: {
     CREATE: '/live/create',
     START: (streamId: string) => `/live/start/${streamId}`,
@@ -196,26 +171,21 @@ export const API_ENDPOINTS = {
     DELETE: (streamId: string) => `/live/delete/${streamId}`,
   },
 
-  // Group Chat & Calls
   GROUP: {
-    // Group Management
     CREATE: '/group',
     GET_MY_GROUPS: '/group',
     GET_DETAILS: (groupId: string) => `/group/${groupId}`,
     UPDATE: (groupId: string) => `/group/${groupId}`,
     DELETE: (groupId: string) => `/group/${groupId}`,
 
-    // Members
     ADD_MEMBERS: (groupId: string) => `/group/${groupId}/members`,
     REMOVE_MEMBER: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}`,
     UPDATE_ROLE: (groupId: string, memberId: string) =>
       `/group/${groupId}/members/${memberId}/role`,
 
-    // Invite Links
     GENERATE_INVITE: (groupId: string) => `/group/${groupId}/invite`,
     JOIN_VIA_INVITE: (code: string) => `/group/join/${code}`,
 
-    // Messages
     SEND_MESSAGE: (groupId: string) => `/group/${groupId}/messages`,
     GET_MESSAGES: (groupId: string) => `/group/${groupId}/messages`,
     REACT_TO_MESSAGE: (groupId: string, messageId: string) =>
@@ -233,7 +203,6 @@ export const API_ENDPOINTS = {
     GET_STARRED: (groupId: string) => `/group/${groupId}/starred`,
     GET_MEDIA: (groupId: string) => `/group/${groupId}/media`,
 
-    // Calls
     INITIATE_CALL: (groupId: string) => `/group/${groupId}/call`,
     GET_ACTIVE_CALL: (groupId: string) => `/group/${groupId}/call/active`,
     GET_CALL_HISTORY: (groupId: string) => `/group/${groupId}/call/history`,
@@ -248,7 +217,6 @@ export const API_ENDPOINTS = {
     TOGGLE_RECORDING: (callId: string) => `/group/call/${callId}/recording`,
   },
 
-  // System
   SYSTEM: {
     APP_UPDATE: '/system/app-update',
     SERVER_HEALTH: '/system/server-health',

@@ -19,7 +19,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
   const [newComment, setNewComment] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
-  // Reply States
   const [replyingTo, setReplyingTo] = useState<{ commentId: string; username: string } | null>(null)
   const [replyText, setReplyText] = useState("")
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set())
@@ -29,7 +28,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
 
   const { confirm, dialogProps } = useConfirmDialog()
 
-  /* Safe Comparison Helper */
   const isOwner = (id1: any, id2: any) => {
     if (!id1 || !id2) return false
     return String(id1) === String(id2)
@@ -54,7 +52,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
         setComments(response.data.comments || [])
       }
     } catch (error) {
-      console.error("Error loading comments:", error)
     } finally {
       setLoading(false)
     }
@@ -73,7 +70,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
         setNewComment("")
       }
     } catch (error) {
-      console.error("Error posting comment:", error)
     } finally {
       setSubmitting(false)
     }
@@ -99,14 +95,12 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
         const commentId = replyingTo.commentId
         setReplyingTo(null)
 
-        // Update reply count for the main comment
         setComments(prev => prev.map(c =>
           c._id === commentId
             ? { ...c, replies_count: (c.replies_count || 0) + 1 }
             : c
         ))
 
-        // Auto-expand replies and fetch new list
         setExpandedReplies(prev => new Set(prev).add(commentId))
 
         try {
@@ -115,11 +109,9 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
             setRepliesData(prev => new Map(prev).set(commentId, repliesResponse.data.replies))
           }
         } catch (error) {
-          console.error("Error loading replies:", error)
         }
       }
     } catch (error) {
-      console.error("Error posting reply:", error)
     } finally {
       setSubmittingReply(false)
     }
@@ -145,7 +137,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
             setRepliesData(prev => new Map(prev).set(commentId, response.data.replies))
           }
         } catch (error) {
-          console.error("Error loading replies:", error)
         } finally {
           setLoadingReplies(prev => {
             const newSet = new Set(prev)
@@ -161,12 +152,10 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
     try {
       let isCurrentlyLiked = false
 
-      // Check if main comment
       const comment = comments.find(c => c._id === commentId)
       if (comment) {
         isCurrentlyLiked = comment.isLiked || false
       } else {
-        // Check replies
         for (const [parentId, replies] of repliesData.entries()) {
           const reply = replies.find((r: any) => r._id === commentId)
           if (reply) {
@@ -176,14 +165,12 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
         }
       }
 
-      // Optimistic update for main comments
       setComments(prev => prev.map(c =>
         c._id === commentId
           ? { ...c, isLiked: !c.isLiked, likes_count: c.isLiked ? (c.likes_count || 1) - 1 : (c.likes_count || 0) + 1 }
           : c
       ))
 
-      // Optimistic update for replies
       setRepliesData(prev => {
         const newMap = new Map(prev)
         for (const [parentId, replies] of newMap.entries()) {
@@ -205,8 +192,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
         await commentService.likeComment(commentId)
       }
     } catch (error) {
-      console.error("Error liking comment:", error)
-      // We should technically revert here if error, but user can retry
     }
   }
 
@@ -240,7 +225,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
               return newMap
             })
 
-            // Update reply count UI on parent
             setComments(prev => prev.map(c =>
               c._id === parentCommentId
                 ? { ...c, replies_count: Math.max(0, (c.replies_count || 1) - 1) }
@@ -250,7 +234,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
 
           await commentService.deleteComment(commentId)
         } catch (error) {
-          console.error("Error deleting comment:", error)
           loadComments()
         }
       }
@@ -263,7 +246,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <ConfirmDialog {...dialogProps} />
       <div className="bg-card rounded-2xl border border-border w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h3 className="font-bold text-lg">Comments</h3>
           <button
@@ -274,7 +256,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
           </button>
         </div>
 
-        {/* Comments List */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
@@ -284,7 +265,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
             <div className="space-y-4">
               {comments.map((comment) => (
                 <div key={comment._id} className="space-y-2">
-                  {/* Main Comment */}
                   <div className="flex gap-3">
                     <UserAvatar user={comment.user_id} size="sm" />
                     <div className="flex-1 min-w-0">
@@ -300,7 +280,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
                         <p className="text-sm text-foreground break-words">{comment.text}</p>
                       </div>
 
-                      {/* Comment Actions */}
                       <div className="flex items-center gap-3 mt-1 px-2">
                         <button
                           onClick={() => handleLikeComment(comment._id)}
@@ -335,7 +314,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
                     </div>
                   </div>
 
-                  {/* Nested Replies */}
                   {expandedReplies.has(comment._id) && (
                     <div className="ml-12 mt-2 space-y-3 pl-3 border-l-2 border-muted/50">
                       {loadingReplies.has(comment._id) ? (
@@ -398,7 +376,6 @@ export default function ReelComments({ reel, currentUserId, isOpen, onClose }: R
           )}
         </div>
 
-        {/* Comment Input */}
         <div className="p-4 border-t border-border bg-card">
           {replyingTo && (
             <div className="flex items-center justify-between bg-muted/50 px-3 py-2 rounded-lg mb-2 text-xs">

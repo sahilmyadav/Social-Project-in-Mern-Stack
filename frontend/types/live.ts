@@ -1,10 +1,7 @@
 /**
- * ============================================================================
- * LIVE STREAMING TYPES
- * ============================================================================
+ * Live Streaming Types
  *
- * Type definitions for the Instagram-like live streaming feature.
- * These types are used throughout the frontend for type safety.
+ * Type definitions for the live streaming feature.
  */
 
 /**

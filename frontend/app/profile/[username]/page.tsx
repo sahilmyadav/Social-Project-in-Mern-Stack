@@ -62,11 +62,9 @@ export default function UserProfilePage() {
   const [showReelComments, setShowReelComments] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
-  // Image editor state
   const [showCoverEditor, setShowCoverEditor] = useState(false);
   const [selectedCoverFile, setSelectedCoverFile] = useState<File | null>(null);
 
-  // Report user modal state
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
 
@@ -75,7 +73,6 @@ export default function UserProfilePage() {
     loadUserProfile();
   }, [usernameOrId]);
 
-  // Load posts and reels when profile loads or follow status changes
   useEffect(() => {
     if (profileUser) {
       loadUserPosts();
@@ -89,17 +86,14 @@ export default function UserProfilePage() {
       if (userData) {
         setCurrentUser(JSON.parse(userData));
       } else {
-        // Try to fetch from API
         const response = await authService.getCurrentUser();
         if (response.success && response.data) {
-          // Handle potential nested data structure { data: user, ... }
           const userData = response.data.data || response.data;
           setCurrentUser(userData);
           localStorage.setItem('user', JSON.stringify(userData));
         }
       }
     } catch (error) {
-      console.error('Error loading current user:', error);
     }
   };
 
@@ -108,11 +102,9 @@ export default function UserProfilePage() {
     setNotFound(false);
     try {
       const response = await authService.getUserProfile(usernameOrId);
-      console.log('getUserProfile response:', response);
 
       if (response.success && response.data) {
         const user = response.data;
-        console.log('Setting profile user with coverPhoto:', user.coverPhoto);
 
         setProfileUser({
           _id: user._id,
@@ -122,7 +114,6 @@ export default function UserProfilePage() {
           username:
             user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
           bio: user.bio || '',
-          // Use profileImage (backend convention), falling back to avatar, then legacy profilePicture, then default
           profilePicture: user.profileImage || user.avatar || user.profilePicture || '👤',
           coverPhoto: user.coverPhoto || null,
           followersCount: user.followersCount || 0,
@@ -136,17 +127,14 @@ export default function UserProfilePage() {
           followsYou: user.followsYou || false,
         });
 
-        // Set blocked status from API response
         if (user.isBlocked === true) {
           setIsBlocked(true);
         } else {
           setIsBlocked(false);
         }
 
-        // Set followsYou status from API response
         setFollowsYou(user.followsYou || false);
 
-        // Set follow status from API response (API is source of truth)
         if (user.isFollowing === true) {
           setFollowStatus('following');
           localStorage.setItem(`follow_status_${user._id}`, 'following');
@@ -154,21 +142,16 @@ export default function UserProfilePage() {
           setFollowStatus('pending');
           localStorage.setItem(`follow_status_${user._id}`, 'pending');
         } else {
-          // Not following
           setFollowStatus('none');
           localStorage.setItem(`follow_status_${user._id}`, 'none');
         }
       }
     } catch (error: any) {
-      console.error('Error loading user profile:', error);
 
-      // Handle 404 Not Found (User blocked or doesn't exist)
       if (error?.statusCode === 404 || error?.status === 404) {
         setNotFound(true);
         setProfileUser(null);
       } else {
-        // Only set fallback if it's NOT a 404 error (e.g. network error)
-        // Or we can just set notFound to true as well for safety to avoid crashing
         setNotFound(true);
       }
     } finally {
@@ -180,7 +163,6 @@ export default function UserProfilePage() {
     try {
       const isOwnProfile = currentUser?._id === profileUser?._id;
 
-      // Don't load posts if account is private and not following
       if (profileUser?.isPrivate && followStatus !== 'following' && !isOwnProfile) {
         setPosts([]);
         return;
@@ -191,14 +173,12 @@ export default function UserProfilePage() {
         limit: 20,
       });
       if (response.success && response.data) {
-        // Handle different response structures - data might be an array or an object with posts
         const userPosts = Array.isArray(response.data) ? response.data : response.data.posts || [];
         setPosts(userPosts);
       } else {
         setPosts([]);
       }
     } catch (error) {
-      console.error('Error loading user posts:', error);
       setPosts([]);
     }
   };
@@ -208,7 +188,6 @@ export default function UserProfilePage() {
       setReelsLoading(true);
       const isOwnProfile = currentUser?._id === profileUser?._id;
 
-      // Don't load reels if account is private and not following
       if (profileUser?.isPrivate && followStatus !== 'following' && !isOwnProfile) {
         setReels([]);
         setReelsLoading(false);
@@ -220,20 +199,17 @@ export default function UserProfilePage() {
         limit: 20,
       });
       if (response.success && response.data) {
-        // Handle different response structures - data might be an array or an object with reels
         const userReels = Array.isArray(response.data) ? response.data : response.data.reels || [];
         setReels(userReels);
       } else {
         setReels([]);
       }
     } catch (error) {
-      console.error('Error loading user reels:', error);
       setReels([]);
     } finally {
       setReelsLoading(false);
     }
   };
-  // const handleFollowAction
   const handleFollowAction = async () => {
     if (isProcessing || !profileUser?._id) return;
 
@@ -245,7 +221,6 @@ export default function UserProfilePage() {
         if (response.success) {
           setFollowStatus('none');
           localStorage.setItem(`follow_status_${targetUserId}`, 'none');
-          // Update follower count
           setProfileUser((prev: any) => ({
             ...prev,
             followersCount: Math.max(0, (prev?.followersCount || 0) - 1),
@@ -259,51 +234,41 @@ export default function UserProfilePage() {
             localStorage.setItem(`follow_status_${targetUserId}`, 'none');
           }
         } catch (cancelError: any) {
-          // Check if error is "not found" (request already canceled or doesn't exist)
           const errorMessage = cancelError?.message || cancelError?.error || '';
           const statusCode = cancelError?.statusCode || 0;
 
           if (statusCode === 404 || errorMessage.toLowerCase().includes('not found')) {
-            // Request doesn't exist - set status to none anyway
             setFollowStatus('none');
             localStorage.setItem(`follow_status_${targetUserId}`, 'none');
           } else {
-            // Other error - rethrow
             throw cancelError;
           }
         }
       } else {
-        // Use sendFollowRequest for all accounts (public and private)
         try {
           const response = await followService.sendFollowRequest(targetUserId);
           if (response.success) {
-            // Check if auto-approved (public account)
             if (
               response.data?.autoApproved ||
               response.data?.followRequest?.status === 'accepted'
             ) {
               setFollowStatus('following');
               localStorage.setItem(`follow_status_${targetUserId}`, 'following');
-              // Update follower count for public accounts
               setProfileUser((prev: any) => ({
                 ...prev,
                 followersCount: (prev?.followersCount || 0) + 1,
               }));
             } else {
-              // Request pending for private accounts
               setFollowStatus('pending');
               localStorage.setItem(`follow_status_${targetUserId}`, 'pending');
             }
           }
         } catch (followError: any) {
-          // Check if error is "already sent"
           const errorMessage = followError?.message || followError?.error || '';
           if (errorMessage.toLowerCase().includes('already sent')) {
-            // Request already exists - set status to pending
             setFollowStatus('pending');
             localStorage.setItem(`follow_status_${targetUserId}`, 'pending');
           } else {
-            // Other error - rethrow to be caught by outer catch
             throw followError;
           }
         }
@@ -311,7 +276,6 @@ export default function UserProfilePage() {
     } catch (error: any) {
       const errorMessage = error?.message || error?.error || 'Failed to perform action';
 
-      // Don't show alert for "already sent" errors (already handled above)
       if (!errorMessage.toLowerCase().includes('already sent')) {
         toasts.error(errorMessage);
       }
@@ -321,7 +285,6 @@ export default function UserProfilePage() {
   };
 
   const handleMessage = async () => {
-    // Navigate to chat page with user info
     const userName =
       profileUser?.fullName ||
       `${profileUser?.firstName} ${profileUser?.lastName}` ||
@@ -333,7 +296,6 @@ export default function UserProfilePage() {
     );
   };
 
-  // Handle file selection - open editor
   const handleCoverPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -343,22 +305,18 @@ export default function UserProfilePage() {
       return;
     }
 
-    // Open the image editor with the selected file
     setSelectedCoverFile(file);
     setShowCoverEditor(true);
 
-    // Reset input so same file can be selected again
     e.target.value = '';
   };
 
-  // Handle save from image editor
   const handleCoverPhotoSave = async (croppedBlob: Blob, previewUrl: string) => {
     const formData = new FormData();
     formData.append('coverPhoto', croppedBlob, 'cover.jpg');
 
     const previousCover = profileUser.coverPhoto;
 
-    // Optimistic update with preview
     setProfileUser((prev: any) => ({ ...prev, coverPhoto: previewUrl }));
 
     try {
@@ -371,9 +329,7 @@ export default function UserProfilePage() {
         toasts.error(response.message || 'Failed to update cover photo');
       }
     } catch (error: any) {
-      console.error('Error updating cover photo:', error);
       if (Object.keys(error).length === 0) {
-        console.error('Empty error object received. Check network tab or server logs.');
       }
       setProfileUser((prev: any) => ({ ...prev, coverPhoto: previousCover }));
       const errorMsg = error?.message || 'Failed to update cover photo';
@@ -403,7 +359,6 @@ export default function UserProfilePage() {
             toasts.error(response.message || 'Failed to block user');
           }
         } catch (error: any) {
-          console.error('Error blocking user:', error);
           toasts.error(error?.message || 'Failed to block user');
         }
       },
@@ -430,7 +385,6 @@ export default function UserProfilePage() {
             toasts.error(response.message || 'Failed to unblock user');
           }
         } catch (error: any) {
-          console.error('Error unblocking user:', error);
           toasts.error(error?.message || 'Failed to unblock user');
         }
       },
@@ -486,22 +440,17 @@ export default function UserProfilePage() {
     <main className="min-h-screen bg-background">
       <ConfirmDialog {...dialogProps} />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 pb-20 lg:pb-0">
-        {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={currentUser} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-3 p-4 lg:p-8">
-          {/* Back Button */}
           <Button variant="ghost" onClick={() => router.back()} className="mb-6 gap-2">
             <ArrowLeft size={20} />
             Back
           </Button>
 
-          {/* Profile Header */}
           <div className="bg-card rounded-2xl border border-border mb-6">
-            {/* Cover Photo */}
             <div className="h-48 md:h-64 relative bg-muted group rounded-t-2xl overflow-hidden">
               {profileUser.coverPhoto?.startsWith('http') ||
               profileUser.coverPhoto?.startsWith('/') ? (
@@ -536,7 +485,6 @@ export default function UserProfilePage() {
 
             <div className="px-8 pb-8">
               <div className="flex flex-col md:flex-row items-center md:items-end -mt-16 md:-mt-20 gap-6">
-                {/* Profile Picture */}
                 <div
                   className="relative cursor-pointer hover:opacity-90 transition"
                   onClick={() =>
@@ -578,7 +526,6 @@ export default function UserProfilePage() {
                       <p className="text-muted-foreground">@{profileUser.username}</p>
                     </div>
 
-                    {/* Action Buttons */}
                     {!isOwnProfile && (
                       <div className="flex gap-2">
                         <Button
@@ -609,7 +556,6 @@ export default function UserProfilePage() {
                           Message
                         </Button>
 
-                        {/* 3-Dot Options Menu */}
                         <div className="relative">
                           <Button
                             onClick={() => setShowOptionsMenu(!showOptionsMenu)}
@@ -620,17 +566,14 @@ export default function UserProfilePage() {
                             <MoreHorizontal size={20} />
                           </Button>
 
-                          {/* Dropdown Menu */}
                           {showOptionsMenu && (
                             <>
-                              {/* Backdrop to close menu */}
                               <div
                                 className="fixed inset-0 z-[9998]"
                                 onClick={() => setShowOptionsMenu(false)}
                               />
 
                               <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl z-[9999]">
-                                {/* Share Profile */}
                                 <button
                                   onClick={async () => {
                                     setShowOptionsMenu(false);
@@ -657,7 +600,6 @@ export default function UserProfilePage() {
                                   <span>Share Profile</span>
                                 </button>
 
-                                {/* Copy Profile Link */}
                                 <button
                                   onClick={async () => {
                                     setShowOptionsMenu(false);
@@ -674,7 +616,6 @@ export default function UserProfilePage() {
                                   <span>Copy Link</span>
                                 </button>
 
-                                {/* Report User */}
                                 <button
                                   onClick={() => {
                                     setShowOptionsMenu(false);
@@ -686,7 +627,6 @@ export default function UserProfilePage() {
                                   <span>Report User</span>
                                 </button>
 
-                                {/* Block/Unblock User */}
                                 {isBlocked ? (
                                   <button
                                     onClick={() => {
@@ -795,7 +735,6 @@ export default function UserProfilePage() {
                     )}
                   </div>
 
-                  {/* Stats */}
                   <div className="flex justify-center md:justify-start gap-8 mb-4">
                     <div className="text-center">
                       <p className="text-2xl font-bold text-foreground">
@@ -817,14 +756,12 @@ export default function UserProfilePage() {
                     </div>
                   </div>
 
-                  {/* Bio */}
                   {profileUser.bio && <p className="text-foreground text-lg">{profileUser.bio}</p>}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Content Tabs */}
           <div className="flex border-b border-border mb-6">
             <button
               onClick={() => setActiveTab('posts')}
@@ -866,7 +803,6 @@ export default function UserProfilePage() {
             </button>
           </div>
 
-          {/* Posts Section */}
           {activeTab === 'posts' && (
             <div className="mb-6">
               {!posts || posts.length === 0 ? (
@@ -936,7 +872,6 @@ export default function UserProfilePage() {
             </div>
           )}
 
-          {/* Reels Section */}
           {activeTab === 'reels' && (
             <div className="mb-6">
               {reelsLoading ? (
@@ -973,7 +908,6 @@ export default function UserProfilePage() {
         </section>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={currentUser} onLogout={handleLogout} isMobile={true} />
 
       {selectedPost && (
@@ -984,7 +918,6 @@ export default function UserProfilePage() {
         />
       )}
 
-      {/* Reel Comments Modal */}
       {selectedReel && (
         <ReelCommentsModal
           open={showReelComments}
@@ -995,7 +928,6 @@ export default function UserProfilePage() {
         />
       )}
 
-      {/* Profile Picture Modal */}
       <Dialog open={showProfileImageModal} onOpenChange={setShowProfileImageModal}>
         <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black/95 border-none sm:max-w-3xl md:max-w-4xl [&>button]:text-white [&>button]:bg-white/10 [&>button]:hover:bg-white/20">
           <DialogTitle className="sr-only">Profile Picture</DialogTitle>
@@ -1013,7 +945,6 @@ export default function UserProfilePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Cover Photo Editor - WhatsApp/Instagram/Telegram style */}
       <ProfileImageEditor
         isOpen={showCoverEditor}
         onClose={() => {
@@ -1027,7 +958,6 @@ export default function UserProfilePage() {
         coverAspectRatio={2.5}
       />
 
-      {/* Report User Modal */}
       <Dialog open={showReportModal} onOpenChange={setShowReportModal}>
         <DialogContent className="sm:max-w-md">
           <DialogTitle className="text-lg font-semibold">Report User</DialogTitle>
@@ -1055,7 +985,6 @@ export default function UserProfilePage() {
             <Button
               onClick={() => {
                 if (reportReason.trim()) {
-                  // TODO: Implement report user API call
                   setShowReportModal(false);
                   setReportReason('');
                   confirm({

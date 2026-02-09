@@ -49,18 +49,15 @@ export default function ReelPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Video states
   const [isPlaying, setIsPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Sync video muted state with global mute
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = globalMuted;
     }
   }, [globalMuted]);
 
-  // Reel states
   const [liked, setLiked] = useState(false);
   const [savedReel, setSavedReel] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
@@ -69,7 +66,6 @@ export default function ReelPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Comments states
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -83,14 +79,12 @@ export default function ReelPage() {
   const [repliesData, setRepliesData] = useState<Map<string, any[]>>(new Map());
   const [loadingReplies, setLoadingReplies] = useState<Set<string>>(new Set());
 
-  // Modals
   const [showShareModal, setShowShareModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const { confirm, dialogProps } = useConfirmDialog();
 
   const commentInputRef = useRef<HTMLInputElement>(null);
 
-  // Load user
   useEffect(() => {
     const userData = localStorage.getItem('user');
     if (userData) {
@@ -100,7 +94,6 @@ export default function ReelPage() {
     }
   }, [router]);
 
-  // Load reel details
   useEffect(() => {
     const fetchReel = async () => {
       if (!reelId) return;
@@ -111,39 +104,24 @@ export default function ReelPage() {
       try {
         const response = await reelService.getReelDetails(reelId);
 
-        // Debug: Log full API response to understand the structure
-        console.log('Full API response:', response);
-        console.log('Response data:', response.data);
-
         if (response.success && response.data) {
           setReel(response.data);
           setLikeCount(response.data.likes_count || response.data.likesCount || 0);
           setViewCount(
             response.data.views_count || response.data.viewsCount || response.data.views || 0
           );
-          // Backend returns is_liked (snake_case), check both formats
           const isLikedValue = response.data.isLiked || response.data.is_liked || false;
-          console.log('Like status from API:', {
-            isLiked: response.data.isLiked,
-            is_liked: response.data.is_liked,
-            finalValue: isLikedValue,
-            likes_count: response.data.likes_count,
-          });
           setLiked(isLikedValue);
           setSavedReel(response.data.isSaved || response.data.is_saved || false);
 
-          // Increment view count
           try {
             await reelService.viewReel(reelId);
             setViewCount((prev) => prev + 1);
           } catch (viewError) {
-            console.log('View count update skipped');
           }
 
-          // Load comments
           await loadComments();
 
-          // Auto-focus comment input if showComments is true
           if (showComments) {
             setTimeout(() => {
               commentInputRef.current?.focus();
@@ -153,7 +131,6 @@ export default function ReelPage() {
           setError('Reel not found');
         }
       } catch (err: any) {
-        console.error('Error fetching reel:', err);
         setError(err.message || 'Failed to load reel');
       } finally {
         setLoading(false);
@@ -163,7 +140,6 @@ export default function ReelPage() {
     fetchReel();
   }, [reelId, showComments]);
 
-  // Load comments
   const loadComments = async () => {
     if (!reelId) return;
 
@@ -174,13 +150,11 @@ export default function ReelPage() {
         setComments(response.data.comments || response.data || []);
       }
     } catch (error) {
-      console.error('Error loading comments:', error);
     } finally {
       setLoadingComments(false);
     }
   };
 
-  // Handle video play/pause
   const togglePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) {
@@ -192,12 +166,10 @@ export default function ReelPage() {
     }
   };
 
-  // Handle mute/unmute
   const toggleMute = () => {
     toggleGlobalMute(); // Toggle global mute state - affects all videos
   };
 
-  // Handle like
   const handleLike = async () => {
     if (isLiking || !reel) return;
 
@@ -205,15 +177,12 @@ export default function ReelPage() {
     const wasLiked = liked;
     const previousCount = likeCount;
 
-    // Optimistic update
     setLiked(!wasLiked);
     setLikeCount(wasLiked ? Math.max(0, previousCount - 1) : previousCount + 1);
 
     try {
-      // toggleLikeReel handles both like and unlike
       const response = await reelService.toggleLikeReel(reel._id);
       if (response.success) {
-        // Always use server response to sync state
         const serverIsLiked = response.data?.isLiked ?? !wasLiked;
         const serverLikeCount =
           response.data?.likes_count ??
@@ -222,13 +191,11 @@ export default function ReelPage() {
         setLiked(serverIsLiked);
         setLikeCount(serverLikeCount);
       } else {
-        // Revert on failure
         setLiked(wasLiked);
         setLikeCount(previousCount);
         showToast.error('Failed to update like');
       }
     } catch (error) {
-      // Revert on error
       setLiked(wasLiked);
       setLikeCount(previousCount);
       showToast.error('Failed to update like');
@@ -237,14 +204,12 @@ export default function ReelPage() {
     }
   };
 
-  // Handle save
   const handleSave = async () => {
     if (isSaving || !reel) return;
 
     setIsSaving(true);
     const wasSaved = savedReel;
 
-    // Optimistic update
     setSavedReel(!wasSaved);
 
     try {
@@ -256,7 +221,6 @@ export default function ReelPage() {
         toasts.reelSaved();
       }
     } catch (error) {
-      // Revert on error
       setSavedReel(wasSaved);
       showToast.error('Failed to update save');
     } finally {
@@ -264,7 +228,6 @@ export default function ReelPage() {
     }
   };
 
-  // Handle delete
   const handleDelete = () => {
     if (isDeleting || !reel) return;
 
@@ -289,7 +252,6 @@ export default function ReelPage() {
     });
   };
 
-  // Handle comment submit
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || isSubmittingComment || !reel) return;
@@ -298,7 +260,6 @@ export default function ReelPage() {
     try {
       const response = await reelService.commentOnReel(reel._id, { text: newComment.trim() });
       if (response.success && response.data) {
-        // Get current user data from localStorage for complete user info
         const currentUserData = localStorage.getItem('user');
         const currentUser = currentUserData ? JSON.parse(currentUserData) : {};
 
@@ -327,14 +288,12 @@ export default function ReelPage() {
     }
   };
 
-  // Handle reply click
   const handleReplyClick = (commentId: string, username: string) => {
     setReplyingTo({ commentId, username });
     setReplyText(`@${username} `);
     commentInputRef.current?.focus();
   };
 
-  // Handle submit reply
   const handleSubmitReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyText.trim() || !replyingTo || submittingReply) return;
@@ -349,17 +308,14 @@ export default function ReelPage() {
         const commentId = replyingTo.commentId;
         setReplyingTo(null);
 
-        // Update the parent comment's reply count
         setComments((prev) =>
           prev.map((c) =>
             c._id === commentId ? { ...c, replies_count: (c.replies_count || 0) + 1 } : c
           )
         );
 
-        // Auto-expand replies
         setExpandedReplies((prev) => new Set(prev).add(commentId));
 
-        // Reload replies
         try {
           const repliesResponse = await commentService.getCommentReplies(commentId, {
             page: 1,
@@ -369,20 +325,17 @@ export default function ReelPage() {
             setRepliesData((prev) => new Map(prev).set(commentId, repliesResponse.data.replies));
           }
         } catch (error) {
-          console.error('Error loading replies:', error);
         }
 
         showToast.success('Reply added');
       }
     } catch (error) {
-      console.error('Error posting reply:', error);
       showToast.error('Failed to post reply');
     } finally {
       setSubmittingReply(false);
     }
   };
 
-  // Handle toggle replies
   const handleToggleReplies = async (commentId: string) => {
     const isExpanded = expandedReplies.has(commentId);
 
@@ -406,7 +359,6 @@ export default function ReelPage() {
             setRepliesData((prev) => new Map(prev).set(commentId, response.data.replies));
           }
         } catch (error) {
-          console.error('Error loading replies:', error);
         } finally {
           setLoadingReplies((prev) => {
             const newSet = new Set(prev);
@@ -418,10 +370,8 @@ export default function ReelPage() {
     }
   };
 
-  // Handle like comment
   const handleLikeComment = async (commentId: string) => {
     try {
-      // Check main comments first
       const comment = comments.find((c) => c._id === commentId);
       let isCurrentlyLiked = false;
       let isReply = false;
@@ -429,7 +379,6 @@ export default function ReelPage() {
       if (comment) {
         isCurrentlyLiked = comment.isLiked || false;
       } else {
-        // Check in replies
         for (const [parentId, replies] of repliesData.entries()) {
           const reply = replies.find((r: any) => r._id === commentId);
           if (reply) {
@@ -440,7 +389,6 @@ export default function ReelPage() {
         }
       }
 
-      // Optimistic update for main comments
       setComments((prev) =>
         prev.map((c) =>
           c._id === commentId
@@ -455,7 +403,6 @@ export default function ReelPage() {
         )
       );
 
-      // Optimistic update for replies
       setRepliesData((prev) => {
         const newMap = new Map(prev);
         for (const [parentId, replies] of newMap.entries()) {
@@ -475,20 +422,16 @@ export default function ReelPage() {
         return newMap;
       });
 
-      // API call
       if (isCurrentlyLiked) {
         await commentService.unlikeComment(commentId);
       } else {
         await commentService.likeComment(commentId);
       }
     } catch (error) {
-      console.error('Error liking comment:', error);
-      // Reload comments on error
       loadComments();
     }
   };
 
-  // Handle delete comment
   const handleDeleteComment = async (commentId: string) => {
     if (!reel) return;
 
@@ -497,7 +440,6 @@ export default function ReelPage() {
       let parentCommentId: string | null = null;
 
       if (!isMainComment) {
-        // Find parent comment for replies
         for (const [parentId, replies] of repliesData.entries()) {
           const reply = replies.find((r: any) => r._id === commentId);
           if (reply) {
@@ -507,7 +449,6 @@ export default function ReelPage() {
         }
       }
 
-      // Optimistic delete
       if (isMainComment) {
         setComments((prev) => prev.filter((c) => c._id !== commentId));
       } else if (parentCommentId) {
@@ -558,7 +499,6 @@ export default function ReelPage() {
     return date.toLocaleDateString();
   };
 
-  // Get author info
   const author = reel?.author || reel?.user_id || reel?.user || {};
   const authorName = `${author.firstName || ''} ${author.lastName || ''}`.trim() || 'Unknown';
   const authorUsername = author.username || 'user';
@@ -566,8 +506,6 @@ export default function ReelPage() {
   const authorAvatar = rawAuthorAvatar ? getMediaUrl(rawAuthorAvatar) : null;
   const isOwner = user?._id === author._id;
 
-  // Get video URL - check all possible locations where video URL might be stored
-  // Priority: media.url (most common) > videoUrl > video_url > media array
   const rawVideoUrl =
     reel?.media?.url ||
     reel?.videoUrl ||
@@ -575,16 +513,7 @@ export default function ReelPage() {
     (Array.isArray(reel?.media) ? reel?.media?.[0]?.url : null);
   const videoUrl = rawVideoUrl ? getMediaUrl(rawVideoUrl) : null;
 
-  // Get thumbnail
   const thumbnailUrl = reel?.media?.thumbnail ? getMediaUrl(reel.media.thumbnail) : undefined;
-
-  // Debug log to help identify the structure
-  console.log('Reel data:', {
-    media: reel?.media,
-    videoUrl: reel?.videoUrl,
-    video_url: reel?.video_url,
-    resolvedVideoUrl: videoUrl,
-  });
 
   if (loading) {
     return (
@@ -608,21 +537,17 @@ export default function ReelPage() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar Navigation */}
       <aside className="hidden lg:block w-64 border-r border-border bg-card fixed left-0 top-0 h-screen overflow-y-auto p-6">
         <Navigation user={user} onLogout={handleLogout} />
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 lg:ml-64 px-4 py-6 sm:px-6 lg:px-8">
-        {/* Back Button */}
         <Button variant="ghost" size="sm" onClick={() => router.back()} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back
         </Button>
 
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Video Section */}
           <div className="relative bg-black rounded-xl overflow-hidden aspect-[9/16] max-h-[80vh]">
             {videoUrl ? (
               <video
@@ -637,7 +562,6 @@ export default function ReelPage() {
                 preload="auto"
                 poster={thumbnailUrl}
                 onCanPlay={() => {
-                  // Ensure video plays when ready
                   if (videoRef.current && isPlaying) {
                     videoRef.current.play().catch((e) => console.log('Autoplay prevented:', e));
                   }
@@ -652,7 +576,6 @@ export default function ReelPage() {
               </div>
             )}
 
-            {/* Video Controls - Mute button top right */}
             {videoUrl && (
               <button
                 onClick={toggleMute}
@@ -662,7 +585,6 @@ export default function ReelPage() {
               </button>
             )}
 
-            {/* Play/Pause Overlay */}
             {videoUrl && !isPlaying && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                 <button
@@ -674,10 +596,8 @@ export default function ReelPage() {
               </div>
             )}
 
-            {/* Bottom gradient overlay */}
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent" />
 
-            {/* Author Info Overlay */}
             <div className="absolute bottom-4 left-4 right-16 z-10">
               <Link href={`/profile/${author.username || author._id}`} className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
@@ -701,15 +621,12 @@ export default function ReelPage() {
               {reel.caption && <p className="text-white text-sm line-clamp-2">{reel.caption}</p>}
             </div>
 
-            {/* Side Actions - Same style as reels feed */}
             <div className="absolute right-2 bottom-6 flex flex-col items-center gap-3 z-10">
-              {/* View Count */}
               <div className="flex flex-col items-center cursor-default">
                 <Eye className="w-6 h-6 text-white" />
                 <span className="text-white text-[11px] mt-0.5">{viewCount}</span>
               </div>
 
-              {/* Like */}
               <button
                 onClick={handleLike}
                 disabled={isLiking}
@@ -722,7 +639,6 @@ export default function ReelPage() {
                 <span className="text-white text-[11px] mt-0.5">{likeCount}</span>
               </button>
 
-              {/* Comment */}
               <button
                 onClick={() => commentInputRef.current?.focus()}
                 className="flex flex-col items-center cursor-pointer"
@@ -731,7 +647,6 @@ export default function ReelPage() {
                 <span className="text-white text-[11px] mt-0.5">{comments.length}</span>
               </button>
 
-              {/* Share */}
               <button
                 onClick={() => setShowShareModal(true)}
                 className="flex flex-col items-center cursor-pointer"
@@ -739,7 +654,6 @@ export default function ReelPage() {
                 <Send className="w-6 h-6 text-white" />
               </button>
 
-              {/* Save */}
               <button
                 onClick={handleSave}
                 disabled={isSaving}
@@ -751,7 +665,6 @@ export default function ReelPage() {
                 />
               </button>
 
-              {/* More Options */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="flex flex-col items-center cursor-pointer">
@@ -777,7 +690,6 @@ export default function ReelPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Author Avatar - like in reels feed */}
               <Link
                 href={`/profile/${author.username || author._id}`}
                 className="w-7 h-7 rounded border-2 border-white overflow-hidden mt-1"
@@ -793,14 +705,12 @@ export default function ReelPage() {
             </div>
           </div>
 
-          {/* Comments Section */}
           <div className="bg-card rounded-xl border border-border p-4 flex flex-col max-h-[80vh]">
             <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
               <MessageCircle className="w-5 h-5" />
               Comments ({comments.length})
             </h3>
 
-            {/* Reply indicator */}
             {replyingTo && (
               <div className="mb-3 bg-primary/5 border border-primary/20 rounded-lg p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -823,7 +733,6 @@ export default function ReelPage() {
               </div>
             )}
 
-            {/* Comment Input */}
             <form
               onSubmit={replyingTo ? handleSubmitReply : handleSubmitComment}
               className="flex gap-2 mb-4"
@@ -855,7 +764,6 @@ export default function ReelPage() {
               </Button>
             </form>
 
-            {/* Comments List */}
             <div className="flex-1 overflow-y-auto">
               {loadingComments ? (
                 <div className="flex justify-center py-4">
@@ -879,7 +787,6 @@ export default function ReelPage() {
 
                     return (
                       <div key={comment._id || comment.id || index}>
-                        {/* Main Comment */}
                         <div className="flex gap-3">
                           <Link href={`/profile/${commentUser.username || commentUser._id}`}>
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-sm font-semibold overflow-hidden flex-shrink-0">
@@ -907,7 +814,6 @@ export default function ReelPage() {
                                 {comment.content || comment.text}
                               </p>
                             </div>
-                            {/* Comment Actions */}
                             <div className="flex items-center gap-3 mt-1 ml-3">
                               <span className="text-xs text-muted-foreground">
                                 {getTimeAgo(comment.createdAt)}
@@ -952,7 +858,6 @@ export default function ReelPage() {
                           </div>
                         </div>
 
-                        {/* Nested Replies */}
                         {expandedReplies.has(comment._id) && (
                           <div className="ml-11 mt-3 space-y-3 border-l-2 border-muted pl-4">
                             {loadingReplies.has(comment._id) ? (
@@ -1008,7 +913,6 @@ export default function ReelPage() {
                                           {reply.text || reply.content}
                                         </p>
                                       </div>
-                                      {/* Reply Actions */}
                                       <div className="flex items-center gap-3 mt-1 px-2">
                                         <button
                                           onClick={() => handleLikeComment(reply._id)}
@@ -1061,10 +965,8 @@ export default function ReelPage() {
         </div>
       </main>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
 
-      {/* Share Modal */}
       <ShareModal
         isOpen={showShareModal}
         onClose={() => setShowShareModal(false)}
@@ -1072,7 +974,6 @@ export default function ReelPage() {
         contentId={reel._id}
       />
 
-      {/* Report Modal */}
       <ReportReelModal
         open={showReportModal}
         onOpenChange={setShowReportModal}
@@ -1080,7 +981,6 @@ export default function ReelPage() {
         reelAuthor={authorUsername}
       />
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </div>
   );

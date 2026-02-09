@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import {
   Check,
@@ -22,9 +22,6 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// ============================================================================
-// TYPES
-// ============================================================================
 interface ProfileImageEditorProps {
   isOpen: boolean;
   onClose: () => void;
@@ -32,15 +29,11 @@ interface ProfileImageEditorProps {
   imageSrc?: string;
   type: 'profile' | 'cover';
   onSave: (croppedImageBlob: Blob, previewUrl: string) => void;
-  /** Custom aspect ratio for cover photos (default: 2.5 for cover, 1 for profile) */
   coverAspectRatio?: number;
-  /** Enable face auto-detection for profile photos */
   enableFaceDetection?: boolean;
-  /** Quality of output image (0-1, default: 0.92) */
   outputQuality?: number;
   /** Output format (default: 'image/jpeg') */
   outputFormat?: 'image/jpeg' | 'image/png' | 'image/webp';
-  /** Maximum output dimension in pixels (default: 1080 for profile, 1920 for cover) */
   maxOutputDimension?: number;
 }
 
@@ -53,10 +46,6 @@ interface FaceRect {
 }
 
 type ActiveTab = 'position' | 'rotate';
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
 
 /**
  * Detect face region in an image using skin tone analysis
@@ -72,18 +61,15 @@ async function detectFaceRegion(img: HTMLImageElement): Promise<FaceRect | null>
         return;
       }
 
-      // Resize for faster processing
       const maxSize = 200;
       const scale = Math.min(maxSize / img.width, maxSize / img.height);
       tempCanvas.width = img.width * scale;
       tempCanvas.height = img.height * scale;
       ctx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
 
-      // Get image data
       const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
       const data = imageData.data;
 
-      // Simple skin tone detection to find potential face region
       let minX = tempCanvas.width,
         maxX = 0;
       let minY = tempCanvas.height,
@@ -98,13 +84,10 @@ async function detectFaceRegion(img: HTMLImageElement): Promise<FaceRect | null>
           const g = data[i + 1];
           const b = data[i + 2];
 
-          // Enhanced skin tone detection (works for various skin tones)
-          // Uses YCbCr color space approximation for better accuracy
           const y_comp = 0.299 * r + 0.587 * g + 0.114 * b;
           const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
           const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
 
-          // Skin tone ranges in YCbCr
           const isSkinTone =
             y_comp > 80 &&
             cb > 77 &&
@@ -129,12 +112,10 @@ async function detectFaceRegion(img: HTMLImageElement): Promise<FaceRect | null>
         }
       }
 
-      // If we found a reasonable face region (at least 3% of image)
       const totalPixels = tempCanvas.width * tempCanvas.height;
       if (skinPixels > totalPixels * 0.03 && maxX > minX && maxY > minY) {
         const avgConfidence = totalConfidence / skinPixels;
 
-        // Scale back to original image coordinates
         resolve({
           x: minX / scale,
           y: minY / scale,
@@ -146,7 +127,6 @@ async function detectFaceRegion(img: HTMLImageElement): Promise<FaceRect | null>
         resolve(null);
       }
     } catch (error) {
-      console.error('Face detection error:', error);
       resolve(null);
     }
   });
@@ -165,16 +145,13 @@ function calculateFaceCenter(
   const faceCenterX = faceRect.x + faceRect.width / 2;
   const faceCenterY = faceRect.y + faceRect.height / 2;
 
-  // Calculate offset from image center
   const imgCenterX = imgWidth / 2;
   const imgCenterY = imgHeight / 2;
 
-  // Calculate optimal zoom to fit face with padding (face should be ~60% of visible area)
   const faceSize = Math.max(faceRect.width, faceRect.height);
   const targetSize = Math.min(canvasWidth, canvasHeight) * 0.6;
   const optimalZoom = Math.min(Math.max(targetSize / faceSize, 1), 2.5);
 
-  // Calculate position offset to center face
   const offsetX = (imgCenterX - faceCenterX) * 0.8;
   const offsetY = (imgCenterY - faceCenterY) * 0.8;
 
@@ -184,9 +161,6 @@ function calculateFaceCenter(
   };
 }
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
 export function ProfileImageEditor({
   isOpen,
   onClose,
@@ -200,16 +174,13 @@ export function ProfileImageEditor({
   outputFormat = 'image/jpeg',
   maxOutputDimension,
 }: ProfileImageEditorProps) {
-  // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Image state
   const [imageSrc, setImageSrc] = useState<string>('');
   const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Transform state
   const [rotation, setRotation] = useState(0); // 90° increments
   const [fineRotation, setFineRotation] = useState(0); // -45° to +45°
   const [flipH, setFlipH] = useState(false);
@@ -217,28 +188,20 @@ export function ProfileImageEditor({
   const [zoom, setZoom] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
 
-  // Interaction state
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [lastPinchDistance, setLastPinchDistance] = useState(0);
 
-  // Feature state
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFaceDetecting, setIsFaceDetecting] = useState(false);
   const [faceDetected, setFaceDetected] = useState<FaceRect | null>(null);
   const [showGrid, setShowGrid] = useState(true);
   const [activeTab, setActiveTab] = useState<ActiveTab>('position');
 
-  // ============================================================================
-  // COMPUTED VALUES
-  // ============================================================================
-
   const getCanvasDimensions = useCallback(() => {
     if (type === 'profile') {
-      // Square for profile photos
       return { width: 320, height: 320 };
     } else {
-      // Cover photo with custom aspect ratio
       const width = 400;
       return { width, height: Math.round(width / coverAspectRatio) };
     }
@@ -254,10 +217,6 @@ export function ProfileImageEditor({
       return { width: max, height: Math.round(max / coverAspectRatio) };
     }
   }, [type, coverAspectRatio, maxOutputDimension]);
-
-  // ============================================================================
-  // IMAGE LOADING
-  // ============================================================================
 
   useEffect(() => {
     if (!isOpen) return;
@@ -286,7 +245,6 @@ export function ProfileImageEditor({
         setImageLoaded(true);
         resetTransforms();
 
-        // Auto-detect face for profile photos
         if (type === 'profile' && enableFaceDetection) {
           autoDetectAndCenterFace(img);
         }
@@ -296,10 +254,6 @@ export function ProfileImageEditor({
 
     loadImage();
   }, [imageFile, propImageSrc, isOpen, type, enableFaceDetection]);
-
-  // ============================================================================
-  // TRANSFORM FUNCTIONS
-  // ============================================================================
 
   const resetTransforms = useCallback(() => {
     setRotation(0);
@@ -335,7 +289,6 @@ export function ProfileImageEditor({
         setPosition(optimalPosition);
       }
     } catch (error) {
-      console.error('Face detection error:', error);
     } finally {
       setIsFaceDetecting(false);
     }
@@ -353,21 +306,14 @@ export function ProfileImageEditor({
     setFaceDetected(null);
   };
 
-  // Rotation functions
   const rotateLeft90 = () => setRotation((r) => (r - 90) % 360);
   const rotateRight90 = () => setRotation((r) => (r + 90) % 360);
 
-  // Flip functions
   const toggleFlipH = () => setFlipH((f) => !f);
   const toggleFlipV = () => setFlipV((f) => !f);
 
-  // Zoom functions
   const zoomIn = () => setZoom((z) => Math.min(z + 0.2, 4));
   const zoomOut = () => setZoom((z) => Math.max(z - 0.2, 0.5));
-
-  // ============================================================================
-  // CANVAS DRAWING
-  // ============================================================================
 
   const drawCanvas = useCallback(() => {
     if (!canvasRef.current || !originalImage || !imageLoaded) return;
@@ -380,23 +326,17 @@ export function ProfileImageEditor({
     canvas.width = dims.width;
     canvas.height = dims.height;
 
-    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Save context
     ctx.save();
 
-    // Move to center
     ctx.translate(canvas.width / 2, canvas.height / 2);
 
-    // Apply total rotation (90° increments + fine rotation)
     const totalRotation = rotation + fineRotation;
     ctx.rotate((totalRotation * Math.PI) / 180);
 
-    // Apply flip
     ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
 
-    // Calculate scaled dimensions to cover the canvas
     const imgAspect = originalImage.width / originalImage.height;
     const canvasAspect = canvas.width / canvas.height;
 
@@ -409,7 +349,6 @@ export function ProfileImageEditor({
       drawHeight = drawWidth / imgAspect;
     }
 
-    // Draw image with position offset
     ctx.drawImage(
       originalImage,
       -drawWidth / 2 + position.x,
@@ -418,10 +357,8 @@ export function ProfileImageEditor({
       drawHeight
     );
 
-    // Restore context
     ctx.restore();
 
-    // Apply circular mask for profile photos
     if (type === 'profile') {
       ctx.save();
       ctx.globalCompositeOperation = 'destination-in';
@@ -431,7 +368,6 @@ export function ProfileImageEditor({
       ctx.restore();
     }
 
-    // Draw grid overlay for cover photos
     if (showGrid && type === 'cover') {
       drawGrid(ctx, canvas.width, canvas.height);
     }
@@ -449,20 +385,17 @@ export function ProfileImageEditor({
     getCanvasDimensions,
   ]);
 
-  // Draw rule of thirds grid
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
     ctx.lineWidth = 1;
 
-    // Vertical lines
     ctx.beginPath();
     ctx.moveTo(width / 3, 0);
     ctx.lineTo(width / 3, height);
     ctx.moveTo((width * 2) / 3, 0);
     ctx.lineTo((width * 2) / 3, height);
 
-    // Horizontal lines
     ctx.moveTo(0, height / 3);
     ctx.lineTo(width, height / 3);
     ctx.moveTo(0, (height * 2) / 3);
@@ -472,16 +405,10 @@ export function ProfileImageEditor({
     ctx.restore();
   };
 
-  // Update canvas when transforms change
   useEffect(() => {
     drawCanvas();
   }, [drawCanvas]);
 
-  // ============================================================================
-  // INTERACTION HANDLERS
-  // ============================================================================
-
-  // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     setIsDragging(true);
@@ -503,17 +430,14 @@ export function ProfileImageEditor({
     setIsDragging(false);
   };
 
-  // Touch handlers with pinch-to-zoom
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
-      // Pinch gesture
       const distance = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
       setLastPinchDistance(distance);
     } else if (e.touches.length === 1) {
-      // Single finger drag
       const touch = e.touches[0];
       setIsDragging(true);
       setDragStart({ x: touch.clientX - position.x, y: touch.clientY - position.y });
@@ -547,17 +471,20 @@ export function ProfileImageEditor({
     setLastPinchDistance(0);
   };
 
-  // Mouse wheel for zoom
-  const handleWheel = useCallback((e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const isPinch = e.ctrlKey;
     const delta = isPinch ? -e.deltaY * 0.01 : -e.deltaY * 0.002;
     setZoom((z) => Math.min(Math.max(z + delta, 0.5), 4));
   }, []);
 
-  // ============================================================================
-  // SAVE FUNCTION
-  // ============================================================================
+  // Attach wheel listener with { passive: false } so preventDefault works
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   const handleSave = async () => {
     if (!originalImage) return;
@@ -565,7 +492,6 @@ export function ProfileImageEditor({
     setIsProcessing(true);
 
     try {
-      // Create high-quality output canvas
       const saveCanvas = document.createElement('canvas');
       const saveCtx = saveCanvas.getContext('2d');
       if (!saveCtx) return;
@@ -574,12 +500,10 @@ export function ProfileImageEditor({
       saveCanvas.width = outputDims.width;
       saveCanvas.height = outputDims.height;
 
-      // Calculate scale factor from preview canvas to output
       const previewDims = getCanvasDimensions();
       const scaleX = outputDims.width / previewDims.width;
       const scaleY = outputDims.height / previewDims.height;
 
-      // Draw with all transforms
       saveCtx.save();
       saveCtx.translate(saveCanvas.width / 2, saveCanvas.height / 2);
 
@@ -599,7 +523,6 @@ export function ProfileImageEditor({
         drawHeight = drawWidth / imgAspect;
       }
 
-      // Scale position for output resolution
       const scaledPosX = position.x * scaleX;
       const scaledPosY = position.y * scaleY;
 
@@ -612,7 +535,6 @@ export function ProfileImageEditor({
       );
       saveCtx.restore();
 
-      // Apply circular mask for profile photos
       if (type === 'profile') {
         saveCtx.save();
         saveCtx.globalCompositeOperation = 'destination-in';
@@ -628,7 +550,6 @@ export function ProfileImageEditor({
         saveCtx.restore();
       }
 
-      // Convert to blob
       saveCanvas.toBlob(
         (blob) => {
           if (blob) {
@@ -641,22 +562,16 @@ export function ProfileImageEditor({
         outputQuality
       );
     } catch (error) {
-      console.error('Error saving image:', error);
     } finally {
       setIsProcessing(false);
     }
   };
-
-  // ============================================================================
-  // RENDER
-  // ============================================================================
 
   if (!isOpen) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-[95vw] md:max-w-2xl p-0 gap-0 overflow-hidden bg-zinc-950 border-zinc-800">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
           <div className="flex items-center gap-3">
             <button
@@ -669,6 +584,9 @@ export function ProfileImageEditor({
             <DialogTitle className="text-lg font-semibold text-white">
               {type === 'profile' ? 'Edit Profile Photo' : 'Edit Cover Photo'}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Crop, zoom, and adjust your {type === 'profile' ? 'profile' : 'cover'} photo
+            </DialogDescription>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -683,15 +601,12 @@ export function ProfileImageEditor({
           </div>
         </div>
 
-        {/* Main Content */}
         <div className="flex flex-col">
-          {/* Image Preview Area */}
           <div
             ref={containerRef}
             className="relative flex items-center justify-center p-6 bg-zinc-900"
             style={{ minHeight: type === 'profile' ? '380px' : '220px' }}
           >
-            {/* Frame */}
             <div
               className={cn(
                 'relative overflow-hidden shadow-2xl',
@@ -714,13 +629,11 @@ export function ProfileImageEditor({
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                onWheel={handleWheel}
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
               />
 
-              {/* Face detection indicator */}
               {isFaceDetecting && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                   <div className="flex items-center gap-2 text-white">
@@ -731,7 +644,6 @@ export function ProfileImageEditor({
               )}
             </div>
 
-            {/* Hint text */}
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-black/60 rounded-full text-xs text-zinc-400">
                 <Move className="w-3 h-3" />
@@ -740,7 +652,6 @@ export function ProfileImageEditor({
             </div>
           </div>
 
-          {/* Tab Navigation */}
           <div className="flex border-b border-zinc-800">
             <button
               onClick={() => setActiveTab('position')}
@@ -768,11 +679,9 @@ export function ProfileImageEditor({
             </button>
           </div>
 
-          {/* Controls */}
           <div className="p-4 bg-zinc-900/95 space-y-4">
             {activeTab === 'position' && (
               <>
-                {/* Zoom Controls */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm text-zinc-400">
                     <span>Zoom</span>
@@ -818,7 +727,6 @@ export function ProfileImageEditor({
                   </div>
                 </div>
 
-                {/* Quick Actions */}
                 <div className="flex items-center gap-2 flex-wrap">
                   {type === 'profile' && enableFaceDetection && (
                     <button
@@ -852,7 +760,6 @@ export function ProfileImageEditor({
 
             {activeTab === 'rotate' && (
               <>
-                {/* 90° Rotation */}
                 <div className="space-y-2">
                   <span className="text-sm text-zinc-400">Quick Rotate</span>
                   <div className="flex items-center gap-2">
@@ -873,7 +780,6 @@ export function ProfileImageEditor({
                   </div>
                 </div>
 
-                {/* Fine Rotation Slider */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm text-zinc-400">
                     <span>Fine Rotation</span>
@@ -917,7 +823,6 @@ export function ProfileImageEditor({
                   </div>
                 </div>
 
-                {/* Flip Controls */}
                 <div className="space-y-2">
                   <span className="text-sm text-zinc-400">Flip</span>
                   <div className="flex items-center gap-2">
@@ -951,7 +856,6 @@ export function ProfileImageEditor({
             )}
           </div>
 
-          {/* Action Buttons */}
           <div className="flex items-center justify-between p-4 border-t border-zinc-800 bg-zinc-900">
             <Button
               variant="ghost"
@@ -985,5 +889,4 @@ export function ProfileImageEditor({
   );
 }
 
-// Export default for dynamic imports
 export default ProfileImageEditor;

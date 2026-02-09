@@ -22,7 +22,7 @@ const storySchema = new mongoose.Schema(
       duration: Number,
       width: Number,
       height: Number,
-      public_id: String, // Cloudinary public_id for deletion
+      public_id: String,
     },
     // Music field for Instagram-like music feature
     music: {

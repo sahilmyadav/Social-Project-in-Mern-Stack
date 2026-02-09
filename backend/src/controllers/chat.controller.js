@@ -14,7 +14,8 @@ import {
   encryptMessage,
   generateSessionKey,
 } from '../utils/encryption.js';
-import { uploadOnCloudinary } from '../utils/localStorage.js';
+import { uploadFile } from '../utils/localStorage.js';
+import logger from '../utils/logger.js';
 
 // 1.5. Get all threads for current user (NEW)
 export const getAllThreads = asyncHandler(async (req, res) => {
@@ -47,12 +48,6 @@ export const getAllThreads = asyncHandler(async (req, res) => {
   // Transform threads to include participant info and decrypt last message
   const transformedThreads = threads.map((thread) => {
     const otherParticipant = thread.participants?.[0] || null;
-    console.log(
-      '👤 Other participant for thread',
-      thread._id,
-      ':',
-      JSON.stringify(otherParticipant, null, 2)
-    );
     const lastMessage = thread.lastMessage;
     const userIdStr = userId.toString();
 
@@ -63,7 +58,7 @@ export const getAllThreads = asyncHandler(async (req, res) => {
         try {
           lastMessageText = decryptMessage(lastMessage.encryptedContent);
         } catch (error) {
-          console.error('Decryption error for last message:', error);
+          logger.error('Decryption error for last message:', { error: error.message });
           lastMessageText = '[Unable to decrypt]';
         }
       } else if (lastMessage.text) {
@@ -121,10 +116,6 @@ export const getAllThreads = asyncHandler(async (req, res) => {
     };
   });
 
-  console.log('📤 Sending transformed threads:', transformedThreads.length, 'threads');
-  console.log('📤 First thread sample:', JSON.stringify(transformedThreads[0], null, 2));
-
-  // Get total count for pagination
   const totalCount = await ChatThread.countDocuments({
     participants: userId,
     isDeleted: false,
@@ -297,7 +288,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
 
   // Process media files
   if (files.length > 0) {
-    const uploadPromises = files.map((file) => uploadOnCloudinary(file.path));
+    const uploadPromises = files.map((file) => uploadFile(file.path));
     const uploadResults = await Promise.all(uploadPromises);
 
     // Map results to media objects, filtering out failed uploads
@@ -325,7 +316,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
       .filter((item) => item !== null);
 
     if (messageData.media.length === 0) {
-      throw new ApiError(500, 'Failed to upload files to cloud storage');
+      throw new ApiError(500, 'Failed to upload files');
     }
 
     // Update message type if it was just "text"
@@ -660,7 +651,7 @@ export const getMessages = asyncHandler(async (req, res) => {
         msgObj.text = decryptMessage(msgObj.encryptedContent);
         delete msgObj.encryptedContent;
       } catch (error) {
-        console.error('Decryption error:', error);
+        logger.error('Decryption error:', { error: error.message });
         msgObj.text = '[Unable to decrypt message]';
       }
     }
@@ -673,7 +664,7 @@ export const getMessages = asyncHandler(async (req, res) => {
           : 'Unknown';
         delete msgObj.replyTo.encryptedContent;
       } catch (error) {
-        console.error('Decryption error for replyTo:', error);
+        logger.error('Decryption error for replyTo:', { error: error.message });
         msgObj.replyTo.text = '[Unable to decrypt message]';
       }
     }

@@ -116,10 +116,6 @@
 }
 
 @layer base {
-  html {
-    scroll-behavior: smooth;
-  }
-
   * {
     @apply border-border outline-ring/50;
   }
@@ -293,7 +289,8 @@
 
   /* Instagram-style Live Stream Animations */
   @keyframes live-pulse {
-    0%, 100% {
+    0%,
+    100% {
       box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
     }
     50% {
@@ -311,7 +308,8 @@
   }
 
   @keyframes live-glow {
-    0%, 100% {
+    0%,
+    100% {
       filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.8));
     }
     50% {
@@ -352,15 +350,7 @@
 
   /* Instagram-style gradient ring for live avatar */
   .live-avatar-ring {
-    background: conic-gradient(
-      from 0deg,
-      #feda75,
-      #fa7e1e,
-      #d62976,
-      #962fbf,
-      #4f5bd5,
-      #feda75
-    );
+    background: conic-gradient(from 0deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5, #feda75);
     animation: live-ring-rotate 3s linear infinite;
   }
 }

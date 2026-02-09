@@ -30,13 +30,10 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
   const [notificationApiAvailable, setNotificationApiAvailable] = useState(true);
 
   useEffect(() => {
-    // Only load if API is available and user exists
-    // Only poll from desktop navigation to avoid duplicate API calls
     if (notificationApiAvailable && user && !isMobile) {
       loadUnreadCount();
       loadChatUnreadCount();
 
-      // Poll for new notifications every 60 seconds (reduced from 30s)
       const interval = setInterval(() => {
         loadUnreadCount();
         loadChatUnreadCount();
@@ -46,11 +43,9 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
   }, [user, notificationApiAvailable, isMobile]);
 
   const loadUnreadCount = async () => {
-    // Don't call if we know the API isn't available
     if (!notificationApiAvailable) return;
 
     try {
-      // Fetch both unread notifications and pending follow requests
       const [notificationResponse, followRequestsResponse] = await Promise.all([
         notificationService.getUnreadCount(),
         followService.getPendingRequests({ limit: 100 }), // Get count of pending requests
@@ -58,12 +53,10 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
 
       let totalCount = 0;
 
-      // Add unread notifications count
       if (notificationResponse.success && notificationResponse.data) {
         totalCount += notificationResponse.data.unreadCount || 0;
       }
 
-      // Add pending follow requests count
       if (followRequestsResponse.success && followRequestsResponse.data) {
         const pendingRequestsCount = Array.isArray(followRequestsResponse.data)
           ? followRequestsResponse.data.length
@@ -73,11 +66,9 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
 
       setUnreadCount(totalCount);
     } catch (error: any) {
-      // If 404, disable future calls
       if (error?.statusCode === 404) {
         setNotificationApiAvailable(false);
       }
-      // Silently fail for all other errors
     }
   };
 
@@ -88,11 +79,9 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
         setChatUnreadCount(response.data.unreadCount || 0);
       }
     } catch (error) {
-      // Silently fail
     }
   };
 
-  // Mobile navigation items (5 essential items) - only show badge if count > 0
   const mobileNavItems = [
     { icon: Home, label: 'Home', href: '/home' },
     { icon: Search, label: 'Explore', href: '/explore' },
@@ -113,8 +102,6 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
     { icon: User, label: 'Profile', href: '/profile' },
   ];
 
-  // Desktop navigation items (all items)
-  // Desktop navigation items (all items) - only show badge if count > 0
   const desktopNavItems = [
     { icon: Home, label: 'Home', href: '/home' },
     { icon: Search, label: 'Explore', href: '/explore' },
@@ -145,7 +132,6 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
             <Link key={item.label} href={item.href} className="flex-1 flex justify-center">
               <div className="relative group">
                 {item.isSpecial ? (
-                  // Special Create button with gradient - floating style
                   <div className="relative -mt-6">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/40 to-secondary/40 rounded-full blur-lg scale-110 opacity-70" />
                     <div className="relative p-4 rounded-full bg-gradient-to-br from-primary via-purple-500 to-secondary text-white shadow-xl active:scale-90 transition-all duration-200 cursor-pointer border-4 border-card">
@@ -153,7 +139,6 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
                     </div>
                   </div>
                 ) : (
-                  // Regular nav items - modern minimal style
                   <div className="flex flex-col items-center py-2.5 px-3 rounded-2xl active:scale-90 active:bg-muted/60 transition-all duration-200 cursor-pointer">
                     <div className="relative">
                       <item.icon
@@ -162,7 +147,6 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
                         strokeWidth={1.6}
                       />
 
-                      {/* Badge for notifications - only show if badge exists and is > 0 */}
                       {typeof item.badge === 'number' && item.badge > 0 && (
                         <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 bg-gradient-to-r from-red-500 to-rose-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold shadow-md ring-2 ring-card">
                           {item.badge > 99 ? '99+' : item.badge}
@@ -175,7 +159,6 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
             </Link>
           ))}
         </div>
-        {/* Safe area padding for devices with home indicator */}
         <div className="h-safe-area-inset-bottom bg-card/80" />
       </nav>
     );
@@ -216,7 +199,6 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
         <Button
           type="button"
           onClick={() => {
-            console.log('Logout button clicked');
             onLogout();
           }}
           variant="outline"

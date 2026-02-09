@@ -3,35 +3,18 @@
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api-client';
 import { postService } from '@/lib/api-services';
+import { BG_COLORS, FILTERS, FILTER_STYLES, TEXT_COLORS } from '@/lib/media-filters';
 import '@/styles/filters.css';
 import {
   AlignCenter,
   AlignLeft,
   AlignRight,
-  Aperture,
   Bold,
-  Camera,
-  CloudRain,
-  Coffee,
-  Contrast,
-  Droplet,
-  Flame,
-  Heart,
   Image as ImageIcon,
   Italic,
-  Moon,
-  Palette,
-  Snowflake,
-  Sparkles,
-  Star,
-  Sun,
-  Sunrise,
-  Sunset,
   Type,
   Video,
-  Wind,
   X,
-  Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import TagPeopleInput from './tag-people-input';
@@ -44,7 +27,6 @@ interface CreatePostModalProps {
 
 type FileType = 'image' | 'video' | null;
 
-// Type for tagged users
 interface TaggedUser {
   _id: string;
   firstName: string;
@@ -54,7 +36,6 @@ interface TaggedUser {
   avatar?: string;
 }
 
-// Text overlay type
 interface TextOverlay {
   id: string;
   text: string;
@@ -68,68 +49,6 @@ interface TextOverlay {
   backgroundColor: string;
 }
 
-// Instagram-style filters
-const FILTERS = [
-  { name: 'Normal', value: 'normal', icon: Camera },
-  { name: 'Clarendon', value: 'clarendon', icon: Sun },
-  { name: 'Gingham', value: 'gingham', icon: Sparkles },
-  { name: 'Juno', value: 'juno', icon: Sunset },
-  { name: 'Lark', value: 'lark', icon: Sunrise },
-  { name: 'Ludwig', value: 'ludwig', icon: Palette },
-  { name: 'Valencia', value: 'valencia', icon: Heart },
-  { name: 'X-Pro II', value: 'xpro2', icon: Zap },
-  { name: 'Aden', value: 'aden', icon: CloudRain },
-  { name: 'Brooklyn', value: 'brooklyn', icon: Coffee },
-  { name: 'Earlybird', value: 'earlybird', icon: Sunrise },
-  { name: 'Inkwell', value: 'inkwell', icon: Moon },
-  { name: 'Nashville', value: 'nashville', icon: Star },
-  { name: 'Perpetua', value: 'perpetua', icon: Contrast },
-  { name: 'Reyes', value: 'reyes', icon: Droplet },
-  { name: 'Rise', value: 'rise', icon: Sunrise },
-  { name: 'Slumber', value: 'slumber', icon: Moon },
-  { name: 'Toaster', value: 'toaster', icon: Flame },
-  { name: 'Walden', value: 'walden', icon: Wind },
-  { name: 'Willow', value: 'willow', icon: Snowflake },
-  { name: 'Vintage', value: 'vintage', icon: Camera },
-  { name: 'Cool', value: 'cool', icon: Snowflake },
-  { name: 'Warm', value: 'warm', icon: Flame },
-  { name: 'Dramatic', value: 'dramatic', icon: Zap },
-  { name: 'Vivid', value: 'vivid', icon: Aperture },
-];
-
-// Text colors
-const TEXT_COLORS = [
-  '#FFFFFF',
-  '#000000',
-  '#FF0000',
-  '#00FF00',
-  '#0000FF',
-  '#FFFF00',
-  '#FF00FF',
-  '#00FFFF',
-  '#FF6B6B',
-  '#4ECDC4',
-  '#45B7D1',
-  '#96CEB4',
-  '#FFEAA7',
-  '#DDA0DD',
-  '#98D8C8',
-  '#F7DC6F',
-];
-
-// Background colors for text
-const BG_COLORS = [
-  'transparent',
-  'rgba(0,0,0,0.7)',
-  'rgba(255,255,255,0.7)',
-  'rgba(255,0,0,0.5)',
-  'rgba(0,255,0,0.5)',
-  'rgba(0,0,255,0.5)',
-  'rgba(255,255,0,0.5)',
-  'rgba(255,0,255,0.5)',
-];
-
-// Interface for selected files
 interface SelectedFile {
   id: string;
   file: File;
@@ -139,7 +58,6 @@ interface SelectedFile {
 
 export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePostModalProps) {
   const [caption, setCaption] = useState('');
-  // Support multiple files (unlimited)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -148,10 +66,8 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
   const [taggedPeople, setTaggedPeople] = useState<TaggedUser[]>([]);
   const [hashtags, setHashtags] = useState('');
 
-  // Filter state
   const [selectedFilter, setSelectedFilter] = useState('normal');
 
-  // Text overlay state
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
   const [showTextEditor, setShowTextEditor] = useState(false);
   const [activeTextId, setActiveTextId] = useState<string | null>(null);
@@ -163,7 +79,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
   const [fontStyle, setFontStyle] = useState<'normal' | 'italic'>('normal');
   const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('center');
 
-  // Dragging state
   const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const imageContainerRef = useRef<HTMLDivElement>(null);
@@ -180,7 +95,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
 
   useEffect(() => {
     return () => {
-      // Cleanup all preview URLs
       selectedFiles.forEach((sf) => {
         if (sf.previewUrl) {
           URL.revokeObjectURL(sf.previewUrl);
@@ -189,14 +103,13 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
     };
   }, [selectedFiles]);
 
-  // Text overlay functions
   const addTextOverlay = () => {
     if (!newText.trim()) return;
 
     const newOverlay: TextOverlay = {
       id: Date.now().toString(),
       text: newText,
-      x: 50, // Center position (percentage)
+      x: 50,
       y: 50,
       fontSize,
       color: textColor,
@@ -222,7 +135,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
     if (activeTextId === id) setActiveTextId(null);
   };
 
-  // Drag handlers for text overlays
   const handleTextDragStart = (e: React.MouseEvent | React.TouchEvent, id: string) => {
     e.preventDefault();
     const overlay = textOverlays.find((t) => t.id === id);
@@ -278,7 +190,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
     }
   }, [draggingTextId, handleTextDrag, handleTextDragEnd]);
 
-  // Apply filter and text to canvas for final image
   const processImageWithEditsForFile = async (sf: SelectedFile): Promise<File | null> => {
     if (sf.type !== 'image') return sf.file;
 
@@ -296,50 +207,21 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
         canvas.width = img.width;
         canvas.height = img.height;
 
-        // Apply filter
-        const filterStyles: Record<string, string> = {
-          normal: 'none',
-          clarendon: 'contrast(1.2) saturate(1.35) brightness(1.1)',
-          gingham: 'brightness(1.05) hue-rotate(-10deg)',
-          juno: 'contrast(1.2) saturate(1.4) brightness(1.1) sepia(0.2)',
-          lark: 'contrast(0.9) saturate(0.85) brightness(1.08)',
-          ludwig: 'contrast(1.05) brightness(1.05) saturate(2)',
-          valencia: 'contrast(1.08) brightness(1.08) sepia(0.08)',
-          xpro2: 'sepia(0.3) contrast(1.3) brightness(0.95) saturate(1.2)',
-          aden: 'contrast(0.9) brightness(1.2) saturate(0.85) hue-rotate(-20deg)',
-          brooklyn: 'contrast(0.9) brightness(1.1) sepia(0.1)',
-          earlybird: 'contrast(0.9) sepia(0.2) brightness(1.1)',
-          inkwell: 'grayscale(100%) contrast(1.1) brightness(1.1)',
-          nashville: 'sepia(0.2) contrast(1.2) brightness(1.05) saturate(1.2)',
-          perpetua: 'contrast(1.1) saturate(1.2)',
-          reyes: 'sepia(0.22) brightness(1.1) contrast(0.85) saturate(0.75)',
-          rise: 'brightness(1.05) sepia(0.2) contrast(0.9) saturate(0.9)',
-          slumber: 'saturate(0.66) brightness(1.05)',
-          toaster: 'contrast(1.5) brightness(0.9) sepia(0.1)',
-          walden: 'brightness(1.1) hue-rotate(-10deg) sepia(0.3) saturate(1.6)',
-          willow: 'grayscale(50%) contrast(0.95) brightness(0.9)',
-          vintage: 'sepia(0.5) contrast(1.2) brightness(0.9)',
-          cool: 'saturate(1.4) brightness(1.05) hue-rotate(-15deg)',
-          warm: 'saturate(1.2) brightness(1.1) hue-rotate(10deg) sepia(0.15)',
-          dramatic: 'contrast(1.5) saturate(0.8) brightness(0.95)',
-          vivid: 'saturate(2) contrast(1.2) brightness(1.05)',
-        };
+        const filterStyles = FILTER_STYLES;
 
         ctx.filter = filterStyles[selectedFilter] || 'none';
         ctx.drawImage(img, 0, 0);
         ctx.filter = 'none';
 
-        // Draw text overlays
         textOverlays.forEach((overlay) => {
           const x = (overlay.x / 100) * canvas.width;
           const y = (overlay.y / 100) * canvas.height;
-          const scaledFontSize = (overlay.fontSize / 300) * canvas.width; // Scale font size
+          const scaledFontSize = (overlay.fontSize / 300) * canvas.width;
 
           ctx.font = `${overlay.fontStyle} ${overlay.fontWeight} ${scaledFontSize}px sans-serif`;
           ctx.textAlign = overlay.textAlign;
           ctx.textBaseline = 'middle';
 
-          // Draw background if set
           if (overlay.backgroundColor !== 'transparent') {
             const metrics = ctx.measureText(overlay.text);
             const padding = scaledFontSize * 0.3;
@@ -354,7 +236,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
             ctx.fillRect(bgX, y - bgHeight / 2, bgWidth, bgHeight);
           }
 
-          // Draw text with shadow for visibility
           ctx.shadowColor = 'rgba(0,0,0,0.5)';
           ctx.shadowBlur = scaledFontSize * 0.1;
           ctx.shadowOffsetX = 2;
@@ -397,7 +278,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
         return;
       }
 
-      // No size limit - unlimited!
       newFiles.push({
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         file,
@@ -413,27 +293,23 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
 
     setSelectedFiles((prev) => [...prev, ...newFiles]);
     setError('');
-    // Reset input to allow selecting same file again
     e.target.value = '';
   };
 
   const handleRemoveFile = (fileId?: string) => {
     if (fileId) {
-      // Remove specific file
       setSelectedFiles((prev) => {
         const fileToRemove = prev.find((f) => f.id === fileId);
         if (fileToRemove?.previewUrl) {
           URL.revokeObjectURL(fileToRemove.previewUrl);
         }
         const newFiles = prev.filter((f) => f.id !== fileId);
-        // Adjust current preview index if needed
         if (currentPreviewIndex >= newFiles.length) {
           setCurrentPreviewIndex(Math.max(0, newFiles.length - 1));
         }
         return newFiles;
       });
     } else {
-      // Remove all files
       selectedFiles.forEach((sf) => {
         if (sf.previewUrl) URL.revokeObjectURL(sf.previewUrl);
       });
@@ -456,9 +332,7 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
     try {
       const formData = new FormData();
 
-      // Append all selected files
       for (const sf of selectedFiles) {
-        // For images, apply filters and text overlays to the first image only (current preview)
         if (
           sf.type === 'image' &&
           selectedFiles[currentPreviewIndex]?.id === sf.id &&
@@ -473,19 +347,16 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
 
       formData.append('caption', caption.trim());
 
-      // Add filter info for videos (processed server-side)
       const hasVideo = selectedFiles.some((sf) => sf.type === 'video');
       if (hasVideo && selectedFilter !== 'normal') {
         formData.append('filter', selectedFilter);
       }
 
-      // Add tagged people (user IDs)
       if (taggedPeople.length > 0) {
         const taggedUserIds = taggedPeople.map((user) => user._id);
         formData.append('tags', JSON.stringify(taggedUserIds));
       }
 
-      // Add hashtags
       if (hashtags.trim()) {
         const tagArray = hashtags
           .split(',')
@@ -515,7 +386,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
       }
     } catch (err) {
       const apiError = err as ApiError;
-      console.error('Failed to create post:', apiError);
 
       if (apiError.statusCode === 401) {
         setError('Please login to create a post');
@@ -631,7 +501,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Current file preview with filter and text overlays */}
                 {selectedFiles[currentPreviewIndex] && (
                   <div
                     ref={imageContainerRef}
@@ -653,7 +522,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       />
                     )}
 
-                    {/* Text Overlays */}
                     {textOverlays.map((overlay) => (
                       <div
                         key={overlay.id}
@@ -693,7 +561,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       </div>
                     ))}
 
-                    {/* Remove current file button */}
                     <button
                       type="button"
                       onClick={() => handleRemoveFile(selectedFiles[currentPreviewIndex]?.id)}
@@ -703,7 +570,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       <X size={20} />
                     </button>
 
-                    {/* Add text button (only for images) */}
                     {selectedFiles[currentPreviewIndex]?.type === 'image' && (
                       <button
                         type="button"
@@ -715,7 +581,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       </button>
                     )}
 
-                    {/* Navigation for multiple files */}
                     {selectedFiles.length > 1 && (
                       <>
                         <button
@@ -746,7 +611,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                   </div>
                 )}
 
-                {/* Thumbnails for all selected files */}
                 {selectedFiles.length > 0 && (
                   <div className="flex gap-2 overflow-x-auto pb-2">
                     {selectedFiles.map((sf, index) => (
@@ -776,7 +640,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                         </button>
                       </div>
                     ))}
-                    {/* Add more button */}
                     <label
                       htmlFor="file-upload-more"
                       className="flex-shrink-0 w-16 h-16 border-2 border-dashed border-border rounded-lg flex items-center justify-center cursor-pointer hover:border-primary transition"
@@ -803,7 +666,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                   MB
                 </p>
 
-                {/* Filter Gallery */}
                 <div className="space-y-2">
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Filters
@@ -845,7 +707,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                   </div>
                 </div>
 
-                {/* Text Editor Panel */}
                 {showTextEditor && (
                   <div className="p-3 bg-muted rounded-lg space-y-3">
                     <div className="flex items-center justify-between">
@@ -868,7 +729,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       maxLength={100}
                     />
 
-                    {/* Font Size */}
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground w-16">Size:</span>
                       <input
@@ -882,7 +742,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       <span className="text-xs w-8">{fontSize}px</span>
                     </div>
 
-                    {/* Text Style Buttons */}
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -922,7 +781,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       </button>
                     </div>
 
-                    {/* Text Colors */}
                     <div className="space-y-1">
                       <span className="text-xs text-muted-foreground">Text Color:</span>
                       <div className="flex gap-1 flex-wrap">
@@ -938,7 +796,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
                       </div>
                     </div>
 
-                    {/* Background Colors */}
                     <div className="space-y-1">
                       <span className="text-xs text-muted-foreground">Background:</span>
                       <div className="flex gap-1 flex-wrap">
@@ -969,7 +826,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
             )}
           </div>
 
-          {/* Tag People Section */}
           <TagPeopleInput
             selectedUsers={taggedPeople}
             onUsersChange={setTaggedPeople}
@@ -977,7 +833,6 @@ export default function CreatePostModal({ isOpen, onClose, onSubmit }: CreatePos
             maxTags={10}
           />
 
-          {/* Hashtags Section */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground block">
               Add Tags <span className="text-muted-foreground font-normal">(optional)</span>

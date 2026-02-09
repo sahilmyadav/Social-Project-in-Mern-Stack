@@ -1,4 +1,3 @@
-// Post-related TypeScript interfaces
 
 import { User, Comment } from './comment'
 

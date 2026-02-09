@@ -1,10 +1,11 @@
 import nodemailer from 'nodemailer';
+import logger from '../utils/logger.js';
 
 // Create transporter
 const createTransporter = () => {
   // If SMTP credentials are not provided, return null
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.warn('SMTP credentials not found. Email service will not be available.');
+    logger.warn('SMTP credentials not found. Email service will not be available.');
     return null;
   }
 

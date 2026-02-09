@@ -136,7 +136,6 @@ const LiveStreamCard = ({ stream, onClick, variant = 'default' }: LiveStreamCard
           'transition-all duration-300 transform hover:scale-[1.02]'
         )}
       >
-        {/* Thumbnail / Preview Area */}
         <div
           className={cn(
             'relative overflow-hidden',
@@ -150,16 +149,13 @@ const LiveStreamCard = ({ stream, onClick, variant = 'default' }: LiveStreamCard
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             />
           ) : (
-            /* Placeholder when no thumbnail */
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-900/50 to-pink-900/50">
               <Video className="h-12 w-12 text-muted-foreground/30" />
             </div>
           )}
 
-          {/* Gradient Overlay - Makes text readable */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
 
-          {/* LIVE Badge - Instagram Style with Pulse */}
           <div className="absolute top-3 left-3 flex items-center gap-2">
             <Badge className="bg-gradient-to-r from-red-600 to-pink-600 text-white border-0 px-3 py-1 shadow-lg">
               <span className="relative flex h-2 w-2 mr-2">
@@ -170,13 +166,11 @@ const LiveStreamCard = ({ stream, onClick, variant = 'default' }: LiveStreamCard
             </Badge>
           </div>
 
-          {/* Viewer Count - Top Right */}
           <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md text-white px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-white/10">
             <Eye className="h-3.5 w-3.5" />
             {formatViewerCount(stream.viewerCount || 0)}
           </div>
 
-          {/* Stream Duration - Bottom Left */}
           {stream.startedAt && (
             <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md text-white px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 border border-white/10">
               <Clock className="h-3.5 w-3.5" />
@@ -184,7 +178,6 @@ const LiveStreamCard = ({ stream, onClick, variant = 'default' }: LiveStreamCard
             </div>
           )}
 
-          {/* Hover Overlay with Watch Button */}
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
             <Button className="bg-white text-black hover:bg-white/90 gap-2 shadow-2xl">
               <Radio className="h-4 w-4" />
@@ -193,7 +186,6 @@ const LiveStreamCard = ({ stream, onClick, variant = 'default' }: LiveStreamCard
           </div>
         </div>
 
-        {/* Stream Info Section */}
         <CardContent className="p-4 bg-card">
           <div className="flex items-start gap-3">
             {/*
@@ -216,7 +208,6 @@ const LiveStreamCard = ({ stream, onClick, variant = 'default' }: LiveStreamCard
               </div>
             </div>
 
-            {/* Stream Title and Streamer Details */}
             <div className="min-w-0 flex-1">
               <h3 className="font-semibold text-foreground line-clamp-1 group-hover:text-primary transition-colors">
                 {stream.title}
@@ -311,7 +302,6 @@ export default function LivePage() {
       ]);
 
       if (followedResponse.success) {
-        // Filter out streams where streamer data is missing (deleted users)
         const validStreams = (followedResponse.data || []).filter((s: LiveStream) => s.streamer);
         setActiveLiveStreams(validStreams);
       }
@@ -322,7 +312,6 @@ export default function LivePage() {
         setAllLiveStreams(validStreams);
       }
     } catch (error) {
-      console.error('Error fetching live streams:', error);
     } finally {
       setLoading(false);
     }
@@ -338,8 +327,6 @@ export default function LivePage() {
    */
   const handleStreamStarted = useCallback(
     (data: any) => {
-      console.log('🔴 New live stream started:', data);
-      // Refetch to get the new stream with full populated data
       fetchLiveStreams();
     },
     [fetchLiveStreams]
@@ -355,7 +342,6 @@ export default function LivePage() {
    */
   const handleStreamEnded = useCallback((data: any) => {
     const { streamId } = data;
-    console.log('⬛ Live stream ended:', streamId);
     setActiveLiveStreams((prev) => prev.filter((s) => s._id !== streamId));
     setAllLiveStreams((prev) => prev.filter((s) => s._id !== streamId));
   }, []);
@@ -384,12 +370,9 @@ export default function LivePage() {
     setUser(JSON.parse(userData));
     fetchLiveStreams();
 
-    // Setup socket listeners for real-time updates
     onLiveStreamStarted(handleStreamStarted);
     onLiveStreamEnded(handleStreamEnded);
 
-    // Auto-refresh stream list every 30 seconds
-    // This catches any updates that might be missed due to network issues
     const refreshInterval = setInterval(fetchLiveStreams, 30000);
 
     return () => {
@@ -407,7 +390,6 @@ export default function LivePage() {
     try {
       await authService.logout();
     } catch (err) {
-      console.error('Logout error:', err);
     } finally {
       localStorage.removeItem('user');
       localStorage.removeItem('accessToken');
@@ -436,7 +418,6 @@ export default function LivePage() {
     router.push(`/live/watch/${streamId}`);
   };
 
-  // Filter streams based on search query (searches title, username, fullName)
   const filteredAllStreams = allLiveStreams.filter(
     (stream) =>
       stream.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -444,25 +425,20 @@ export default function LivePage() {
       stream.streamer?.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Don't render until we have user data
   if (!user) return null;
 
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Desktop Sidebar Navigation - Same as Home Page */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content Area */}
         <section className="lg:col-span-3 pb-20 lg:pb-0">
           <div className="container mx-auto px-4 py-6 max-w-4xl">
-            {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
               <div>
                 <h1 className="text-3xl font-bold flex items-center gap-3 text-foreground">
-                  {/* Live Icon with Pulse Animation */}
                   <div className="relative">
                     <Radio className="h-8 w-8 text-red-500" />
                     <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -477,7 +453,6 @@ export default function LivePage() {
                 </p>
               </div>
 
-              {/* Go Live Button - Gradient with Glow Effect */}
               <Button
                 onClick={handleGoLive}
                 size="lg"
@@ -488,7 +463,6 @@ export default function LivePage() {
               </Button>
             </div>
 
-            {/* Search Bar */}
             <div className="relative mb-8">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -500,7 +474,6 @@ export default function LivePage() {
             </div>
 
             {loading ? (
-              /* Loading State - Skeleton Cards */
               <div className="space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -582,7 +555,6 @@ export default function LivePage() {
                     </div>
                   </section>
                 ) : (
-                  /* Empty State - No Live Streams */
                   <Card className="text-center py-16 bg-card border-border border-dashed">
                     <CardContent>
                       <div className="w-24 h-24 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -611,7 +583,6 @@ export default function LivePage() {
         </section>
       </div>
 
-      {/* Mobile Bottom Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   );

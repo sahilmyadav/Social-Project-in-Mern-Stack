@@ -1,7 +1,23 @@
 'use client';
 
+import { useCallState } from '@/contexts/call-context';
 import { getMediaUrl } from '@/lib/media-utils';
 import { getSocket } from '@/lib/socket';
+import {
+  adaptVideoQuality,
+  applyAudioBitrateCap,
+  applyBitrateCap,
+  attemptIceRestart,
+  AUDIO_CONSTRAINTS,
+  BITRATE_LIMITS,
+  formatCallDuration,
+  getCallQualityStats,
+  getIceServers,
+  ICE_RECONNECT_TIMEOUT_MS,
+  registerBeforeUnloadCleanup,
+  RING_TIMEOUT_MS,
+  VIDEO_CONSTRAINTS_GROUP,
+} from '@/lib/webrtc';
 import { Mic, MicOff, PhoneOff, Users, Video, VideoOff, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -32,15 +48,6 @@ interface GroupVideoCallModalProps {
   };
 }
 
-// STUN/TURN servers for WebRTC
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-};
-
 export default function GroupVideoCallModal({
   isOpen,
   onClose,
@@ -57,32 +64,27 @@ export default function GroupVideoCallModal({
   const [callStatus, setCallStatus] = useState<'ringing' | 'connecting' | 'active' | 'ended'>(
     isIncomingCall ? 'ringing' : 'connecting'
   );
+  const { acquireCall, releaseCall } = useCallState();
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [localStreamReady, setLocalStreamReady] = useState(false);
-  const [hasUserAccepted, setHasUserAccepted] = useState(!isIncomingCall); // Track if user accepted
+  const [hasUserAccepted, setHasUserAccepted] = useState(!isIncomingCall);
+  const hasUserAcceptedRef = useRef(!isIncomingCall);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const negotiatingRef = useRef<Set<string>>(new Set());
   const isSettingUpRef = useRef(false);
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const iceRestartTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const qualityIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const beforeUnloadCleanupRef = useRef<(() => void) | null>(null);
 
-  // Format duration as mm:ss or hh:mm:ss
-  const formatDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    if (hours > 0) {
-      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Calculate grid layout based on participant count
   const getGridClass = (count: number) => {
     if (count <= 1) return 'grid-cols-1';
     if (count <= 2) return 'grid-cols-2';
@@ -91,44 +93,37 @@ export default function GroupVideoCallModal({
     return 'grid-cols-4';
   };
 
-  // Create peer connection for a participant
-  const createPeerConnection = useCallback((participantId: string, participantInfo: any) => {
-    console.log('[GroupVideoCall] Creating peer connection for:', participantId);
-
-    // Clean up existing connection if any
+  const createPeerConnection = useCallback((participantId: string, participantInfo?: unknown) => {
+    // Reuse existing connection if still usable (supports rollback on glare)
     if (peerConnectionsRef.current.has(participantId)) {
-      const existingPc = peerConnectionsRef.current.get(participantId);
-      existingPc?.close();
+      const existingPc = peerConnectionsRef.current.get(participantId)!;
+      if (existingPc.connectionState !== 'closed' && existingPc.connectionState !== 'failed') {
+        return existingPc;
+      }
+      existingPc.close();
       peerConnectionsRef.current.delete(participantId);
     }
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    const pc = new RTCPeerConnection(getIceServers());
     peerConnectionsRef.current.set(participantId, pc);
 
-    // Add local tracks to peer connection
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
-        console.log('[GroupVideoCall] Adding local track to peer:', track.kind);
         pc.addTrack(track, localStreamRef.current!);
       });
     }
 
-    // Handle incoming tracks
     pc.ontrack = (event) => {
-      console.log('[GroupVideoCall] Received remote track from:', participantId, event.track.kind);
       const remoteStream = event.streams[0] || new MediaStream([event.track]);
       remoteStreamsRef.current.set(participantId, remoteStream);
 
-      // Update participants with the stream
       setParticipants((prev) =>
         prev.map((p) => (p.userId === participantId ? { ...p, stream: remoteStream } : p))
       );
     };
 
-    // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('[GroupVideoCall] Sending ICE candidate to:', participantId);
         const socket = getSocket();
         socket?.emit('iceCandidate', {
           recipientId: participantId,
@@ -138,21 +133,55 @@ export default function GroupVideoCallModal({
       }
     };
 
-    // Handle connection state changes
     pc.onconnectionstatechange = () => {
-      console.log('[GroupVideoCall] Connection state for', participantId, ':', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setCallStatus('active');
+        // Apply bitrate caps once connected
+        applyBitrateCap(pc, BITRATE_LIMITS.videoGroup).catch(() => {});
+        applyAudioBitrateCap(pc).catch(() => {});
+      } else if (pc.connectionState === 'failed') {
+        console.warn(`[GroupVideoCall] Peer ${participantId} connection failed`);
+      } else if (pc.connectionState === 'disconnected') {
+        console.warn(`[GroupVideoCall] Peer ${participantId} disconnected`);
       }
     };
 
-    // Note: Pending ICE candidates will be processed after remote description is set
-    // in handleOffer or handleAnswer
+    // ICE restart for group calls — auto-recover from network changes
+    pc.oniceconnectionstatechange = () => {
+      const iceState = pc.iceConnectionState;
+      if (iceState === 'disconnected') {
+        console.warn(
+          `[GroupVideoCall] ICE disconnected for peer ${participantId}, scheduling restart`
+        );
+        const timer = setTimeout(async () => {
+          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+            const offer = await attemptIceRestart(pc);
+            if (offer) {
+              const s = getSocket();
+              s?.emit('offer', {
+                recipientId: participantId,
+                offer,
+                callType: 'group-video',
+              });
+            }
+          }
+          iceRestartTimersRef.current.delete(participantId);
+        }, ICE_RECONNECT_TIMEOUT_MS);
+        iceRestartTimersRef.current.set(participantId, timer);
+      } else if (iceState === 'connected' || iceState === 'completed') {
+        const timer = iceRestartTimersRef.current.get(participantId);
+        if (timer) {
+          clearTimeout(timer);
+          iceRestartTimersRef.current.delete(participantId);
+        }
+      } else if (iceState === 'failed') {
+        console.warn(`[GroupVideoCall] ICE failed for peer ${participantId}`);
+      }
+    };
 
     return pc;
   }, []);
 
-  // Handle incoming offer
   const handleOffer = useCallback(
     async (data: {
       callerId: string;
@@ -160,20 +189,15 @@ export default function GroupVideoCallModal({
       callerInfo?: any;
       callType?: string;
     }) => {
-      // Only handle video call offers
       if (data.callType && data.callType !== 'group-video') {
-        console.log(`[Video] Ignoring offer with callType: ${data.callType}`);
         return;
       }
 
-      console.log(
-        '[GroupVideoCall] Received offer from:',
-        data.callerId,
-        'callerInfo:',
-        data.callerInfo
-      );
+      // Gate: do NOT process offers until user has explicitly accepted the call
+      if (!hasUserAcceptedRef.current) {
+        return;
+      }
 
-      // Add the caller as a participant if not already present
       if (data.callerInfo) {
         const callerUserId = data.callerInfo.userId || data.callerId;
         setParticipants((prev) => {
@@ -192,31 +216,27 @@ export default function GroupVideoCallModal({
         });
       }
 
+      // Per-peer negotiation guard — prevent concurrent offer processing
+      if (negotiatingRef.current.has(data.callerId)) {
+        console.warn('[GroupVideoCall] Skipping duplicate offer from', data.callerId);
+        return;
+      }
+      negotiatingRef.current.add(data.callerId);
+
       const pc = createPeerConnection(data.callerId, data.callerInfo);
 
       try {
-        // Implement "polite peer" protocol to handle glare (simultaneous offers)
-        // The peer with the LOWER user ID is "polite" and will rollback
         const isPolite = currentUserId < data.callerId;
 
         if (pc.signalingState !== 'stable') {
-          // Glare condition detected
-          console.log(
-            `[GroupVideoCall] Glare detected! State: ${pc.signalingState}, isPolite: ${isPolite}`
-          );
-
           if (!isPolite) {
-            // We're impolite - ignore the incoming offer, keep our offer
-            console.log(`[GroupVideoCall] Impolite peer - ignoring incoming offer`);
+            negotiatingRef.current.delete(data.callerId);
             return;
           }
 
-          // We're polite - rollback our offer and accept the incoming one
-          console.log(`[GroupVideoCall] Polite peer - rolling back to accept incoming offer`);
-          await Promise.all([
-            pc.setLocalDescription({ type: 'rollback' }),
-            pc.setRemoteDescription(new RTCSessionDescription(data.offer)),
-          ]);
+          // Sequential rollback — Promise.all can race and corrupt state
+          await pc.setLocalDescription({ type: 'rollback' });
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         } else {
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         }
@@ -230,26 +250,28 @@ export default function GroupVideoCallModal({
           answer: answer,
           callType: 'group-video',
         });
-        console.log('[GroupVideoCall] Sent answer to:', data.callerId);
 
-        // Process any pending ICE candidates
         const pending = pendingCandidatesRef.current.get(data.callerId) || [];
         for (const candidate of pending) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
           } catch (err) {
-            console.error('[GroupVideoCall] Error adding pending ICE candidate:', err);
+            console.warn(
+              '[GroupVideoCall] Failed to add pending ICE candidate:',
+              (err as Error).message
+            );
           }
         }
         pendingCandidatesRef.current.delete(data.callerId);
       } catch (err) {
-        console.error('[GroupVideoCall] Error handling offer:', err);
+        console.warn('[GroupVideoCall] Failed to handle offer:', (err as Error).message);
+      } finally {
+        negotiatingRef.current.delete(data.callerId);
       }
     },
     [createPeerConnection, currentUserId]
   );
 
-  // Handle incoming answer
   const handleAnswer = useCallback(
     async (data: {
       recipientId: string;
@@ -257,20 +279,10 @@ export default function GroupVideoCallModal({
       answererInfo?: any;
       callType?: string;
     }) => {
-      // Only handle video call answers
       if (data.callType && data.callType !== 'group-video') {
-        console.log(`[Video] Ignoring answer with callType: ${data.callType}`);
         return;
       }
 
-      console.log(
-        '[GroupVideoCall] Received answer from:',
-        data.recipientId,
-        'answererInfo:',
-        data.answererInfo
-      );
-
-      // Add the answerer as a participant if not already present
       if (data.answererInfo) {
         const answererUserId = data.answererInfo.userId || data.recipientId;
         setParticipants((prev) => {
@@ -291,49 +303,41 @@ export default function GroupVideoCallModal({
 
       const pc = peerConnectionsRef.current.get(data.recipientId);
       if (pc) {
-        // Only set remote description if we're in the correct state (have-local-offer)
         if (pc.signalingState !== 'have-local-offer') {
-          console.log('[GroupVideoCall] Ignoring answer - wrong state:', pc.signalingState);
           return;
         }
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-          console.log('[GroupVideoCall] Set remote description for:', data.recipientId);
 
-          // Process any pending ICE candidates now that remote description is set
           const pending = pendingCandidatesRef.current.get(data.recipientId) || [];
           for (const candidate of pending) {
             try {
               await pc.addIceCandidate(new RTCIceCandidate(candidate));
-              console.log('[GroupVideoCall] Added pending ICE candidate for:', data.recipientId);
             } catch (err) {
-              console.error('[GroupVideoCall] Error adding pending ICE candidate:', err);
+              console.warn(
+                '[GroupVideoCall] Failed to add ICE candidate for answer:',
+                (err as Error).message
+              );
             }
           }
           pendingCandidatesRef.current.delete(data.recipientId);
         } catch (err) {
-          console.error('[GroupVideoCall] Error setting remote description:', err);
+          console.warn('[GroupVideoCall] Failed to handle answer:', (err as Error).message);
         }
       }
     },
     []
   );
 
-  // Handle incoming ICE candidate
   const handleIceCandidate = useCallback(
     async (data: { senderId: string; candidate: RTCIceCandidateInit; callType?: string }) => {
-      // Filter by call type if provided
       if (data.callType && data.callType !== 'group-video') {
         return;
       }
 
-      console.log('[GroupVideoCall] Received ICE candidate from:', data.senderId);
-
       const pc = peerConnectionsRef.current.get(data.senderId);
 
-      // Queue candidate if no peer connection or remote description not set
       if (!pc || !pc.remoteDescription || pc.remoteDescription.type === null) {
-        console.log('[GroupVideoCall] Queueing ICE candidate for:', data.senderId);
         const pending = pendingCandidatesRef.current.get(data.senderId) || [];
         pending.push(data.candidate);
         pendingCandidatesRef.current.set(data.senderId, pending);
@@ -342,9 +346,8 @@ export default function GroupVideoCallModal({
 
       try {
         await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        console.log('[GroupVideoCall] Added ICE candidate from:', data.senderId);
       } catch (err) {
-        console.error('[GroupVideoCall] Error adding ICE candidate:', err);
+        console.warn('[GroupVideoCall] Failed to add ICE candidate:', (err as Error).message);
       }
     },
     []
@@ -353,30 +356,37 @@ export default function GroupVideoCallModal({
   useEffect(() => {
     if (!isOpen) return;
     if (isSettingUpRef.current) return;
+
+    // Acquire global call lock — bail if busy
+    const acquired = acquireCall('group-video', {
+      groupId,
+      isIncoming: isIncomingCall,
+    });
+    if (!acquired) {
+      onClose();
+      return;
+    }
+
     isSettingUpRef.current = true;
 
     const socket = getSocket();
     if (!socket) return;
 
-    // Reset state
     setCallDuration(0);
     setCallStatus(isIncomingCall ? 'ringing' : 'connecting');
     setParticipants([]);
     setLocalStreamReady(false);
-    setHasUserAccepted(!isIncomingCall); // Reset accepted state
+    setHasUserAccepted(!isIncomingCall);
+    hasUserAcceptedRef.current = !isIncomingCall;
     peerConnectionsRef.current.clear();
     remoteStreamsRef.current.clear();
     pendingCandidatesRef.current.clear();
+    negotiatingRef.current.clear();
     videoElementsRef.current.clear();
-    localStreamRef.current = null; // Reset local stream
+    localStreamRef.current = null;
 
-    // Get user media - only for OUTGOING calls
-    // For incoming calls, media is obtained when user accepts
     const setupMedia = async () => {
       if (isIncomingCall) {
-        // For incoming calls, add self as participant but without stream
-        // Stream will be obtained when user accepts
-        console.log('Incoming call - waiting for user to accept...');
         setLocalStreamReady(false);
         setParticipants([
           {
@@ -394,22 +404,16 @@ export default function GroupVideoCallModal({
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            facingMode: 'user',
-          },
+          audio: AUDIO_CONSTRAINTS,
+          video: VIDEO_CONSTRAINTS_GROUP,
         });
         localStreamRef.current = stream;
         setLocalStreamReady(true);
 
-        // Show local video
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
 
-        // Add self as first participant
         setParticipants([
           {
             userId: currentUserId,
@@ -422,42 +426,32 @@ export default function GroupVideoCallModal({
           },
         ]);
 
-        // For outgoing calls, join the group call room
         socket.emit('joinGroupCall', { groupId, callType: 'video' });
         setCallStatus('connecting');
       } catch (error) {
-        console.error('Error getting video:', error);
+        console.warn('[GroupVideoCall] Failed to setup media:', (error as Error).message);
         setCallStatus('ended');
       }
     };
 
     setupMedia();
 
-    // Listen for participants joining
     const handleParticipantJoined = async (data: {
       userId?: string;
-      userId?: string;
-      userName?: string;
       userName?: string;
       userAvatar?: string;
       avatar?: string;
       existingParticipants?: Array<{
         userId?: string;
-        userId?: string;
-        userName?: string;
         userName?: string;
         userAvatar?: string;
         avatar?: string;
       }>;
     }) => {
-      // Normalize field names from socket event data
       const participantId = data.userId || '';
       const participantName = data.userName || 'Unknown';
       const participantAvatar = data.userAvatar || data.avatar || '';
 
-      console.log('Participant joined:', { participantId, participantName, participantAvatar });
-
-      // Add new participant
       setParticipants((prev) => {
         if (prev.some((p) => p.userId === participantId)) return prev;
         return [
@@ -473,14 +467,12 @@ export default function GroupVideoCallModal({
         ];
       });
 
-      // Add existing participants if provided
       if (data.existingParticipants && data.existingParticipants.length > 0) {
-        console.log('Adding existing participants:', data.existingParticipants);
         setParticipants((prev) => {
           const newParticipants = data
             .existingParticipants!.map((ep) => ({
-              userId: ep.userId || ep.userId || '',
-              userName: ep.userName || ep.userName || 'Unknown',
+              userId: ep.userId || '',
+              userName: ep.userName || 'Unknown',
               userAvatar: ep.userAvatar || ep.avatar || '',
             }))
             .filter((ep) => ep.userId && !prev.some((p) => p.userId === ep.userId));
@@ -497,33 +489,18 @@ export default function GroupVideoCallModal({
           ];
         });
 
-        // Create peer connections and send offers to existing participants
-        if (localStreamRef.current) {
-          for (const participant of data.existingParticipants) {
-            const epId = participant.userId || participant.userId || '';
-            if (epId && epId !== currentUserId) {
-              console.log('Creating offer for existing participant:', epId);
-              const pc = createPeerConnection(epId, participant);
-              try {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socket.emit('offer', {
-                  recipientId: epId,
-                  offer: offer,
-                  callType: 'group-video',
-                });
-                console.log('Sent offer to:', epId);
-              } catch (err) {
-                console.error('Error creating offer:', err);
-              }
-            }
+        // Only create peer connections for existing participants — do NOT send offers.
+        // Existing participants will send us offers when they see us join,
+        // preventing WebRTC glare (both sides sending offers simultaneously).
+        for (const participant of data.existingParticipants) {
+          const epId = participant.userId || '';
+          if (epId && epId !== currentUserId) {
+            createPeerConnection(epId, participant);
           }
         }
       }
 
-      // If we have a local stream and this is a new participant, create peer connection
       if (localStreamRef.current && participantId && participantId !== currentUserId) {
-        console.log('Creating peer connection for new participant:', participantId);
         const pc = createPeerConnection(participantId, data);
         try {
           const offer = await pc.createOffer();
@@ -533,36 +510,31 @@ export default function GroupVideoCallModal({
             offer: offer,
             callType: 'group-video',
           });
-          console.log('Sent offer to new participant:', participantId);
         } catch (err) {
-          console.error('Error creating offer for new participant:', err);
+          console.warn(
+            '[GroupVideoCall] Failed to create offer for new participant:',
+            (err as Error).message
+          );
         }
       }
 
       setCallStatus('active');
     };
 
-    // Listen for participants leaving
-    const handleParticipantLeft = (data: { userId?: string; userId?: string }) => {
-      const participantId = data.userId || data.userId || '';
-      console.log('Participant left:', participantId);
+    const handleParticipantLeft = (data: { userId?: string }) => {
+      const participantId = data.userId || '';
       setParticipants((prev) => prev.filter((p) => p.userId !== participantId));
 
-      // Clean up peer connection for this participant
       const pc = peerConnectionsRef.current.get(participantId);
       if (pc) {
         pc.close();
         peerConnectionsRef.current.delete(participantId);
       }
 
-      // Clean up remote stream
       remoteStreamsRef.current.delete(participantId);
     };
 
-    // Listen for call ended by another participant
     const handleGroupCallEnded = () => {
-      console.log('Group call ended by another participant');
-      // Clean up without emitting another endGroupCall event
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
@@ -571,33 +543,24 @@ export default function GroupVideoCallModal({
       peerConnectionsRef.current.clear();
       isSettingUpRef.current = false;
       setCallStatus('ended');
+      releaseCall();
       setTimeout(() => onClose(), 500);
     };
 
-    // Listen for participant mute/video toggle
-    const handleParticipantMuted = (data: {
-      userId?: string;
-      userId?: string;
-      isMuted: boolean;
-    }) => {
-      const participantId = data.userId || data.userId || '';
+    const handleParticipantMuted = (data: { userId?: string; isMuted: boolean }) => {
+      const participantId = data.userId || '';
       setParticipants((prev) =>
         prev.map((p) => (p.userId === participantId ? { ...p, isMuted: data.isMuted } : p))
       );
     };
 
-    const handleParticipantVideoToggle = (data: {
-      userId?: string;
-      userId?: string;
-      isVideoOff: boolean;
-    }) => {
-      const participantId = data.userId || data.userId || '';
+    const handleParticipantVideoToggle = (data: { userId?: string; isVideoOff: boolean }) => {
+      const participantId = data.userId || '';
       setParticipants((prev) =>
         prev.map((p) => (p.userId === participantId ? { ...p, isVideoOff: data.isVideoOff } : p))
       );
     };
 
-    // WebRTC signaling handlers
     socket.on('offer', handleOffer);
     socket.on('answer', handleAnswer);
     socket.on('iceCandidate', handleIceCandidate);
@@ -608,7 +571,54 @@ export default function GroupVideoCallModal({
     socket.on('groupCallParticipantMuted', handleParticipantMuted);
     socket.on('groupCallParticipantVideoToggle', handleParticipantVideoToggle);
 
+    // beforeunload: ensure we clean up on tab close/refresh
+    beforeUnloadCleanupRef.current = registerBeforeUnloadCleanup(() => {
+      const s = getSocket();
+      if (s) s.emit('leaveGroupCall', { groupId });
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      peerConnectionsRef.current.forEach((pc) => pc.close());
+    });
+
+    // Quality monitoring + adaptive bitrate — poll every 5s
+    qualityIntervalRef.current = setInterval(async () => {
+      for (const [peerId, pc] of peerConnectionsRef.current.entries()) {
+        const stats = await getCallQualityStats(pc);
+        if (stats) {
+          if (stats.packetLossPercent > 2 || stats.roundTripTime > 150) {
+            await adaptVideoQuality(pc, stats, true);
+          }
+          if (stats.packetLossPercent > 5) {
+            console.warn(
+              `[GroupVideoCall] Poor quality for peer ${peerId}: ${stats.packetLossPercent.toFixed(1)}% loss, RTT ${stats.roundTripTime.toFixed(0)}ms`
+            );
+          }
+        }
+      }
+    }, 5000);
+
     return () => {
+      // Clean up beforeunload listener
+      if (beforeUnloadCleanupRef.current) {
+        beforeUnloadCleanupRef.current();
+        beforeUnloadCleanupRef.current = null;
+      }
+
+      // Stop quality monitoring
+      if (qualityIntervalRef.current) {
+        clearInterval(qualityIntervalRef.current);
+        qualityIntervalRef.current = null;
+      }
+
+      // Clear ICE restart timers
+      iceRestartTimersRef.current.forEach((timer) => clearTimeout(timer));
+      iceRestartTimersRef.current.clear();
+
+      // Notify server we're leaving (not ending for everyone)
+      const cleanupSocket = getSocket();
+      if (cleanupSocket) {
+        cleanupSocket.emit('leaveGroupCall', { groupId });
+      }
+
       socket.off('offer', handleOffer);
       socket.off('answer', handleAnswer);
       socket.off('iceCandidate', handleIceCandidate);
@@ -618,14 +628,11 @@ export default function GroupVideoCallModal({
       socket.off('groupCallParticipantMuted', handleParticipantMuted);
       socket.off('groupCallParticipantVideoToggle', handleParticipantVideoToggle);
 
-      // Reset setup ref
       isSettingUpRef.current = false;
 
-      // Clean up peer connections
       peerConnectionsRef.current.forEach((pc) => pc.close());
       peerConnectionsRef.current.clear();
 
-      // Clean up remote streams
       remoteStreamsRef.current.clear();
       videoElementsRef.current.clear();
     };
@@ -642,7 +649,28 @@ export default function GroupVideoCallModal({
     handleIceCandidate,
   ]);
 
-  // Timer effect
+  // Ring timeout: auto-fail if no answer within RING_TIMEOUT_MS
+  useEffect(() => {
+    if (!isOpen || callStatus !== 'ringing') {
+      if (ringTimeoutRef.current) {
+        clearTimeout(ringTimeoutRef.current);
+        ringTimeoutRef.current = null;
+      }
+      return;
+    }
+    ringTimeoutRef.current = setTimeout(() => {
+      setCallStatus('ended');
+      releaseCall();
+      setTimeout(() => onClose(), 2000);
+    }, RING_TIMEOUT_MS);
+    return () => {
+      if (ringTimeoutRef.current) {
+        clearTimeout(ringTimeoutRef.current);
+        ringTimeoutRef.current = null;
+      }
+    };
+  }, [isOpen, callStatus, onClose]);
+
   useEffect(() => {
     if (callStatus !== 'active') return;
     const interval = setInterval(() => {
@@ -656,16 +684,12 @@ export default function GroupVideoCallModal({
     if (!socket) return;
 
     try {
-      console.log('[Video] User accepting call...');
-      setHasUserAccepted(true); // Mark as accepted by user action
+      setHasUserAccepted(true);
+      hasUserAcceptedRef.current = true;
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user',
-        },
+        audio: AUDIO_CONSTRAINTS,
+        video: VIDEO_CONSTRAINTS_GROUP,
       });
       localStreamRef.current = stream;
       setLocalStreamReady(true);
@@ -674,21 +698,16 @@ export default function GroupVideoCallModal({
         localVideoRef.current.srcObject = stream;
       }
 
-      // Add tracks to any existing peer connections
       peerConnectionsRef.current.forEach((pc, userId) => {
-        console.log(`[Video] Adding local tracks to existing peer connection: ${userId}`);
         stream.getTracks().forEach((track) => {
-          // Check if track is already added
           const senders = pc.getSenders();
           const existingSender = senders.find((s) => s.track?.kind === track.kind);
           if (!existingSender) {
             pc.addTrack(track, stream);
-            console.log(`[Video] Added ${track.kind} track to peer: ${userId}`);
           }
         });
       });
 
-      // Update self participant with stream
       setParticipants((prev) =>
         prev.map((p) =>
           p.userId === currentUserId
@@ -697,13 +716,14 @@ export default function GroupVideoCallModal({
         )
       );
 
-      // Accept the group call
       socket.emit('acceptGroupCall', { groupId, callerId });
+      // Also join the group call room on the server
+      socket.emit('joinGroupCall', { groupId, callType: 'video' });
       setCallStatus('active');
-      console.log('[Video] Call accepted successfully');
     } catch (error) {
-      console.error('Error accepting call:', error);
+      console.warn('[GroupVideoCall] Failed to accept call:', (error as Error).message);
       setHasUserAccepted(false);
+      hasUserAcceptedRef.current = false;
     }
   };
 
@@ -713,37 +733,35 @@ export default function GroupVideoCallModal({
 
     socket.emit('rejectGroupCall', { groupId, callerId });
     isSettingUpRef.current = false;
+    releaseCall();
     onClose();
   };
 
   const endCall = () => {
     const socket = getSocket();
     if (socket) {
-      // End call for everyone in the group
-      socket.emit('endGroupCall', { groupId });
+      // Leave the call (don't end for everyone)
+      socket.emit('leaveGroupCall', { groupId });
     }
 
-    // Stop local stream
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
     setLocalStreamReady(false);
 
-    // Close all peer connections
     peerConnectionsRef.current.forEach((pc) => pc.close());
     peerConnectionsRef.current.clear();
 
-    // Reset setup ref
     isSettingUpRef.current = false;
 
     setCallStatus('ended');
+    releaseCall();
     setTimeout(() => onClose(), 500);
   };
 
   const toggleMute = () => {
     if (!localStreamRef.current) {
-      console.warn('[Video] Cannot toggle mute - no local stream');
       return;
     }
 
@@ -752,25 +770,20 @@ export default function GroupVideoCallModal({
       audioTrack.enabled = !audioTrack.enabled;
       setIsMuted(!audioTrack.enabled);
 
-      // Notify others about mute status
       const socket = getSocket();
       if (socket) {
         socket.emit('groupCallMuteToggle', { groupId, isMuted: !audioTrack.enabled });
       }
 
-      // Update self in participants
       setParticipants((prev) =>
         prev.map((p) => (p.userId === currentUserId ? { ...p, isMuted: !audioTrack.enabled } : p))
       );
-      console.log(`[Video] Mute toggled: ${!audioTrack.enabled}`);
     } else {
-      console.warn('[Video] No audio track found');
     }
   };
 
   const toggleVideo = () => {
     if (!localStreamRef.current) {
-      console.warn('[Video] Cannot toggle video - no local stream');
       return;
     }
 
@@ -779,21 +792,17 @@ export default function GroupVideoCallModal({
       videoTrack.enabled = !videoTrack.enabled;
       setIsVideoOff(!videoTrack.enabled);
 
-      // Notify others about video status
       const socket = getSocket();
       if (socket) {
         socket.emit('groupCallVideoToggle', { groupId, isVideoOff: !videoTrack.enabled });
       }
 
-      // Update self in participants
       setParticipants((prev) =>
         prev.map((p) =>
           p.userId === currentUserId ? { ...p, isVideoOff: !videoTrack.enabled } : p
         )
       );
-      console.log(`[Video] Video toggled: ${!videoTrack.enabled}`);
     } else {
-      console.warn('[Video] No video track found');
     }
   };
 
@@ -802,7 +811,6 @@ export default function GroupVideoCallModal({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black">
       <div className="relative w-full h-full flex flex-col">
-        {/* Header */}
         <div className="absolute top-0 left-0 right-0 z-10 p-4 bg-gradient-to-b from-black/80 to-transparent">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -817,7 +825,7 @@ export default function GroupVideoCallModal({
                   {callStatus === 'active' && (
                     <>
                       {participants.length} participant{participants.length !== 1 ? 's' : ''} •{' '}
-                      {formatDuration(callDuration)}
+                      {formatCallDuration(callDuration)}
                     </>
                   )}
                   {callStatus === 'ended' && 'Call ended'}
@@ -833,18 +841,14 @@ export default function GroupVideoCallModal({
           </div>
         </div>
 
-        {/* Video Grid */}
         <div className="flex-1 p-4 pt-20 pb-24 overflow-hidden">
           <div className={`grid ${getGridClass(participants.length)} gap-2 h-full auto-rows-fr`}>
             {participants.map((participant, index) => {
-              // Check if this is the local user
               const isLocalUser = participant.userId === currentUserId;
-              // For local user, check localStreamReady state, for remote users check participant.stream
               const hasVideo = isLocalUser
                 ? !participant.isVideoOff && localStreamReady && localStreamRef.current
                 : !participant.isVideoOff && participant.stream;
 
-              // Get valid avatar URL
               const avatarUrl = participant.userAvatar ? getMediaUrl(participant.userAvatar) : null;
               const isValidAvatar =
                 avatarUrl && (avatarUrl.startsWith('http') || avatarUrl.startsWith('/'));
@@ -854,7 +858,6 @@ export default function GroupVideoCallModal({
                   key={participant.userId || `participant-${index}`}
                   className="relative rounded-xl overflow-hidden bg-gray-800"
                 >
-                  {/* Video or Avatar */}
                   {!hasVideo ? (
                     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-700 to-gray-900">
                       {isValidAvatar ? (
@@ -908,7 +911,6 @@ export default function GroupVideoCallModal({
                     />
                   )}
 
-                  {/* Name and status overlay */}
                   <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
                     <div className="flex items-center justify-between">
                       <span className="text-white text-sm font-medium truncate">
@@ -934,19 +936,16 @@ export default function GroupVideoCallModal({
           </div>
         </div>
 
-        {/* Controls */}
         <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black to-transparent">
           <div className="flex items-center justify-center gap-4">
             {callStatus === 'ringing' && isIncomingCall ? (
               <>
-                {/* Accept call */}
                 <button
                   onClick={acceptCall}
                   className="p-4 rounded-full bg-green-500 hover:bg-green-600 transition shadow-lg"
                 >
                   <Video size={28} className="text-white" />
                 </button>
-                {/* Reject call */}
                 <button
                   onClick={rejectCall}
                   className="p-4 rounded-full bg-red-500 hover:bg-red-600 transition shadow-lg"
@@ -956,7 +955,6 @@ export default function GroupVideoCallModal({
               </>
             ) : (
               <>
-                {/* Toggle mic */}
                 <button
                   onClick={toggleMute}
                   className={`p-4 rounded-full transition shadow-lg ${
@@ -970,7 +968,6 @@ export default function GroupVideoCallModal({
                   )}
                 </button>
 
-                {/* Toggle video */}
                 <button
                   onClick={toggleVideo}
                   className={`p-4 rounded-full transition shadow-lg ${
@@ -986,7 +983,6 @@ export default function GroupVideoCallModal({
                   )}
                 </button>
 
-                {/* End call */}
                 <button
                   onClick={endCall}
                   className="p-4 rounded-full bg-red-500 hover:bg-red-600 transition shadow-lg"

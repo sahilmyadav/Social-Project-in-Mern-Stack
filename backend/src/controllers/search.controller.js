@@ -1,11 +1,13 @@
-import { User } from "../models/user.model.js";
-import { Post } from "../models/post.model.js";
-import { Hashtag } from "../models/hashtag.model.js";
-import { SearchHistory } from "../models/searchHistory.model.js";
-import { Followers } from "../models/followers.model.js";
-import ApiError from "../utils/ApiError.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import asyncHandler from "../utils/asyncHandler.js";
+import { Hashtag } from '../models/hashtag.model.js';
+import { Post } from '../models/post.model.js';
+import { SearchHistory } from '../models/searchHistory.model.js';
+import { User } from '../models/user.model.js';
+import { getFollowerCounts, getFollowStatusMap } from '../services/enrichment.service.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import logger from '../utils/logger.js';
+import { buildSafeRegex, escapeRegex, getBlockedUserIds } from '../utils/searchUtils.js';
 
 // Helper: Save search history
 const saveSearchHistory = async (userId, query, searchType, resultsCount) => {
@@ -19,7 +21,7 @@ const saveSearchHistory = async (userId, query, searchType, resultsCount) => {
       });
     }
   } catch (error) {
-    console.error("Failed to save search history:", error);
+    logger.error('Failed to save search history:', { error: error.message });
   }
 };
 
@@ -42,7 +44,7 @@ const updateHashtagStats = async (hashtagName) => {
       });
     }
   } catch (error) {
-    console.error("Failed to update hashtag stats:", error);
+    logger.error('Failed to update hashtag stats:', { error: error.message });
   }
 };
 
@@ -52,11 +54,11 @@ export const globalSearch = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
   if (!query || query.trim().length < 2) {
-    throw new ApiError(400, "Search query must be at least 2 characters");
+    throw new ApiError(400, 'Search query must be at least 2 characters');
   }
 
   const searchLimit = Math.min(parseInt(limit), 50);
-  const searchRegex = new RegExp(query, "i");
+  const searchRegex = buildSafeRegex(query);
 
   const results = {
     users: [],
@@ -66,25 +68,11 @@ export const globalSearch = asyncHandler(async (req, res) => {
     total_results: 0,
   };
 
-  // Get blocked users for filtering
-  let blockedByCurrentUser = [];
-  let usersWhoBlockedCurrentUser = [];
-
-  if (userId) {
-    const currentUser = await User.findById(userId).select("blockedUsers").lean();
-    blockedByCurrentUser = currentUser?.blockedUsers || [];
-
-    const usersWithBlocks = await User.find({
-      blockedUsers: userId
-    }).select("_id").lean();
-
-    usersWhoBlockedCurrentUser = usersWithBlocks.map(u => u._id);
-  }
-
-  const allBlockedUserIds = [...blockedByCurrentUser, ...usersWhoBlockedCurrentUser];
+  // Get blocked users (bidirectional) via shared utility
+  const allBlockedUserIds = await getBlockedUserIds(userId, User);
 
   // Search Users (if type is not specified or is 'users')
-  if (!type || type === "users") {
+  if (!type || type === 'users') {
     results.users = await User.find({
       $or: [
         { firstName: searchRegex },
@@ -92,63 +80,60 @@ export const globalSearch = asyncHandler(async (req, res) => {
         { username: searchRegex },
         { email: searchRegex },
       ],
-      status: "active",
+      status: 'active',
       _id: { $nin: allBlockedUserIds },
     })
-      .select("firstName lastName username avatar isVerified profile_type bio isPrivate")
+      .select('firstName lastName username avatar isVerified profile_type bio isPrivate')
       .limit(searchLimit)
       .lean();
   }
 
   // Search Posts (if type is not specified or is 'posts')
-  if (!type || type === "posts") {
+  if (!type || type === 'posts') {
     results.posts = await Post.find({
       caption: searchRegex,
       is_deleted: false,
     })
-      .populate("user_id", "firstName lastName username avatar isVerified")
-      .sort("-createdAt")
+      .populate('user_id', 'firstName lastName username avatar isVerified')
+      .sort('-createdAt')
       .limit(searchLimit)
       .lean();
   }
 
   // Search Pages/Business Accounts (if type is not specified or is 'pages')
-  if (!type || type === "pages") {
+  if (!type || type === 'pages') {
     results.pages = await User.find({
-      profile_type: "business",
+      profile_type: 'business',
       $or: [
         { firstName: searchRegex },
         { lastName: searchRegex },
         { username: searchRegex },
         { bio: searchRegex },
       ],
-      status: "active",
+      status: 'active',
       _id: { $nin: allBlockedUserIds },
     })
-      .select("firstName lastName username avatar isVerified profile_type bio isPrivate")
+      .select('firstName lastName username avatar isVerified profile_type bio isPrivate')
       .limit(searchLimit)
       .lean();
   }
 
   // Search Hashtags (if type is not specified or is 'hashtags')
-  if (!type || type === "hashtags") {
+  if (!type || type === 'hashtags') {
     results.hashtags = await Hashtag.find({
       name: searchRegex,
     })
-      .sort("-usage_count -trending_score")
+      .sort('-usage_count -trending_score')
       .limit(searchLimit)
       .lean();
   }
 
   // Calculate total results
   results.total_results =
-    results.users.length +
-    results.posts.length +
-    results.pages.length +
-    results.hashtags.length;
+    results.users.length + results.posts.length + results.pages.length + results.hashtags.length;
 
   // Save search history
-  await saveSearchHistory(userId, query, "global", results.total_results);
+  await saveSearchHistory(userId, query, 'global', results.total_results);
 
   return res.status(200).json(
     new ApiResponse(
@@ -161,7 +146,7 @@ export const globalSearch = asyncHandler(async (req, res) => {
           cursor: cursor || null,
         },
       },
-      "Global search completed successfully"
+      'Global search completed successfully'
     )
   );
 });
@@ -172,32 +157,15 @@ export const searchUsers = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
   if (!query || query.trim().length < 1) {
-    throw new ApiError(400, "Search query is required");
+    throw new ApiError(400, 'Search query is required');
   }
 
   const searchLimit = Math.min(parseInt(limit), 50);
   const skip = (parseInt(page) - 1) * searchLimit;
-  const searchRegex = new RegExp(query, "i");
+  const searchRegex = buildSafeRegex(query);
 
-  // Get current user's blocked list
-  let blockedByCurrentUser = [];
-  let usersWhoBlockedCurrentUser = [];
-
-  if (userId) {
-    // Fetch current user with blockedUsers field
-    const currentUser = await User.findById(userId).select("blockedUsers").lean();
-    blockedByCurrentUser = currentUser?.blockedUsers || [];
-
-    // Find users who have blocked the current user
-    const usersWithBlocks = await User.find({
-      blockedUsers: userId
-    }).select("_id").lean();
-
-    usersWhoBlockedCurrentUser = usersWithBlocks.map(u => u._id);
-  }
-
-  // Combine both block lists to exclude from search
-  const allBlockedUserIds = [...blockedByCurrentUser, ...usersWhoBlockedCurrentUser];
+  // Get blocked users (bidirectional) via shared utility
+  const allBlockedUserIds = await getBlockedUserIds(userId, User);
 
   // Ensure we don't return the current user in results either
   if (userId) {
@@ -205,65 +173,42 @@ export const searchUsers = asyncHandler(async (req, res) => {
   }
 
   const users = await User.find({
-    $or: [
-      { firstName: searchRegex },
-      { lastName: searchRegex },
-      { username: searchRegex },
-    ],
-    status: "active",
+    $or: [{ firstName: searchRegex }, { lastName: searchRegex }, { username: searchRegex }],
+    status: 'active',
     // Exclude blocked users (bidirectional) + Self
     _id: { $nin: allBlockedUserIds },
   })
-    .select("firstName lastName username avatar isVerified profile_type bio profileImage isPrivate")
+    .select('firstName lastName username avatar isVerified profile_type bio profileImage isPrivate')
     .skip(skip)
     .limit(searchLimit)
     .lean();
 
-  // Add full name and followers count to each user
-  const usersWithFullName = await Promise.all(
-    users.map(async (user) => {
-      // Get followers count for this user
-      const followersCount = await Followers.countDocuments({
-        following_id: user._id,
-        status: "accepted",
-      });
+  // Add full name and followers count to each user (batch — no N+1)
+  const userIds = users.map((u) => u._id);
+  const [followerCountMap, followStatusMap] = await Promise.all([
+    getFollowerCounts(userIds),
+    userId ? getFollowStatusMap(userId, userIds) : Promise.resolve(new Map()),
+  ]);
 
-      // Check follow relationship if user is logged in
-      let isFollowing = false;
-      let isPending = false;
-
-      if (userId) {
-        const followRelationship = await Followers.findOne({
-          follower_id: userId,
-          following_id: user._id,
-        });
-
-        isFollowing = followRelationship?.status === "accepted";
-        isPending = followRelationship?.status === "requested";
-      }
-
-      return {
-        ...user,
-        fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-        followers_count: followersCount,
-        isFollowing,
-        isPending,
-      };
-    })
-  );
+  const usersWithFullName = users.map((user) => {
+    const status = followStatusMap.get(user._id.toString());
+    return {
+      ...user,
+      fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+      followers_count: followerCountMap.get(user._id.toString()) || 0,
+      isFollowing: status === 'accepted',
+      isPending: status === 'requested',
+    };
+  });
 
   const total = await User.countDocuments({
-    $or: [
-      { firstName: searchRegex },
-      { lastName: searchRegex },
-      { username: searchRegex },
-    ],
-    status: "active",
+    $or: [{ firstName: searchRegex }, { lastName: searchRegex }, { username: searchRegex }],
+    status: 'active',
     _id: { $nin: allBlockedUserIds },
   });
 
   // Save search history
-  await saveSearchHistory(userId, query, "users", users.length);
+  await saveSearchHistory(userId, query, 'users', users.length);
 
   return res.status(200).json(
     new ApiResponse(
@@ -279,7 +224,7 @@ export const searchUsers = asyncHandler(async (req, res) => {
           has_more: skip + users.length < total,
         },
       },
-      "Users search completed successfully"
+      'Users search completed successfully'
     )
   );
 });
@@ -290,60 +235,46 @@ export const searchPages = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
   if (!query || query.trim().length < 2) {
-    throw new ApiError(400, "Search query must be at least 2 characters");
+    throw new ApiError(400, 'Search query must be at least 2 characters');
   }
 
   const searchLimit = Math.min(parseInt(limit), 50);
   const skip = (parseInt(page) - 1) * searchLimit;
-  const searchRegex = new RegExp(query, "i");
+  const searchRegex = buildSafeRegex(query);
 
-  // Get blocked users for filtering
-  let blockedByCurrentUser = [];
-  let usersWhoBlockedCurrentUser = [];
-
-  if (userId) {
-    const currentUser = await User.findById(userId).select("blockedUsers").lean();
-    blockedByCurrentUser = currentUser?.blockedUsers || [];
-
-    const usersWithBlocks = await User.find({
-      blockedUsers: userId
-    }).select("_id").lean();
-
-    usersWhoBlockedCurrentUser = usersWithBlocks.map(u => u._id);
-  }
-
-  const allBlockedUserIds = [...blockedByCurrentUser, ...usersWhoBlockedCurrentUser];
+  // Get blocked users (bidirectional) via shared utility
+  const allBlockedUserIds = await getBlockedUserIds(userId, User);
 
   const pages = await User.find({
-    profile_type: "business",
+    profile_type: 'business',
     $or: [
       { firstName: searchRegex },
       { lastName: searchRegex },
       { username: searchRegex },
       { bio: searchRegex },
     ],
-    status: "active",
+    status: 'active',
     _id: { $nin: allBlockedUserIds },
   })
-    .select("firstName lastName username avatar isVerified profile_type bio coverPhoto isPrivate")
+    .select('firstName lastName username avatar isVerified profile_type bio coverPhoto isPrivate')
     .skip(skip)
     .limit(searchLimit)
     .lean();
 
   const total = await User.countDocuments({
-    profile_type: "business",
+    profile_type: 'business',
     $or: [
       { firstName: searchRegex },
       { lastName: searchRegex },
       { username: searchRegex },
       { bio: searchRegex },
     ],
-    status: "active",
+    status: 'active',
     _id: { $nin: allBlockedUserIds },
   });
 
   // Save search history
-  await saveSearchHistory(userId, query, "pages", pages.length);
+  await saveSearchHistory(userId, query, 'pages', pages.length);
 
   return res.status(200).json(
     new ApiResponse(
@@ -354,12 +285,12 @@ export const searchPages = asyncHandler(async (req, res) => {
         pagination: {
           current_page: parseInt(page),
           total_pages: Math.ceil(total / searchLimit),
-          total_pages: total,
+          total_results: total,
           per_page: searchLimit,
           has_more: skip + pages.length < total,
         },
       },
-      "Pages search completed successfully"
+      'Pages search completed successfully'
     )
   );
 });
@@ -370,17 +301,17 @@ export const searchHashtags = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
   if (!query || query.trim().length < 1) {
-    throw new ApiError(400, "Search query is required");
+    throw new ApiError(400, 'Search query is required');
   }
 
   const searchLimit = Math.min(parseInt(limit), 50);
   const skip = (parseInt(page) - 1) * searchLimit;
-  const searchRegex = new RegExp(query, "i");
+  const searchRegex = buildSafeRegex(query);
 
   const hashtags = await Hashtag.find({
     name: searchRegex,
   })
-    .sort("-trending_score -usage_count")
+    .sort('-trending_score -usage_count')
     .skip(skip)
     .limit(searchLimit)
     .lean();
@@ -393,7 +324,7 @@ export const searchHashtags = asyncHandler(async (req, res) => {
   const hashtagsWithStats = await Promise.all(
     hashtags.map(async (hashtag) => {
       const postsCount = await Post.countDocuments({
-        caption: new RegExp(`#${hashtag.name}`, "i"),
+        caption: new RegExp(`#${escapeRegex(hashtag.name)}`, 'i'),
         is_deleted: false,
       });
 
@@ -405,7 +336,7 @@ export const searchHashtags = asyncHandler(async (req, res) => {
   );
 
   // Save search history
-  await saveSearchHistory(userId, query, "hashtags", hashtags.length);
+  await saveSearchHistory(userId, query, 'hashtags', hashtags.length);
 
   return res.status(200).json(
     new ApiResponse(
@@ -421,41 +352,27 @@ export const searchHashtags = asyncHandler(async (req, res) => {
           has_more: skip + hashtags.length < total,
         },
       },
-      "Hashtags search completed successfully"
+      'Hashtags search completed successfully'
     )
   );
 });
 
 // GET /search/trending - Get trending topics, hashtags, and posts
 export const getTrending = asyncHandler(async (req, res) => {
-  const { limit = 10, timeframe = "24h" } = req.query;
+  const { limit = 10, timeframe = '24h' } = req.query;
   const userId = req.user?._id;
   const searchLimit = Math.min(parseInt(limit), 50);
 
-  // Get blocked users for filtering
-  let blockedByCurrentUser = [];
-  let usersWhoBlockedCurrentUser = [];
-
-  if (userId) {
-    const currentUser = await User.findById(userId).select("blockedUsers").lean();
-    blockedByCurrentUser = currentUser?.blockedUsers || [];
-
-    const usersWithBlocks = await User.find({
-      blockedUsers: userId
-    }).select("_id").lean();
-
-    usersWhoBlockedCurrentUser = usersWithBlocks.map(u => u._id);
-  }
-
-  const allBlockedUserIds = [...blockedByCurrentUser, ...usersWhoBlockedCurrentUser];
+  // Get blocked users (bidirectional) via shared utility
+  const allBlockedUserIds = await getBlockedUserIds(userId, User);
 
   // Calculate time range for trending
   const timeRanges = {
-    "1h": 1,
-    "6h": 6,
-    "24h": 24,
-    "7d": 24 * 7,
-    "30d": 24 * 30,
+    '1h': 1,
+    '6h': 6,
+    '24h': 24,
+    '7d': 24 * 7,
+    '30d': 24 * 30,
   };
 
   const hoursAgo = timeRanges[timeframe] || 24;
@@ -465,7 +382,7 @@ export const getTrending = asyncHandler(async (req, res) => {
   const trendingHashtags = await Hashtag.find({
     last_used_at: { $gte: sinceDate },
   })
-    .sort("-trending_score -usage_count")
+    .sort('-trending_score -usage_count')
     .limit(searchLimit)
     .lean();
 
@@ -473,7 +390,7 @@ export const getTrending = asyncHandler(async (req, res) => {
   const hashtagsWithPosts = await Promise.all(
     trendingHashtags.map(async (hashtag) => {
       const postsCount = await Post.countDocuments({
-        caption: new RegExp(`#${hashtag.name}`, "i"),
+        caption: new RegExp(`#${escapeRegex(hashtag.name)}`, 'i'),
         is_deleted: false,
         createdAt: { $gte: sinceDate },
       });
@@ -491,18 +408,18 @@ export const getTrending = asyncHandler(async (req, res) => {
     createdAt: { $gte: sinceDate },
     user_id: { $nin: allBlockedUserIds },
   })
-    .populate("user_id", "firstName lastName username avatar isVerified")
-    .sort("-likes_count -comments_count")
+    .populate('user_id', 'firstName lastName username avatar isVerified')
+    .sort('-likes_count -comments_count')
     .limit(searchLimit)
     .lean();
 
   // Get trending users (most followed recently)
   const trendingUsers = await User.find({
-    status: "active",
+    status: 'active',
     lastActive: { $gte: sinceDate },
     _id: { $nin: allBlockedUserIds },
   })
-    .select("firstName lastName username avatar isVerified profile_type bio isPrivate")
+    .select('firstName lastName username avatar isVerified profile_type bio isPrivate')
     .limit(searchLimit)
     .lean();
 
@@ -524,7 +441,7 @@ export const getTrending = asyncHandler(async (req, res) => {
         trending_topics: trendingTopics,
         generated_at: new Date(),
       },
-      "Trending data fetched successfully"
+      'Trending data fetched successfully'
     )
   );
 });
@@ -535,17 +452,13 @@ export const getSearchHistory = asyncHandler(async (req, res) => {
   const { limit = 20 } = req.query;
 
   const history = await SearchHistory.find({ user_id: userId })
-    .sort("-createdAt")
+    .sort('-createdAt')
     .limit(parseInt(limit))
     .lean();
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { history },
-      "Search history fetched successfully"
-    )
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { history }, 'Search history fetched successfully'));
 });
 
 // DELETE /search/history - Clear search history
@@ -554,7 +467,5 @@ export const clearSearchHistory = asyncHandler(async (req, res) => {
 
   await SearchHistory.deleteMany({ user_id: userId });
 
-  return res.status(200).json(
-    new ApiResponse(200, null, "Search history cleared successfully")
-  );
+  return res.status(200).json(new ApiResponse(200, null, 'Search history cleared successfully'));
 });
