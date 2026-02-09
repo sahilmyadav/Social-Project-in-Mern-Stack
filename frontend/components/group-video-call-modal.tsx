@@ -33,13 +33,7 @@ interface GroupVideoCallModalProps {
 }
 
 // STUN/TURN servers for WebRTC
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-};
+import { ICE_SERVERS } from '@/lib/webrtc-config';
 
 export default function GroupVideoCallModal({
   isOpen,
@@ -63,11 +57,13 @@ export default function GroupVideoCallModal({
   const [callDuration, setCallDuration] = useState(0);
   const [localStreamReady, setLocalStreamReady] = useState(false);
   const [hasUserAccepted, setHasUserAccepted] = useState(!isIncomingCall); // Track if user accepted
+  const hasUserAcceptedRef = useRef(!isIncomingCall); // Ref version for callbacks
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const pendingOffersRef = useRef<Array<{ callerId: string; offer: RTCSessionDescriptionInit; callerInfo?: any; callType?: string }>>([]); // Queue offers while ringing
   const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const isSettingUpRef = useRef(false);
 
@@ -107,22 +103,52 @@ export default function GroupVideoCallModal({
 
     // Add local tracks to peer connection
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        console.log('[GroupVideoCall] Adding local track to peer:', track.kind);
+      const tracks = localStreamRef.current.getTracks();
+      console.log('[GroupVideoCall] Adding', tracks.length, 'local tracks to peer:', participantId);
+      tracks.forEach((track) => {
+        console.log('[GroupVideoCall] Adding local track:', track.kind, 'enabled:', track.enabled, 'readyState:', track.readyState);
         pc.addTrack(track, localStreamRef.current!);
       });
+    } else {
+      console.warn('[GroupVideoCall] NO LOCAL STREAM when creating peer connection for:', participantId);
     }
 
     // Handle incoming tracks
     pc.ontrack = (event) => {
-      console.log('[GroupVideoCall] Received remote track from:', participantId, event.track.kind);
-      const remoteStream = event.streams[0] || new MediaStream([event.track]);
-      remoteStreamsRef.current.set(participantId, remoteStream);
+      console.log('[GroupVideoCall] Received remote track from:', participantId, 'kind:', event.track.kind, 'readyState:', event.track.readyState);
 
-      // Update participants with the stream
+      // Get or create a single MediaStream for this participant
+      let remoteStream = remoteStreamsRef.current.get(participantId);
+      if (!remoteStream) {
+        remoteStream = new MediaStream();
+        remoteStreamsRef.current.set(participantId, remoteStream);
+      }
+
+      // Add the track if not already present
+      const existingTrack = remoteStream.getTracks().find(t => t.id === event.track.id);
+      if (!existingTrack) {
+        remoteStream.addTrack(event.track);
+        console.log('[GroupVideoCall] Added track to remote stream. Total tracks:', remoteStream.getTracks().length,
+          'Audio:', remoteStream.getAudioTracks().length, 'Video:', remoteStream.getVideoTracks().length);
+      }
+
+      // Force update the video element by creating a new stream with all tracks
+      // This ensures React detects the change
+      const updatedStream = new MediaStream(remoteStream.getTracks());
+      remoteStreamsRef.current.set(participantId, updatedStream);
+
+      // Update participants with the new stream reference
       setParticipants((prev) =>
-        prev.map((p) => (p.odgoId === participantId ? { ...p, stream: remoteStream } : p))
+        prev.map((p) => (p.odgoId === participantId ? { ...p, stream: updatedStream } : p))
       );
+
+      // Also directly update video element if it exists
+      const videoEl = videoElementsRef.current.get(participantId);
+      if (videoEl && videoEl.srcObject !== updatedStream) {
+        console.log('[GroupVideoCall] Directly updating video element for:', participantId);
+        videoEl.srcObject = updatedStream;
+        videoEl.play().catch(e => console.warn('Video play failed:', e));
+      }
     };
 
     // Handle ICE candidates
@@ -143,11 +169,48 @@ export default function GroupVideoCallModal({
       console.log('[GroupVideoCall] Connection state for', participantId, ':', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setCallStatus('active');
+      } else if (pc.connectionState === 'failed') {
+        console.warn('[GroupVideoCall] Connection failed for:', participantId);
+        // Try ICE restart
+        const socket = getSocket();
+        if (socket && pc.signalingState === 'stable') {
+          pc.createOffer({ iceRestart: true }).then(offer => {
+            pc.setLocalDescription(offer).then(() => {
+              socket.emit('offer', {
+                recipientId: participantId,
+                offer: offer,
+                callType: 'group-video',
+              });
+              console.log('[GroupVideoCall] Sent ICE restart offer to:', participantId);
+            });
+          }).catch(err => console.error('[GroupVideoCall] ICE restart failed:', err));
+        }
       }
     };
 
-    // Note: Pending ICE candidates will be processed after remote description is set
-    // in handleOffer or handleAnswer
+    // Handle negotiation needed (triggered when tracks are added/removed)
+    pc.onnegotiationneeded = async () => {
+      // Only renegotiate when in stable state to avoid interfering with active negotiation
+      if (pc.signalingState !== 'stable') {
+        console.log('[GroupVideoCall] Skipping negotiation - not stable:', pc.signalingState);
+        return;
+      }
+      console.log('[GroupVideoCall] Negotiation needed for:', participantId);
+      const socket = getSocket();
+      if (!socket) return;
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('offer', {
+          recipientId: participantId,
+          offer: offer,
+          callType: 'group-video',
+        });
+        console.log('[GroupVideoCall] Sent renegotiation offer to:', participantId);
+      } catch (err) {
+        console.error('[GroupVideoCall] Renegotiation failed:', err);
+      }
+    };
 
     return pc;
   }, []);
@@ -160,9 +223,9 @@ export default function GroupVideoCallModal({
       callerInfo?: any;
       callType?: string;
     }) => {
-      // Only handle video call offers
-      if (data.callType && data.callType !== 'group-video') {
-        console.log(`📹 [Video] Ignoring offer with callType: ${data.callType}`);
+      // Only handle group-video call offers (reject 1-to-1 or other types)
+      if (data.callType !== 'group-video') {
+        console.log(`📹 [GroupVideo] Ignoring offer with callType: ${data.callType}`);
         return;
       }
 
@@ -170,8 +233,36 @@ export default function GroupVideoCallModal({
         '[GroupVideoCall] Received offer from:',
         data.callerId,
         'callerInfo:',
-        data.callerInfo
+        data.callerInfo,
+        'hasAccepted:',
+        hasUserAcceptedRef.current
       );
+
+      // If user hasn't accepted yet, queue the offer for later
+      if (!hasUserAcceptedRef.current) {
+        console.log('[GroupVideoCall] Queuing offer - user has not accepted yet');
+        pendingOffersRef.current.push(data);
+
+        // Still add the caller as a participant to show in UI
+        if (data.callerInfo) {
+          const callerOdgoId = data.callerInfo.odgoId || data.callerId;
+          setParticipants((prev) => {
+            if (prev.some((p) => p.odgoId === callerOdgoId)) return prev;
+            return [
+              ...prev,
+              {
+                odgoId: callerOdgoId,
+                odgoName: data.callerInfo.odgoName || data.callerInfo.name || 'Unknown',
+                odgoAvatar: data.callerInfo.odgoAvatar || data.callerInfo.avatar || '',
+                isMuted: false,
+                isVideoOff: false,
+                joinedAt: new Date(),
+              },
+            ];
+          });
+        }
+        return;
+      }
 
       // Add the caller as a participant if not already present
       if (data.callerInfo) {
@@ -192,7 +283,23 @@ export default function GroupVideoCallModal({
         });
       }
 
-      const pc = createPeerConnection(data.callerId, data.callerInfo);
+      // Reuse existing peer connection if available (don't destroy a working PC)
+      let pc = peerConnectionsRef.current.get(data.callerId);
+      if (!pc || pc.connectionState === 'closed') {
+        pc = createPeerConnection(data.callerId, data.callerInfo);
+      } else {
+        // Existing PC - make sure local tracks are added
+        if (localStreamRef.current) {
+          const senders = pc.getSenders();
+          const existingTrackIds = new Set(senders.map(s => s.track?.id).filter(Boolean));
+          localStreamRef.current.getTracks().forEach((track) => {
+            if (!existingTrackIds.has(track.id)) {
+              pc!.addTrack(track, localStreamRef.current!);
+            }
+          });
+        }
+        console.log('[GroupVideoCall] Reusing existing peer connection for:', data.callerId);
+      }
 
       try {
         // Implement "polite peer" protocol to handle glare (simultaneous offers)
@@ -255,9 +362,9 @@ export default function GroupVideoCallModal({
       answererInfo?: any;
       callType?: string;
     }) => {
-      // Only handle video call answers
-      if (data.callType && data.callType !== 'group-video') {
-        console.log(`📹 [Video] Ignoring answer with callType: ${data.callType}`);
+      // Only handle group-video call answers
+      if (data.callType !== 'group-video') {
+        console.log(`📹 [GroupVideo] Ignoring answer with callType: ${data.callType}`);
         return;
       }
 
@@ -320,8 +427,8 @@ export default function GroupVideoCallModal({
   // Handle incoming ICE candidate
   const handleIceCandidate = useCallback(
     async (data: { senderId: string; candidate: RTCIceCandidateInit; callType?: string }) => {
-      // Filter by call type if provided
-      if (data.callType && data.callType !== 'group-video') {
+      // Filter by call type - only handle group-video
+      if (data.callType !== 'group-video') {
         return;
       }
 
@@ -362,9 +469,11 @@ export default function GroupVideoCallModal({
     setParticipants([]);
     setLocalStreamReady(false);
     setHasUserAccepted(!isIncomingCall); // Reset accepted state
+    hasUserAcceptedRef.current = !isIncomingCall;
     peerConnectionsRef.current.clear();
     remoteStreamsRef.current.clear();
     pendingCandidatesRef.current.clear();
+    pendingOffersRef.current = [];
     videoElementsRef.current.clear();
     localStreamRef.current = null; // Reset local stream
 
@@ -496,10 +605,14 @@ export default function GroupVideoCallModal({
         });
 
         // Create peer connections and send offers to existing participants
+        // Only the user with the HIGHER ID creates the offer (deterministic offerer)
+        // This prevents both sides from sending offers simultaneously (glare)
         if (localStreamRef.current) {
+          const offeredTo = new Set<string>();
           for (const participant of data.existingParticipants) {
             const epId = participant.odgoId || participant.userId || '';
-            if (epId && epId !== currentUserId) {
+            if (epId && epId !== currentUserId && !offeredTo.has(epId) && currentUserId > epId) {
+              offeredTo.add(epId);
               console.log('📹 Creating offer for existing participant:', epId);
               const pc = createPeerConnection(epId, participant);
               try {
@@ -516,12 +629,31 @@ export default function GroupVideoCallModal({
               }
             }
           }
+
+          // Also send offer to the new joiner if not already covered
+          if (participantId && participantId !== currentUserId && !offeredTo.has(participantId) && currentUserId > participantId) {
+            console.log('📹 Creating offer for new participant:', participantId);
+            const pc = createPeerConnection(participantId, data);
+            try {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socket.emit('offer', {
+                recipientId: participantId,
+                offer: offer,
+                callType: 'group-video',
+              });
+              console.log('📹 Sent offer to new participant:', participantId);
+            } catch (err) {
+              console.error('📹 Error creating offer for new participant:', err);
+            }
+          }
         }
       }
 
-      // If we have a local stream and this is a new participant, create peer connection
-      if (localStreamRef.current && participantId && participantId !== currentUserId) {
-        console.log('📹 Creating peer connection for new participant:', participantId);
+      // If we have a local stream and this is a new participant (no existingParticipants list)
+      // Only create offer if our userId > participantId (deterministic offerer prevents glare)
+      if (localStreamRef.current && participantId && participantId !== currentUserId && currentUserId > participantId && (!data.existingParticipants || data.existingParticipants.length === 0)) {
+        console.log('📹 Creating peer connection for new participant (we are offerer):', participantId);
         const pc = createPeerConnection(participantId, data);
         try {
           const offer = await pc.createOffer();
@@ -535,6 +667,8 @@ export default function GroupVideoCallModal({
         } catch (err) {
           console.error('📹 Error creating offer for new participant:', err);
         }
+      } else if (localStreamRef.current && participantId && participantId !== currentUserId && currentUserId < participantId && (!data.existingParticipants || data.existingParticipants.length === 0)) {
+        console.log('📹 Waiting for offer from participant (they are offerer):', participantId);
       }
 
       setCallStatus('active');
@@ -655,7 +789,8 @@ export default function GroupVideoCallModal({
 
     try {
       console.log('📹 [Video] User accepting call...');
-      setHasUserAccepted(true); // Mark as accepted by user action
+      setHasUserAccepted(true);
+      hasUserAcceptedRef.current = true;
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -672,20 +807,6 @@ export default function GroupVideoCallModal({
         localVideoRef.current.srcObject = stream;
       }
 
-      // Add tracks to any existing peer connections
-      peerConnectionsRef.current.forEach((pc, odgoId) => {
-        console.log(`📹 [Video] Adding local tracks to existing peer connection: ${odgoId}`);
-        stream.getTracks().forEach((track) => {
-          // Check if track is already added
-          const senders = pc.getSenders();
-          const existingSender = senders.find((s) => s.track?.kind === track.kind);
-          if (!existingSender) {
-            pc.addTrack(track, stream);
-            console.log(`📹 [Video] Added ${track.kind} track to peer: ${odgoId}`);
-          }
-        });
-      });
-
       // Update self participant with stream
       setParticipants((prev) =>
         prev.map((p) =>
@@ -695,13 +816,31 @@ export default function GroupVideoCallModal({
         )
       );
 
-      // Accept the group call
+      // Accept the group call (joins the room on backend)
       socket.emit('acceptGroupCall', { groupId, callerId });
-      setCallStatus('active');
+      setCallStatus('connecting');
+      console.log('📹 [Video] Call accepted, processing queued offers...');
+
+      // Process any queued offers that arrived while ringing
+      const queuedOffers = [...pendingOffersRef.current];
+      pendingOffersRef.current = [];
+
+      for (const queuedOffer of queuedOffers) {
+        console.log('📹 [Video] Processing queued offer from:', queuedOffer.callerId);
+        await handleOffer(queuedOffer);
+      }
+
+      // If no queued offers, the joinGroupCall response will trigger participant joined
+      // which will handle creating peer connections
+      if (queuedOffers.length > 0) {
+        setCallStatus('active');
+      }
+
       console.log('📹 [Video] Call accepted successfully');
     } catch (error) {
       console.error('Error accepting call:', error);
       setHasUserAccepted(false);
+      hasUserAcceptedRef.current = false;
     }
   };
 
@@ -895,9 +1034,14 @@ export default function GroupVideoCallModal({
                   ) : (
                     <video
                       ref={(el) => {
-                        if (el && participant.stream && el.srcObject !== participant.stream) {
-                          el.srcObject = participant.stream;
+                        if (el) {
                           videoElementsRef.current.set(participant.odgoId, el);
+                          if (participant.stream && el.srcObject !== participant.stream) {
+                            console.log('[GroupVideoCall] Setting video srcObject for:', participant.odgoId,
+                              'tracks:', participant.stream.getTracks().map(t => t.kind).join(','));
+                            el.srcObject = participant.stream;
+                            el.play().catch(e => console.warn('Video autoplay failed:', e));
+                          }
                         }
                       }}
                       autoPlay

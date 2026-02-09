@@ -1,5 +1,6 @@
 'use client';
 
+import { endActiveCall, useCallStore } from '@/lib/call-store';
 import { emitRejectCall, getSocket, initSocket } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import { usePathname } from 'next/navigation';
@@ -14,14 +15,14 @@ import VoiceCallModal from './voice-call-modal';
 interface IncomingCall {
   callerId: string;
   callerName: string;
-  callerAvatar: string;
+  callerAvatar: string | null;
   threadId: string;
   callType?: 'voice' | 'video';
   isGroupCall?: boolean;
   groupInfo?: {
     groupId: string;
     groupName: string;
-    groupAvatar: string;
+    groupAvatar: string | null;
   };
 }
 
@@ -39,6 +40,20 @@ export default function GlobalCallHandler() {
 
   // Skip handling when on chat page - the chat page has its own call handlers
   const isOnChatPage = pathname?.startsWith('/chat');
+
+  // Global call store — when any component calls endActiveCall(), all modals close
+  const callStoreState = useCallStore();
+  useEffect(() => {
+    if (!callStoreState.isCallModalOpen) {
+      if (isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen) {
+        setIsVoiceCallOpen(false);
+        setIsVideoCallOpen(false);
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        setIncomingCall(null);
+      }
+    }
+  }, [callStoreState.isCallModalOpen]);
 
   // Memoized handlers
   const handleIncomingCall = useCallback(
@@ -60,7 +75,7 @@ export default function GlobalCallHandler() {
       const callData: IncomingCall = {
         callerId: data.callerId,
         callerName: data.callerInfo?.name || data.name || 'Unknown',
-        callerAvatar: data.callerInfo?.avatar || '👤',
+        callerAvatar: data.callerInfo?.avatar || null,
         threadId: data.threadId,
         callType: callType,
         isGroupCall: isGroupCall,
@@ -68,7 +83,7 @@ export default function GlobalCallHandler() {
           ? {
               groupId: groupInfo?.groupId || data.threadId,
               groupName: groupInfo?.groupName || 'Group Call',
-              groupAvatar: groupInfo?.groupAvatar || '👥',
+              groupAvatar: groupInfo?.groupAvatar || null,
             }
           : undefined,
       };
@@ -95,6 +110,7 @@ export default function GlobalCallHandler() {
     setIsVideoCallOpen(false);
     setIsGroupVoiceCallOpen(false);
     setIsGroupVideoCallOpen(false);
+    endActiveCall();
   }, []);
 
   const handleCallFailed = useCallback((data: any) => {
@@ -105,6 +121,7 @@ export default function GlobalCallHandler() {
     setIsVideoCallOpen(false);
     setIsGroupVoiceCallOpen(false);
     setIsGroupVideoCallOpen(false);
+    endActiveCall();
   }, []);
 
   // Function to attach listeners
@@ -255,7 +272,7 @@ export default function GlobalCallHandler() {
                   ? `${incomingCall.callerName} (${incomingCall.groupInfo?.groupName || 'Group'})`
                   : incomingCall.callerName
               }
-              callerAvatar={incomingCall.callerAvatar}
+              callerAvatar={incomingCall.callerAvatar || undefined}
               onAccept={handleAcceptVideoCall}
               onReject={handleReject}
             />
@@ -267,7 +284,7 @@ export default function GlobalCallHandler() {
                   ? `${incomingCall.callerName} (${incomingCall.groupInfo?.groupName || 'Group'})`
                   : incomingCall.callerName
               }
-              callerAvatar={incomingCall.callerAvatar}
+              callerAvatar={incomingCall.callerAvatar || ''}
               onAccept={handleAcceptVoiceCall}
               onReject={handleReject}
             />
@@ -284,7 +301,7 @@ export default function GlobalCallHandler() {
             setIncomingCall(null);
           }}
           recipientName={incomingCall.callerName}
-          recipientAvatar={incomingCall.callerAvatar}
+          recipientAvatar={incomingCall.callerAvatar || ''}
           recipientId={incomingCall.callerId}
           currentUserId={currentUserId}
           isIncomingCall={true}
@@ -303,7 +320,7 @@ export default function GlobalCallHandler() {
             setIncomingCall(null);
           }}
           recipientName={incomingCall.callerName}
-          recipientAvatar={incomingCall.callerAvatar}
+          recipientAvatar={incomingCall.callerAvatar || ''}
           recipientId={incomingCall.callerId}
           isIncoming={true}
           callId={incomingCall.threadId}
@@ -322,13 +339,13 @@ export default function GlobalCallHandler() {
           }}
           groupId={incomingCall.groupInfo?.groupId || incomingCall.threadId}
           groupName={incomingCall.groupInfo?.groupName || 'Group Call'}
-          groupAvatar={incomingCall.groupInfo?.groupAvatar || '👥'}
+          groupAvatar={incomingCall.groupInfo?.groupAvatar || ''}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           currentUserAvatar={currentUserAvatar}
           isIncomingCall={true}
           callerId={incomingCall.callerId}
-          callerInfo={{ name: incomingCall.callerName, avatar: incomingCall.callerAvatar }}
+          callerInfo={{ name: incomingCall.callerName, avatar: incomingCall.callerAvatar || '' }}
         />
       )}
 
@@ -342,13 +359,13 @@ export default function GlobalCallHandler() {
           }}
           groupId={incomingCall.groupInfo?.groupId || incomingCall.threadId}
           groupName={incomingCall.groupInfo?.groupName || 'Group Call'}
-          groupAvatar={incomingCall.groupInfo?.groupAvatar || '👥'}
+          groupAvatar={incomingCall.groupInfo?.groupAvatar || ''}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           currentUserAvatar={currentUserAvatar}
           isIncomingCall={true}
           callerId={incomingCall.callerId}
-          callerInfo={{ name: incomingCall.callerName, avatar: incomingCall.callerAvatar }}
+          callerInfo={{ name: incomingCall.callerName, avatar: incomingCall.callerAvatar || '' }}
         />
       )}
     </>

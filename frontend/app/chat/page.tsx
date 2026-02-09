@@ -11,82 +11,83 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import VideoCallModal from '@/components/video-call-modal';
 import VoiceCallModal from '@/components/voice-call-modal';
 import { authService, chatService, groupService } from '@/lib/api-services';
+import { endActiveCall, useCallStore } from '@/lib/call-store';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-  disconnectSocket,
-  emitInitiateCall,
-  emitInitiateGroupCall,
-  emitJoinGroup,
-  emitMessageDelivered,
-  emitStopTyping,
-  emitTyping,
-  emitUserOffline,
-  emitUserOnline,
-  getSocket,
-  initSocket,
-  joinThread,
-  offCallEnded,
-  offCallFailed,
-  offCallRejected,
-  offGroupMessage,
-  offGroupMessageNotification,
-  offIncomingCall,
-  offMessageStatus,
-  offNewMessage,
-  offNewThread,
-  offStopTyping,
-  offTyping,
-  offUserOffline,
-  offUserOnline,
-  onCallEnded,
-  onCallFailed,
-  onCallRejected,
-  onGroupMessage,
-  onGroupMessageNotification,
-  onIncomingCall,
-  onMessageStatus,
-  onNewMessage,
-  onNewThread,
-  onStopTyping,
-  onTyping,
-  onUserOffline,
-  onUserOnline,
+    disconnectSocket,
+    emitInitiateCall,
+    emitInitiateGroupCall,
+    emitJoinGroup,
+    emitMessageDelivered,
+    emitStopTyping,
+    emitTyping,
+    emitUserOffline,
+    emitUserOnline,
+    getSocket,
+    initSocket,
+    joinThread,
+    offCallEnded,
+    offCallFailed,
+    offCallRejected,
+    offGroupMessage,
+    offGroupMessageNotification,
+    offIncomingCall,
+    offMessageStatus,
+    offNewMessage,
+    offNewThread,
+    offStopTyping,
+    offTyping,
+    offUserOffline,
+    offUserOnline,
+    onCallEnded,
+    onCallFailed,
+    onCallRejected,
+    onGroupMessage,
+    onGroupMessageNotification,
+    onIncomingCall,
+    onMessageStatus,
+    onNewMessage,
+    onNewThread,
+    onStopTyping,
+    onTyping,
+    onUserOffline,
+    onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-  Ban,
-  Camera,
-  CornerUpLeft,
-  Edit2,
-  FileText,
-  Flag,
-  Forward,
-  Image as ImageIcon,
-  LogOut,
-  MapPin,
-  Mic,
-  MoreHorizontal,
-  Navigation2,
-  Phone,
-  Plus,
-  Reply,
-  Send,
-  Trash2,
-  User,
-  UserPlus,
-  Users,
-  Video,
-  X,
+    Ban,
+    Camera,
+    CornerUpLeft,
+    Edit2,
+    FileText,
+    Flag,
+    Forward,
+    Image as ImageIcon,
+    LogOut,
+    MapPin,
+    Mic,
+    MoreHorizontal,
+    Navigation2,
+    Phone,
+    Plus,
+    Reply,
+    Send,
+    Trash2,
+    User,
+    UserPlus,
+    Users,
+    Video,
+    X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -178,16 +179,18 @@ function ChatPageContent() {
   const [incomingCall, setIncomingCall] = useState<{
     callerId: string;
     callerName: string;
-    callerAvatar: string;
+    callerAvatar: string | null;
     threadId: string;
     callType?: 'voice' | 'video';
     isGroupCall?: boolean;
     groupInfo?: {
       groupId: string;
       groupName: string;
-      groupAvatar: string;
+      groupAvatar: string | null;
     };
   } | null>(null);
+  // Ref to preserve incoming call status while modals are open (survives state cleanup)
+  const isIncomingCallRef = useRef(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
@@ -217,6 +220,22 @@ function ChatPageContent() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Global call store — when any component calls endActiveCall(), all modals close
+  const callStoreState = useCallStore();
+  useEffect(() => {
+    if (!callStoreState.isCallModalOpen) {
+      // Store says no active call — ensure all local modals are closed
+      if (isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen) {
+        setIsVoiceCallOpen(false);
+        setIsVideoCallOpen(false);
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        setIncomingCall(null);
+        isIncomingCallRef.current = false;
+      }
+    }
+  }, [callStoreState.isCallModalOpen]);
+
   const handleOpenProfile = (userId: string) => {
     router.push(`/profile/${userId}`);
   };
@@ -224,6 +243,9 @@ function ChatPageContent() {
   const selectedThreadIdRef = useRef<string | null>(null);
   const groupsRef = useRef<Conversation[]>([]);
   const conversationsRef = useRef<Conversation[]>([]);
+
+  // Track online users independently of conversations to avoid race conditions
+  const onlineUsersRef = useRef<Set<string>>(new Set());
 
   // Keep groupsRef in sync with groups state
   useEffect(() => {
@@ -363,24 +385,19 @@ function ChatPageContent() {
                 : 'Just now',
               unread: (thread.unreadCount || 0) > 0,
               unreadCount: thread.unreadCount || 0,
-              online: otherParticipant?.isOnline || false, // Use actual online status
+              online: onlineUsersRef.current.has(otherParticipant?._id?.toString() || '') || otherParticipant?.isOnline || false,
               threadId: thread._id,
               hasStory: otherParticipant?.hasActiveStory || false, // Check if user has active story
             };
-            console.log('📋 Created conversation object:', conversationObj);
             return conversationObj;
           });
-          console.log('✅ All conversations:', convList);
           setConversations(convList);
 
-          // Request online users list AFTER conversations are loaded
-          // Use a small delay to ensure socket listeners are attached
-          setTimeout(() => {
-            const socket = getSocket();
-            if (socket?.connected) {
-              socket.emit('getOnlineUsers');
-            }
-          }, 500);
+          // Request fresh online users list AFTER conversations are loaded
+          const socket = getSocket();
+          if (socket?.connected) {
+            socket.emit('getOnlineUsers');
+          }
         } else {
           console.warn(' No data in response:', response);
           setConversations([]);
@@ -744,6 +761,9 @@ function ChatPageContent() {
         const userIdStr = userId?.toString();
 
         if (userIdStr) {
+          // Update the ref first (source of truth)
+          onlineUsersRef.current.add(userIdStr);
+
           setConversations((prev) => {
             const updated = prev.map((conv) => {
               const convParticipantStr = conv.participantId?.toString();
@@ -771,6 +791,9 @@ function ChatPageContent() {
         const userIdStr = userId?.toString();
 
         if (userIdStr) {
+          // Update the ref first (source of truth)
+          onlineUsersRef.current.delete(userIdStr);
+
           setConversations((prev) => {
             const updated = prev.map((conv) => {
               const convParticipantStr = conv.participantId?.toString();
@@ -873,8 +896,9 @@ function ChatPageContent() {
 
         // Use priority: conversation name > callerInfo from backend > Unknown
         const callerName = conversation?.name || callerInfo?.name || 'Unknown User';
-        const callerAvatar = conversation?.avatar || callerInfo?.avatar || '👤';
+        const callerAvatar = conversation?.avatar || callerInfo?.avatar || null;
 
+        isIncomingCallRef.current = true;
         setIncomingCall({
           callerId,
           callerName,
@@ -886,7 +910,7 @@ function ChatPageContent() {
             ? {
                 groupId: groupInfo?.groupId || threadId,
                 groupName: groupInfo?.groupName || 'Group Call',
-                groupAvatar: groupInfo?.groupAvatar || '👥',
+                groupAvatar: groupInfo?.groupAvatar || null,
               }
             : undefined,
         });
@@ -935,7 +959,7 @@ function ChatPageContent() {
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
           new Notification('Incoming Call', {
             body: `${callerName} is calling...`,
-            icon: callerAvatar,
+            icon: callerAvatar && (callerAvatar.startsWith('http') || callerAvatar.startsWith('/uploads')) ? callerAvatar : undefined,
             tag: 'incoming-call',
           });
         }
@@ -946,6 +970,7 @@ function ChatPageContent() {
       };
 
       const handleCallRejected = (data: any) => {
+        isIncomingCallRef.current = false;
         setIncomingCall(null);
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
@@ -976,9 +1001,13 @@ function ChatPageContent() {
         const endedAt = data.endedAt ? new Date(data.endedAt) : new Date();
         const duration = data.duration || 0;
 
+        isIncomingCallRef.current = false;
         setIncomingCall(null);
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
+
+        // Notify global call store so all modals close
+        endActiveCall();
 
         // Add system message for ended call
         if (
@@ -1007,9 +1036,13 @@ function ChatPageContent() {
 
       const handleCallFailed = (data: any) => {
         console.log('📞 Call failed:', data);
+        isIncomingCallRef.current = false;
         setIncomingCall(null);
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
+
+        // Notify global call store so all modals close
+        endActiveCall();
 
         // Show toast notification for call failure
         showToast.error('Call Failed', data.reason || 'Unable to connect the call');
@@ -1238,14 +1271,17 @@ function ChatPageContent() {
           });
         });
 
-        // Listen for initial online users list
-        currentSocket.on('onlineUsersList', (data: { users: string[] }) => {
+        // Listen for online users list (initial + subsequent requests)
+        const handleOnlineUsersList = (data: { users: string[] }) => {
+          // Update the ref (source of truth) — replace with full set
+          onlineUsersRef.current = new Set(data.users.map(id => id.toString()));
+
           // Update all conversations with online status
           setConversations((prev) => {
+            if (prev.length === 0) return prev; // Skip if conversations not loaded yet
             return prev.map((conv) => {
-              const isOnline =
-                data.users.includes(conv.participantId) ||
-                data.users.includes(conv.participantId.toString());
+              const pid = conv.participantId?.toString();
+              const isOnline = pid ? onlineUsersRef.current.has(pid) : false;
               return {
                 ...conv,
                 online: isOnline,
@@ -1255,12 +1291,17 @@ function ChatPageContent() {
 
           // Update selected conversation if needed
           setSelectedConversation((prev) => {
-            if (prev && data.users.includes(prev.participantId)) {
-              return { ...prev, online: true };
+            if (prev) {
+              const pid = prev.participantId?.toString();
+              const isOnline = pid ? onlineUsersRef.current.has(pid) : false;
+              if (prev.online !== isOnline) {
+                return { ...prev, online: isOnline };
+              }
             }
             return prev;
           });
-        });
+        };
+        currentSocket.on('onlineUsersList', handleOnlineUsersList);
 
         // Request initial online users list (immediately if connected, otherwise wait for connect)
         if (currentSocket.connected) {
@@ -1283,6 +1324,8 @@ function ChatPageContent() {
         if (currentSocket) {
           currentSocket.off('messagesSeen');
           currentSocket.off('groupCreated');
+          currentSocket.off('onlineUsersList');
+          currentSocket.off('connect');
         }
         offNewMessage(handleNewMessage);
         offMessageStatus(handleMessageStatus);
@@ -3537,16 +3580,17 @@ function ChatPageContent() {
         onClose={() => {
           setIsVoiceCallOpen(false);
           setIncomingCall(null);
+          isIncomingCallRef.current = false;
         }}
         recipientName={incomingCall?.callerName || selectedConversation?.name || 'User'}
-        recipientAvatar={incomingCall?.callerAvatar || selectedConversation?.avatar || '👤'}
+        recipientAvatar={incomingCall?.callerAvatar || selectedConversation?.avatar || ''}
         recipientId={incomingCall?.callerId || selectedConversation?.participantId || ''}
         currentUserId={user?._id || ''}
-        isIncomingCall={!!incomingCall}
+        isIncomingCall={isIncomingCallRef.current}
         callerId={incomingCall?.callerId}
         threadId={incomingCall?.threadId || selectedConversation?.threadId}
         onCallEnd={() => {
-          setIncomingCall(null);
+          // Don't clear incomingCall here - onClose handles it after modal animation
         }}
       />
 
@@ -3556,11 +3600,12 @@ function ChatPageContent() {
         onClose={() => {
           setIsVideoCallOpen(false);
           setIncomingCall(null);
+          isIncomingCallRef.current = false;
         }}
         recipientName={incomingCall?.callerName || selectedConversation?.name || 'User'}
-        recipientAvatar={incomingCall?.callerAvatar || selectedConversation?.avatar || '👤'}
+        recipientAvatar={incomingCall?.callerAvatar || selectedConversation?.avatar || ''}
         recipientId={incomingCall?.callerId || selectedConversation?.participantId || ''}
-        isIncoming={!!incomingCall && incomingCall.callType === 'video'}
+        isIncoming={isIncomingCallRef.current && incomingCall?.callType === 'video'}
         callId={incomingCall?.threadId || selectedConversation?.threadId}
         callerId={incomingCall?.callerId}
         threadId={incomingCall?.threadId || selectedConversation?.threadId}
@@ -3572,20 +3617,21 @@ function ChatPageContent() {
         onClose={() => {
           setIsGroupVoiceCallOpen(false);
           setIncomingCall(null);
+          isIncomingCallRef.current = false;
         }}
         groupId={incomingCall?.groupInfo?.groupId || selectedConversation?.id || ''}
         groupName={incomingCall?.groupInfo?.groupName || selectedConversation?.name || 'Group'}
-        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || '👥'}
+        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || ''}
         currentUserId={user?._id || ''}
         currentUserName={
           user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.username || ''
         }
         currentUserAvatar={user?.avatar || user?.profilePicture || ''}
-        isIncomingCall={!!incomingCall?.isGroupCall && incomingCall?.callType === 'voice'}
+        isIncomingCall={isIncomingCallRef.current}
         callerId={incomingCall?.callerId}
         callerInfo={
           incomingCall
-            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar }
+            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar || '' }
             : undefined
         }
       />
@@ -3596,20 +3642,21 @@ function ChatPageContent() {
         onClose={() => {
           setIsGroupVideoCallOpen(false);
           setIncomingCall(null);
+          isIncomingCallRef.current = false;
         }}
         groupId={incomingCall?.groupInfo?.groupId || selectedConversation?.id || ''}
         groupName={incomingCall?.groupInfo?.groupName || selectedConversation?.name || 'Group'}
-        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || '👥'}
+        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || ''}
         currentUserId={user?._id || ''}
         currentUserName={
           user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.username || ''
         }
         currentUserAvatar={user?.avatar || user?.profilePicture || ''}
-        isIncomingCall={!!incomingCall?.isGroupCall && incomingCall?.callType === 'video'}
+        isIncomingCall={isIncomingCallRef.current}
         callerId={incomingCall?.callerId}
         callerInfo={
           incomingCall
-            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar }
+            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar || '' }
             : undefined
         }
       />
@@ -3696,7 +3743,7 @@ function ChatPageContent() {
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
                       unreadCount: thread.unreadCount || 0,
-                      online: otherParticipant?.isOnline || false,
+                      online: onlineUsersRef.current.has(otherParticipant?._id?.toString() || '') || otherParticipant?.isOnline || false,
                       threadId: thread._id,
                     };
                   }
@@ -3767,7 +3814,7 @@ function ChatPageContent() {
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
                       unreadCount: thread.unreadCount || 0,
-                      online: otherParticipant?.isOnline || false,
+                      online: onlineUsersRef.current.has(otherParticipant?._id?.toString() || '') || otherParticipant?.isOnline || false,
                       threadId: thread._id,
                     };
                   }

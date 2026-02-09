@@ -1,27 +1,29 @@
 'use client';
 
+import { endActiveCall, getCallState, subscribeCallStore } from '@/lib/call-store';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-  emitAcceptCall,
-  emitAnswer,
-  emitEndCall,
-  emitIceCandidate,
-  emitOffer,
-  emitRejectCall,
-  offAnswer,
-  offCallAccepted,
-  offCallEnded,
-  offCallFailed,
-  offIceCandidate,
-  offOffer,
-  onAnswer,
-  onCallAccepted,
-  onCallEnded,
-  onCallFailed,
-  onIceCandidate,
-  onOffer,
+    emitAcceptCall,
+    emitAnswer,
+    emitEndCall,
+    emitIceCandidate,
+    emitOffer,
+    emitRejectCall,
+    offAnswer,
+    offCallAccepted,
+    offCallEnded,
+    offCallFailed,
+    offIceCandidate,
+    offOffer,
+    onAnswer,
+    onCallAccepted,
+    onCallEnded,
+    onCallFailed,
+    onIceCandidate,
+    onOffer,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
+import { ICE_SERVERS } from '@/lib/webrtc-config';
 import { Mic, MicOff, Phone, PhoneOff, User, Volume2, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -91,7 +93,7 @@ export default function VoiceCallModal({
       // Listen for call ended from remote user
       const handleCallEndedByRemote = () => {
         console.log('📞 Remote user ended the call');
-        endCall();
+        endCall(true);
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
       onCallEnded(handleCallEndedByRemote);
@@ -122,11 +124,16 @@ export default function VoiceCallModal({
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
 
-            emitOffer(recipientId, offer as any);
+            emitOffer(recipientId, offer as any, 'voice');
 
             // Set up answer handler
             const handleAnswer = async (answerData: any) => {
               try {
+                // Only handle voice call answers
+                if (answerData.callType && answerData.callType !== 'voice') {
+                  return;
+                }
+
                 // Only block if connection is actually closed or failed
                 if (
                   !peerConnection ||
@@ -164,6 +171,11 @@ export default function VoiceCallModal({
 
             const handleCandidate = async (candidateData: any) => {
               try {
+                // Only handle voice call ICE candidates
+                if (candidateData.callType && candidateData.callType !== 'voice') {
+                  return;
+                }
+
                 // Skip if peer connection is closed or not ready
                 if (!peerConnection || peerConnection.connectionState === 'closed') {
                   return;
@@ -225,6 +237,18 @@ export default function VoiceCallModal({
     }
   }, [isOpen, isIncomingCall, recipientId]);
 
+  // Listen for external call-end signals (from chat page or global handler)
+  useEffect(() => {
+    if (!isOpen) return;
+    const unsubscribe = subscribeCallStore(() => {
+      const { isCallModalOpen } = getCallState();
+      if (!isCallModalOpen && !isEndingCall.current) {
+        endCall(true);
+      }
+    });
+    return unsubscribe;
+  }, [isOpen]);
+
   // Timer effect
   useEffect(() => {
     if (callStatus !== 'active') return;
@@ -259,17 +283,7 @@ export default function VoiceCallModal({
 
   const createPeerConnection = async () => {
     try {
-      const config = {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
-        ],
-      };
-
-      const peerConnection = new RTCPeerConnection(config);
+      const peerConnection = new RTCPeerConnection(ICE_SERVERS);
       peerConnectionRef.current = peerConnection;
 
       // Get local media stream
@@ -296,15 +310,22 @@ export default function VoiceCallModal({
       // Handle ICE candidates
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          emitIceCandidate(recipientId || callerId || '', event.candidate);
+          emitIceCandidate(recipientId || callerId || '', event.candidate, 'voice');
         }
       };
 
       // Handle connection state
       peerConnection.onconnectionstatechange = () => {
+        console.log('🧊 Voice connection state:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'failed') {
           console.error('❌ Peer connection failed');
           endCall();
+        } else if (
+          peerConnection.connectionState === 'disconnected' ||
+          peerConnection.connectionState === 'closed'
+        ) {
+          // Remote peer likely hung up — treat as remote-ended
+          endCall(true);
         }
       };
 
@@ -339,7 +360,7 @@ export default function VoiceCallModal({
           await peerConnection.setLocalDescription(answer);
 
           // Send answer to caller
-          emitAnswer(callerId || '', answer as any);
+          emitAnswer(callerId || '', answer as any, 'voice');
 
           // Process queued ICE candidates
           for (const candidate of iceCandidatesQueue.current) {
@@ -358,6 +379,11 @@ export default function VoiceCallModal({
       };
 
       const handleOffer = async (offerData: any) => {
+        // Only handle voice call offers
+        if (offerData.callType && offerData.callType !== 'voice') {
+          return;
+        }
+
         // If peer connection doesn't exist yet, store offer for later
         if (!peerConnectionRef.current) {
           pendingOffer.current = offerData;
@@ -370,6 +396,11 @@ export default function VoiceCallModal({
 
       const handleCandidate = async (candidateData: any) => {
         try {
+          // Only handle voice call ICE candidates
+          if (candidateData.callType && candidateData.callType !== 'voice') {
+            return;
+          }
+
           // Skip if peer connection is closed or not ready
           if (
             !peerConnectionRef.current ||
@@ -440,7 +471,7 @@ export default function VoiceCallModal({
     endCall();
   };
 
-  const endCall = () => {
+  const endCall = (remoteEnded = false) => {
     // Prevent multiple calls to endCall
     if (isEndingCall.current) {
       return;
@@ -486,12 +517,16 @@ export default function VoiceCallModal({
     remoteDescriptionSet.current = false;
     iceCandidatesQueue.current = [];
 
-    if (recipientId || callerId) {
+    // Only emit endCall to server if we're ending locally (not when remote already ended)
+    if (!remoteEnded && (recipientId || callerId)) {
       emitEndCall(recipientId || callerId || '', threadId);
     }
 
     setCallStatus('ended');
     onCallEnd?.();
+
+    // Notify global call store so other components (chat page, global handler) close too
+    endActiveCall();
 
     setTimeout(() => {
       onClose();
@@ -643,7 +678,7 @@ export default function VoiceCallModal({
 
             {callStatus === 'ringing' && !isIncomingCall && (
               <button
-                onClick={endCall}
+                onClick={() => endCall()}
                 className="cursor-pointer w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 flex items-center justify-center transition transform shadow-xl hover:shadow-red-500/50"
                 title="Cancel call"
               >
@@ -705,7 +740,7 @@ export default function VoiceCallModal({
 
                 {/* End call button */}
                 <button
-                  onClick={endCall}
+                  onClick={() => endCall()}
                   className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 flex items-center justify-center transition transform shadow-xl hover:shadow-red-500/50"
                   title="End call"
                 >

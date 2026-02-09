@@ -32,13 +32,7 @@ interface GroupVoiceCallModalProps {
 }
 
 // STUN/TURN servers for WebRTC
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-};
+import { ICE_SERVERS } from '@/lib/webrtc-config';
 
 export default function GroupVoiceCallModal({
   isOpen,
@@ -61,10 +55,12 @@ export default function GroupVoiceCallModal({
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
   const [hasUserAccepted, setHasUserAccepted] = useState(!isIncomingCall); // Track if user accepted
+  const hasUserAcceptedRef = useRef(!isIncomingCall); // Ref version for callbacks
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const pendingOffersRef = useRef<Array<{ callerId: string; offer: RTCSessionDescriptionInit; callType?: string }>>([]); // Queue offers while ringing
   const isSettingUpRef = useRef(false);
 
   // Format duration as mm:ss or hh:mm:ss
@@ -111,6 +107,7 @@ export default function GroupVoiceCallModal({
           socket.emit('iceCandidate', {
             recipientId: peerId,
             candidate: event.candidate,
+            callType: 'group-voice',
           });
         }
       };
@@ -178,14 +175,21 @@ export default function GroupVoiceCallModal({
   // Handle incoming WebRTC offer
   const handleOffer = useCallback(
     async (data: { callerId: string; offer: RTCSessionDescriptionInit; callType?: string }) => {
-      // Only handle voice call offers
-      if (data.callType && data.callType !== 'group-voice') {
-        console.log(`📞 [Voice] Ignoring offer with callType: ${data.callType}`);
+      // Only handle group-voice call offers (reject 1-to-1 or other types)
+      if (data.callType !== 'group-voice') {
+        console.log(`📞 [GroupVoice] Ignoring offer with callType: ${data.callType}`);
         return;
       }
 
       const { callerId: offererUserId, offer } = data;
-      console.log(`📞 [Voice] Received offer from ${offererUserId}`);
+      console.log(`📞 [Voice] Received offer from ${offererUserId}, hasAccepted:`, hasUserAcceptedRef.current);
+
+      // If user hasn't accepted yet, queue the offer
+      if (!hasUserAcceptedRef.current) {
+        console.log('📞 [Voice] Queuing offer - user has not accepted yet');
+        pendingOffersRef.current.push(data);
+        return;
+      }
 
       const socket = getSocket();
       if (!socket || !localStreamRef.current) {
@@ -263,9 +267,9 @@ export default function GroupVoiceCallModal({
       answer: RTCSessionDescriptionInit;
       callType?: string;
     }) => {
-      // Only handle voice call answers
-      if (data.callType && data.callType !== 'group-voice') {
-        console.log(`📞 [Voice] Ignoring answer with callType: ${data.callType}`);
+      // Only handle group-voice call answers
+      if (data.callType !== 'group-voice') {
+        console.log(`📞 [GroupVoice] Ignoring answer with callType: ${data.callType}`);
         return;
       }
 
@@ -310,8 +314,8 @@ export default function GroupVoiceCallModal({
   // Handle incoming ICE candidates
   const handleIceCandidate = useCallback(
     async (data: { senderId: string; candidate: RTCIceCandidateInit; callType?: string }) => {
-      // Filter by call type if provided
-      if (data.callType && data.callType !== 'group-voice') {
+      // Filter by call type - only handle group-voice
+      if (data.callType !== 'group-voice') {
         return;
       }
 
@@ -352,9 +356,11 @@ export default function GroupVoiceCallModal({
     setCallStatus(isIncomingCall ? 'ringing' : 'connecting');
     setParticipants([]);
     setHasUserAccepted(!isIncomingCall); // Reset accepted state
+    hasUserAcceptedRef.current = !isIncomingCall;
     peerConnectionsRef.current.clear();
     audioElementsRef.current.clear();
     pendingCandidatesRef.current.clear();
+    pendingOffersRef.current = [];
     localStreamRef.current = null; // Reset local stream
 
     // Add self as first participant
@@ -543,37 +549,40 @@ export default function GroupVoiceCallModal({
 
     try {
       console.log('📞 [Voice] User accepting call...');
-      setHasUserAccepted(true); // Mark as accepted by user action
+      setHasUserAccepted(true);
+      hasUserAcceptedRef.current = true;
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
-
-      // Add tracks to any existing peer connections
-      peerConnectionsRef.current.forEach((pc, odgoId) => {
-        console.log(`📞 [Voice] Adding local tracks to existing peer connection: ${odgoId}`);
-        stream.getTracks().forEach((track) => {
-          // Check if track is already added
-          const senders = pc.getSenders();
-          const existingSender = senders.find((s) => s.track?.kind === track.kind);
-          if (!existingSender) {
-            pc.addTrack(track, stream);
-            console.log(`📞 [Voice] Added ${track.kind} track to peer: ${odgoId}`);
-          }
-        });
-      });
 
       // Update self participant
       setParticipants((prev) =>
         prev.map((p) => (p.userId === currentUserId ? { ...p, isMuted: false } : p))
       );
 
-      // Accept the group call
+      // Accept the group call (joins the room on backend)
       socket.emit('acceptGroupCall', { groupId, callerId });
-      setCallStatus('active');
+      setCallStatus('connecting');
+      console.log('📞 [Voice] Call accepted, processing queued offers...');
+
+      // Process any queued offers that arrived while ringing
+      const queuedOffers = [...pendingOffersRef.current];
+      pendingOffersRef.current = [];
+
+      for (const queuedOffer of queuedOffers) {
+        console.log('📞 [Voice] Processing queued offer from:', queuedOffer.callerId);
+        await handleOffer(queuedOffer);
+      }
+
+      if (queuedOffers.length > 0) {
+        setCallStatus('active');
+      }
+
       console.log('📞 [Voice] Call accepted successfully');
     } catch (error) {
       console.error('Error accepting call:', error);
       setHasUserAccepted(false);
+      hasUserAcceptedRef.current = false;
     }
   };
 

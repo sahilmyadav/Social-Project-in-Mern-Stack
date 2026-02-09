@@ -731,12 +731,13 @@ export const initializeSocket = async (server) => {
     });
 
     // ICE candidate exchange for WebRTC connection
-    socket.on('iceCandidate', ({ recipientId, candidate }) => {
-      console.log(`🧊 ICE candidate: ${socket.userId} -> ${recipientId}`);
+    socket.on('iceCandidate', ({ recipientId, candidate, callType }) => {
+      console.log(`🧊 ICE candidate: ${socket.userId} -> ${recipientId} (type: ${callType || 'unknown'})`);
 
       io.to(recipientId).emit('iceCandidate', {
         senderId: socket.userId,
         candidate: candidate,
+        callType: callType,
       });
     });
 

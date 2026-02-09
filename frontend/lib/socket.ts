@@ -377,21 +377,23 @@ export const emitEndCall = (recipientId: string, threadId: string) => {
   });
 };
 
-export const emitOffer = (recipientId: string, offer: any) => {
+export const emitOffer = (recipientId: string, offer: any, callType?: string) => {
   socket?.emit('offer', {
     recipientId,
-    offer: offer, // Send full RTCSessionDescription object
+    offer: offer,
+    callType: callType || 'video',
   });
 };
 
-export const emitAnswer = (callerId: string, answer: any) => {
+export const emitAnswer = (callerId: string, answer: any, callType?: string) => {
   socket?.emit('answer', {
-    recipientId: callerId, // Send to the caller
-    answer: answer, // Send full RTCSessionDescription object
+    recipientId: callerId,
+    answer: answer,
+    callType: callType || 'video',
   });
 };
 
-export const emitIceCandidate = (recipientId: string, candidate: RTCIceCandidate) => {
+export const emitIceCandidate = (recipientId: string, candidate: RTCIceCandidate, callType?: string) => {
   socket?.emit('iceCandidate', {
     recipientId,
     candidate: {
@@ -399,6 +401,7 @@ export const emitIceCandidate = (recipientId: string, candidate: RTCIceCandidate
       sdpMLineIndex: candidate.sdpMLineIndex,
       sdpMid: candidate.sdpMid,
     },
+    callType: callType || 'video',
   });
 };
 
