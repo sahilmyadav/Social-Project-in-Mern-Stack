@@ -1,7 +1,13 @@
-import CryptoJS from "crypto-js";
+import CryptoJS from 'crypto-js';
+import logger from './logger.js';
 
-// Get encryption key from environment or use default (change in production!)
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "your-secret-encryption-key-change-in-production";
+// Get encryption key from environment.
+// Fail fast at startup if not set — do not allow silent failures at runtime.
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+
+if (!ENCRYPTION_KEY) {
+  logger.error('[encryption] ENCRYPTION_KEY not set. Chat encryption will be unavailable.');
+}
 
 /**
  * Encrypt text message
@@ -10,13 +16,14 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "your-secret-encryption-key
  */
 export const encryptMessage = (text) => {
   if (!text) return text;
-  
+  if (!ENCRYPTION_KEY) throw new Error('ENCRYPTION_KEY not configured — cannot encrypt');
+
   try {
     const encrypted = CryptoJS.AES.encrypt(text, ENCRYPTION_KEY).toString();
     return encrypted;
   } catch (error) {
-    console.error("Encryption error:", error);
-    throw new Error("Failed to encrypt message");
+    logger.error('Encryption error', { error: error.message });
+    throw new Error('Failed to encrypt message');
   }
 };
 
@@ -27,13 +34,14 @@ export const encryptMessage = (text) => {
  */
 export const decryptMessage = (encryptedText) => {
   if (!encryptedText) return encryptedText;
-  
+  if (!ENCRYPTION_KEY) throw new Error('ENCRYPTION_KEY not configured — cannot decrypt');
+
   try {
     const decrypted = CryptoJS.AES.decrypt(encryptedText, ENCRYPTION_KEY);
     return decrypted.toString(CryptoJS.enc.Utf8);
   } catch (error) {
-    console.error("Decryption error:", error);
-    throw new Error("Failed to decrypt message");
+    logger.error('Decryption error', { error: error.message });
+    throw new Error('Failed to decrypt message');
   }
 };
 
@@ -44,13 +52,13 @@ export const decryptMessage = (encryptedText) => {
  */
 export const encryptObject = (data) => {
   if (!data) return data;
-  
+
   try {
     const jsonString = JSON.stringify(data);
     return CryptoJS.AES.encrypt(jsonString, ENCRYPTION_KEY).toString();
   } catch (error) {
-    console.error("Object encryption error:", error);
-    throw new Error("Failed to encrypt data");
+    logger.error('Object encryption error', { error: error.message });
+    throw new Error('Failed to encrypt data');
   }
 };
 
@@ -61,14 +69,14 @@ export const encryptObject = (data) => {
  */
 export const decryptObject = (encryptedData) => {
   if (!encryptedData) return encryptedData;
-  
+
   try {
     const decrypted = CryptoJS.AES.decrypt(encryptedData, ENCRYPTION_KEY);
     const jsonString = decrypted.toString(CryptoJS.enc.Utf8);
     return JSON.parse(jsonString);
   } catch (error) {
-    console.error("Object decryption error:", error);
-    throw new Error("Failed to decrypt data");
+    logger.error('Object decryption error', { error: error.message });
+    throw new Error('Failed to decrypt data');
   }
 };
 
@@ -102,19 +110,19 @@ export const decryptMediaUrl = (token, expiryMinutes = 60) => {
   try {
     const decrypted = CryptoJS.AES.decrypt(token, ENCRYPTION_KEY);
     const data = decrypted.toString(CryptoJS.enc.Utf8);
-    const [url, timestamp] = data.split("|");
-    
+    const [url, timestamp] = data.split('|');
+
     // Check if token is expired
     const now = Date.now();
-    const expiry = parseInt(timestamp) + (expiryMinutes * 60 * 1000);
-    
+    const expiry = parseInt(timestamp) + expiryMinutes * 60 * 1000;
+
     if (now > expiry) {
       return null; // Token expired
     }
-    
+
     return url;
   } catch (error) {
-    console.error("Media URL decryption error:", error);
+    logger.error('Media URL decryption error', { error: error.message });
     return null;
   }
 };

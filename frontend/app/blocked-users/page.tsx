@@ -35,7 +35,6 @@ export default function BlockedUsersPage() {
         }
       }
     } catch (error) {
-      console.error('Error loading current user:', error);
       router.push('/login');
     }
   };
@@ -46,7 +45,6 @@ export default function BlockedUsersPage() {
       const response = await authService.getBlockedUsers();
 
       if (response.success && response.data) {
-        // Handle different response structures
         const users = Array.isArray(response.data)
           ? response.data
           : response.data.blockedUsers || [];
@@ -55,7 +53,6 @@ export default function BlockedUsersPage() {
         setBlockedUsers([]);
       }
     } catch (error) {
-      console.error('Error loading blocked users:', error);
       setBlockedUsers([]);
     } finally {
       setLoading(false);
@@ -74,14 +71,12 @@ export default function BlockedUsersPage() {
           const response = await authService.unblockUser(userId);
 
           if (response.success) {
-            // Remove from local state
             setBlockedUsers(blockedUsers.filter((u) => u._id !== userId && u.id !== userId));
             toasts.userUnblocked(userName);
           } else {
             toasts.error(response.message || 'Failed to unblock user');
           }
         } catch (error: any) {
-          console.error('Error unblocking user:', error);
           toasts.error(error?.message || 'Failed to unblock user');
         } finally {
           setUnblocking(null);
@@ -109,14 +104,11 @@ export default function BlockedUsersPage() {
   return (
     <main className="min-h-screen bg-background pb-20 lg:pb-0">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-0">
-        {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-3 p-4 lg:p-8">
-          {/* Header */}
           <div className="mb-8">
             <Button
               variant="ghost"
@@ -133,7 +125,6 @@ export default function BlockedUsersPage() {
             </p>
           </div>
 
-          {/* Blocked Users List */}
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
             {loading ? (
               <div className="p-12 text-center">
@@ -167,7 +158,6 @@ export default function BlockedUsersPage() {
                       className="p-4 hover:bg-muted/50 transition flex items-center justify-between"
                     >
                       <div className="flex items-center gap-4">
-                        {/* Avatar */}
                         <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-2xl overflow-hidden">
                           {avatar && avatar.startsWith('http') ? (
                             <img
@@ -180,14 +170,12 @@ export default function BlockedUsersPage() {
                           )}
                         </div>
 
-                        {/* User Info */}
                         <div>
                           <h3 className="font-semibold text-foreground">{fullName || username}</h3>
                           <p className="text-sm text-muted-foreground">@{username}</p>
                         </div>
                       </div>
 
-                      {/* Unblock Button */}
                       <Button
                         onClick={() => handleUnblock(userId, fullName || username)}
                         disabled={unblocking === userId}
@@ -213,7 +201,6 @@ export default function BlockedUsersPage() {
             )}
           </div>
 
-          {/* Info Box */}
           {blockedUsers.length > 0 && (
             <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
               <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
@@ -230,10 +217,8 @@ export default function BlockedUsersPage() {
         </section>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </main>
   );

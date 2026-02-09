@@ -8,6 +8,7 @@ import { GroupChat } from '../models/groupChat.model.js';
 import { GroupMessage } from '../models/groupMessage.model.js';
 import { User } from '../models/user.model.js';
 import { encryptMessage } from '../utils/encryption.js';
+import logger from '../utils/logger.js';
 
 export default function groupSocket(io, socket, userId) {
   // ==================== GROUP ROOM MANAGEMENT ====================
@@ -26,7 +27,7 @@ export default function groupSocket(io, socket, userId) {
 
       if (group) {
         socket.join(`group:${groupId}`);
-        console.log(`👥 User ${userId} joined group room: ${groupId}`);
+        logger.info(`User ${userId} joined group room: ${groupId}`);
 
         // Update user's last seen in group
         const member = group.members.find((m) => m.user.toString() === userId);
@@ -36,7 +37,7 @@ export default function groupSocket(io, socket, userId) {
         }
       }
     } catch (error) {
-      console.error('Error joining group:', error);
+      logger.error('Error joining group', { error: error.message });
     }
   });
 
@@ -45,7 +46,7 @@ export default function groupSocket(io, socket, userId) {
    */
   socket.on('leaveGroup', (groupId) => {
     socket.leave(`group:${groupId}`);
-    console.log(`👥 User ${userId} left group room: ${groupId}`);
+    logger.info(`User ${userId} left group room: ${groupId}`);
   });
 
   // ==================== GROUP MESSAGING ====================
@@ -160,7 +161,7 @@ export default function groupSocket(io, socket, userId) {
         timestamp: message.createdAt,
       });
     } catch (error) {
-      console.error('Error sending group message:', error);
+      logger.error('Error sending group message', { error: error.message });
       socket.emit('groupMessageError', {
         error: 'Failed to send message',
         details: error.message,
@@ -181,7 +182,7 @@ export default function groupSocket(io, socket, userId) {
         isTyping: true,
       });
     } catch (error) {
-      console.error('Error with group typing:', error);
+      logger.error('Error with group typing', { error: error.message });
     }
   });
 
@@ -234,7 +235,7 @@ export default function groupSocket(io, socket, userId) {
         readAt: new Date(),
       });
     } catch (error) {
-      console.error('Error marking messages read:', error);
+      logger.error('Error marking messages read', { error: error.message });
     }
   });
 
@@ -274,7 +275,7 @@ export default function groupSocket(io, socket, userId) {
         reactions: message.reactions,
       });
     } catch (error) {
-      console.error('Error reacting to message:', error);
+      logger.error('Error reacting to message', { error: error.message });
     }
   });
 
@@ -293,9 +294,9 @@ export default function groupSocket(io, socket, userId) {
       if (!call) return;
 
       socket.join(`call:${callId}`);
-      console.log(`📞 User ${userId} joined call room: ${callId}`);
+      logger.info(`User ${userId} joined call room: ${callId}`);
     } catch (error) {
-      console.error('Error joining call room:', error);
+      logger.error('Error joining call room', { error: error.message });
     }
   });
 
@@ -304,7 +305,7 @@ export default function groupSocket(io, socket, userId) {
    */
   socket.on('leaveGroupCallRoom', ({ callId }) => {
     socket.leave(`call:${callId}`);
-    console.log(`📞 User ${userId} left call room: ${callId}`);
+    logger.info(`User ${userId} left call room: ${callId}`);
   });
 
   /**

@@ -38,7 +38,6 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
 
-    // Basic validation
     if (!email || !password) {
       toast.error('Please enter both email and password');
       setLoading(false);
@@ -64,10 +63,8 @@ export default function LoginPage() {
       });
 
       if (response.success) {
-        // Store user data in localStorage
         localStorage.setItem('user', JSON.stringify(response.data.user));
         toast.success('Welcome back!');
-        // Redirect to home page
         router.push('/home');
       } else {
         toast.error(response.message || 'Login failed. Please try again.');
@@ -75,7 +72,6 @@ export default function LoginPage() {
     } catch (err) {
       const apiError = err as ApiError;
 
-      // Handle specific error cases
       if (apiError.statusCode === 401) {
         toast.error('Invalid email or password');
       } else if (apiError.statusCode === 404) {
@@ -92,16 +88,13 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-black flex">
-      {/* Left Side - Phone Mockup */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-black items-center justify-center">
-        {/* Background Pattern */}
         <div className="absolute inset-0 opacity-30">
           <div className="absolute top-20 left-20 w-72 h-72 bg-purple-500 rounded-full blur-[120px]"></div>
           <div className="absolute bottom-20 right-20 w-72 h-72 bg-pink-500 rounded-full blur-[120px]"></div>
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-500 rounded-full blur-[150px]"></div>
         </div>
 
-        {/* Logo */}
         <Link href="/" className="absolute top-8 left-8 flex items-center gap-2 z-20">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
             <Camera className="w-6 h-6 text-white" />
@@ -109,15 +102,11 @@ export default function LoginPage() {
           <span className="text-2xl font-bold text-white">ClickME</span>
         </Link>
 
-        {/* Phone Mockup */}
         <div className="relative z-10">
           <div className="relative w-[320px] h-[650px] bg-gray-900 rounded-[3rem] p-2 shadow-2xl border border-gray-700">
-            {/* Notch */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-8 bg-gray-900 rounded-b-2xl z-20"></div>
 
-            {/* Screen */}
             <div className="w-full h-full bg-black rounded-[2.5rem] overflow-hidden flex flex-col">
-              {/* Status Bar */}
               <div className="h-10 flex items-end justify-between px-6 pb-1 text-white text-xs flex-shrink-0">
                 <span className="font-medium">9:41</span>
                 <div className="flex gap-1 items-center">
@@ -143,7 +132,6 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* App Header */}
               <div className="px-4 py-2 flex items-center justify-between border-b border-gray-800 flex-shrink-0">
                 <span className="text-white font-semibold text-lg">ClickME</span>
                 <div className="flex gap-4">
@@ -152,7 +140,6 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Stories */}
               <div className="px-4 py-3 flex gap-4 overflow-hidden border-b border-gray-800 flex-shrink-0">
                 {['Your Story', 'emma', 'mike', 'sara'].map((name, i) => (
                   <div key={i} className="flex flex-col items-center gap-1">
@@ -172,9 +159,7 @@ export default function LoginPage() {
                 ))}
               </div>
 
-              {/* Post */}
               <div className="flex-1 flex flex-col min-h-0">
-                {/* Post Header */}
                 <div className="px-4 py-2 flex items-center gap-2 flex-shrink-0">
                   <div className="w-8 h-8 rounded-full overflow-hidden">
                     <img
@@ -187,7 +172,6 @@ export default function LoginPage() {
                   <span className="text-gray-500 text-xs">• 2h</span>
                 </div>
 
-                {/* Post Image with Animation */}
                 <div className="relative h-[240px] overflow-hidden flex-shrink-0">
                   {images.map((img, i) => (
                     <img
@@ -199,13 +183,11 @@ export default function LoginPage() {
                       }`}
                     />
                   ))}
-                  {/* Reel Play Icon */}
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
                       <Play className="w-5 h-5 text-white fill-white ml-1" />
                     </div>
                   </div>
-                  {/* Image Indicators */}
                   <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
                     {images.map((_, i) => (
                       <div
@@ -218,7 +200,6 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Post Actions */}
                 <div className="px-3 py-2 flex items-center justify-between flex-shrink-0">
                   <div className="flex gap-4">
                     <Heart className="w-5 h-5 text-white hover:text-red-500 cursor-pointer transition-colors" />
@@ -228,7 +209,6 @@ export default function LoginPage() {
                   <Bookmark className="w-5 h-5 text-white" />
                 </div>
 
-                {/* Likes */}
                 <div className="px-3 pb-3 flex-shrink-0">
                   <p className="text-white text-xs font-medium">12,458 likes</p>
                   <p className="text-white text-xs mt-1">
@@ -242,10 +222,8 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Side - Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center px-8 py-12 bg-white dark:bg-gray-950">
         <div className="w-full max-w-md">
-          {/* Mobile Logo */}
           <div className="lg:hidden flex justify-center mb-8">
             <Link href="/" className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
@@ -257,7 +235,6 @@ export default function LoginPage() {
             </Link>
           </div>
 
-          {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Sign In</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-2">
@@ -265,7 +242,6 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
@@ -278,6 +254,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
                 required
+                autoComplete="email"
                 className="h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500"
               />
             </div>
@@ -294,6 +271,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
                   required
+                  autoComplete="current-password"
                   className="h-12 bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800 focus:border-purple-500 focus:ring-purple-500 pr-12"
                 />
                 <button
@@ -347,14 +325,12 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Divider */}
           <div className="my-8 flex items-center gap-4">
             <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"></div>
             <span className="text-sm text-gray-500 dark:text-gray-400">or</span>
             <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"></div>
           </div>
 
-          {/* Sign Up Link */}
           <p className="text-center text-gray-600 dark:text-gray-400">
             Don't have an account?{' '}
             <Link
@@ -365,7 +341,6 @@ export default function LoginPage() {
             </Link>
           </p>
 
-          {/* Footer */}
           <p className="text-center text-gray-400 dark:text-gray-600 text-xs mt-8">
             © 2026 ClickME. All rights reserved.
           </p>

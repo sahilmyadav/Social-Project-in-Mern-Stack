@@ -32,6 +32,8 @@ const notificationSchema = new mongoose.Schema(
         'group_added',
         'group_removed',
         'group_message',
+        'new_post',
+        'new_reel',
       ],
       required: true,
       index: true,

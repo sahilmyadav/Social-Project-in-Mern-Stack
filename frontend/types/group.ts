@@ -1,4 +1,3 @@
-// Group Chat Types
 
 export interface GroupMember {
   _id: string;
@@ -69,13 +68,10 @@ export interface Group {
   isDeleted: boolean;
   createdAt: Date;
   updatedAt: Date;
-  // Computed fields
   myRole?: 'admin' | 'moderator' | 'member';
   unreadCount?: number;
   isMuted?: boolean;
 }
-
-// Group Message Types
 
 export type MessageType =
   | 'text'
@@ -233,8 +229,6 @@ export interface GroupMessage {
   updatedAt: Date;
 }
 
-// Group Call Types
-
 export type CallParticipantStatus =
   | 'invited'
   | 'ringing'
@@ -324,8 +318,6 @@ export interface GroupCall {
   createdAt: Date;
   updatedAt: Date;
 }
-
-// Socket Event Types
 
 export interface GroupMessageEvent {
   groupId: string;

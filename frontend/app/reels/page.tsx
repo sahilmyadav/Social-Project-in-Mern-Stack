@@ -80,7 +80,6 @@ export default function ReelsPage() {
         if (response.success && response.data) {
           setReels(response.data.reels || []);
 
-          // Set initial liked state based on reel data (check both snake_case and camelCase)
           const likedReelsFromAPI = response.data.reels
             .filter((reel: any) => reel.isLiked || reel.is_liked)
             .map((reel: any) => reel._id);
@@ -90,7 +89,6 @@ export default function ReelsPage() {
         }
       } catch (err) {
         setError('Error loading reels');
-        console.error('Error fetching reels:', err);
       } finally {
         setLoading(false);
       }
@@ -111,7 +109,6 @@ export default function ReelsPage() {
     }
   }, [isPlaying, currentReelIndex]);
 
-  // Scroll snap functionality
   useEffect(() => {
     const handleScroll = () => {
       if (!reelContainerRef.current) return;
@@ -150,7 +147,6 @@ export default function ReelsPage() {
     const previousLikedReels = [...likedReels];
     const previousReels = [...reels];
 
-    // Optimistic update
     if (wasLiked) {
       setLikedReels(likedReels.filter((id) => id !== currentReel._id));
       setReels(
@@ -175,7 +171,6 @@ export default function ReelsPage() {
       const response = await reelService.toggleLikeReel(currentReel._id);
 
       if (response.success) {
-        // Use server response to sync state
         if (response.data.isLiked) {
           setLikedReels((prev) =>
             prev.includes(currentReel._id) ? prev : [...prev, currentReel._id]
@@ -183,7 +178,6 @@ export default function ReelsPage() {
         } else {
           setLikedReels((prev) => prev.filter((id) => id !== currentReel._id));
         }
-        // Update the reel's like count from server
         setReels((prev) =>
           prev.map((reel) =>
             reel._id === currentReel._id
@@ -196,16 +190,12 @@ export default function ReelsPage() {
           )
         );
       } else {
-        // Revert on failure
         setLikedReels(previousLikedReels);
         setReels(previousReels);
-        console.error('API returned error:', response.message);
       }
     } catch (error) {
-      // Revert on error
       setLikedReels(previousLikedReels);
       setReels(previousReels);
-      console.error('Error toggling like:', error);
     } finally {
       setIsLiking(false);
     }
@@ -216,7 +206,6 @@ export default function ReelsPage() {
     setCurrentReelIndex(newIndex);
     setIsPlaying(true);
 
-    // Scroll to the reel
     if (reelContainerRef.current) {
       reelContainerRef.current.scrollTo({
         top: newIndex * reelContainerRef.current.clientHeight,
@@ -230,7 +219,6 @@ export default function ReelsPage() {
     setCurrentReelIndex(newIndex);
     setIsPlaying(true);
 
-    // Scroll to the reel
     if (reelContainerRef.current) {
       reelContainerRef.current.scrollTo({
         top: newIndex * reelContainerRef.current.clientHeight,
@@ -352,7 +340,6 @@ export default function ReelsPage() {
                       />
                     )}
 
-                    {/* Play/Pause Overlay */}
                     {index === currentReelIndex && !isPlaying && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                         <button
@@ -364,7 +351,6 @@ export default function ReelsPage() {
                       </div>
                     )}
 
-                    {/* Video Controls */}
                     {index === currentReelIndex && (
                       <button
                         onClick={toggleMute}
@@ -374,7 +360,6 @@ export default function ReelsPage() {
                       </button>
                     )}
 
-                    {/* Bottom gradient overlay */}
                     <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent" />
 
                     <div className="absolute bottom-4 left-4 right-16 z-10">
@@ -468,7 +453,6 @@ export default function ReelsPage() {
             ))}
           </div>
 
-          {/* Navigation Arrows */}
           <div className="fixed right-4 lg:right-auto lg:left-1/2 lg:-translate-x-1/2 lg:ml-64 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-30">
             <button
               onClick={handlePrevious}
@@ -484,7 +468,6 @@ export default function ReelsPage() {
             </button>
           </div>
 
-          {/* Progress Dots */}
           <div className="fixed bottom-28 lg:bottom-8 left-1/2 -translate-x-1/2 flex gap-1.5 z-30 bg-black/30 rounded-full px-3 py-2">
             {reels.slice(0, 10).map((_, i) => (
               <div
@@ -500,7 +483,6 @@ export default function ReelsPage() {
           </div>
         </section>
 
-        {/* Right Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4 h-screen sticky top-0 overflow-y-auto">
           <div className="bg-card rounded-2xl border border-border p-4 mb-4">
             <h3 className="font-bold text-lg mb-4">Suggested Creators</h3>
@@ -531,7 +513,6 @@ export default function ReelsPage() {
             </div>
           </div>
 
-          {/* Trending Sounds */}
           <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
             <h3 className="font-bold text-lg mb-4">Trending Sounds</h3>
             <div className="space-y-3">
@@ -548,10 +529,8 @@ export default function ReelsPage() {
         </aside>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
 
-      {/* Comment Modal */}
       <ReelCommentsModal
         open={showComments}
         onOpenChange={setShowComments}
@@ -560,7 +539,6 @@ export default function ReelsPage() {
         currentUserId={user._id}
       />
 
-      {/* Share Modal */}
       <ShareModal
         isOpen={showShare}
         onClose={() => setShowShare(false)}
@@ -568,7 +546,6 @@ export default function ReelsPage() {
         contentId={currentReel._id}
       />
 
-      {/* Hide scrollbar */}
       <style jsx global>{`
         .scrollbar-hide::-webkit-scrollbar {
           display: none;

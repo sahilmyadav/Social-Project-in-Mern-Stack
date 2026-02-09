@@ -24,7 +24,6 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-// Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
@@ -60,16 +59,13 @@ export default function SetupProfilePage() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  // Image editor states
   const [showImageEditor, setShowImageEditor] = useState(false);
   const [editorImageFile, setEditorImageFile] = useState<File | null>(null);
   const [editorType, setEditorType] = useState<'profile' | 'cover'>('profile');
 
-  // Interests state
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [showAllInterests, setShowAllInterests] = useState(false);
 
-  // All interests mixed together
   const allInterests = [
     'Photography',
     'Travel',
@@ -113,7 +109,6 @@ export default function SetupProfilePage() {
     );
   };
 
-  // File input refs for direct access
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -124,7 +119,6 @@ export default function SetupProfilePage() {
     '/Landing/Republic%20day.jpeg',
   ];
 
-  // Generate username patterns based on input text or full name
   const generateUsernamePatterns = (
     input: string,
     firstName?: string,
@@ -141,7 +135,6 @@ export default function SetupProfilePage() {
 
     const patterns: string[] = [];
 
-    // If user is typing something, generate based on their input
     if (cleanInput.length >= 2) {
       patterns.push(
         `${cleanInput}`,
@@ -166,7 +159,6 @@ export default function SetupProfilePage() {
       );
     }
 
-    // If we have first and last name, add those patterns too
     if (first && last) {
       patterns.push(
         `${first}${last}`,
@@ -203,7 +195,6 @@ export default function SetupProfilePage() {
       );
     }
 
-    // Filter valid usernames and remove duplicates
     return [
       ...new Set(
         patterns
@@ -213,7 +204,6 @@ export default function SetupProfilePage() {
     ];
   };
 
-  // Check if a username is available
   const checkUsernameAvailability = async (usernameToCheck: string): Promise<boolean> => {
     try {
       const response = await authService.checkUsername(usernameToCheck);
@@ -223,7 +213,6 @@ export default function SetupProfilePage() {
     }
   };
 
-  // Generate and check available suggestions - can be based on input or name
   const generateAvailableSuggestions = async (
     input?: string,
     firstName?: string,
@@ -233,10 +222,8 @@ export default function SetupProfilePage() {
     const patterns = generateUsernamePatterns(input || '', firstName, lastName);
     const availableSuggestions: string[] = [];
 
-    // Shuffle patterns for variety
     const shuffled = patterns.sort(() => Math.random() - 0.5);
 
-    // Check patterns until we have 5 available ones
     for (const pattern of shuffled) {
       if (availableSuggestions.length >= 5) break;
 
@@ -250,13 +237,11 @@ export default function SetupProfilePage() {
     setLoadingSuggestions(false);
     setShowSuggestions(true);
 
-    // Auto-fill the first suggestion if username is empty
     if (!input && availableSuggestions.length > 0 && !username) {
       setUsername(availableSuggestions[0]);
     }
   };
 
-  // Load user data and generate suggestions on mount
   useEffect(() => {
     const userData = localStorage.getItem('user');
     if (userData) {
@@ -267,12 +252,10 @@ export default function SetupProfilePage() {
           generateAvailableSuggestions('', user.firstName || '', user.lastName || '');
         }
       } catch (e) {
-        // Ignore parse errors
       }
     }
   }, []);
 
-  // Generate suggestions based on what user types (after they stop typing)
   const debouncedUsernameForSuggestions = useDebounce(username, 800);
 
   useEffect(() => {
@@ -294,7 +277,6 @@ export default function SetupProfilePage() {
 
   const debouncedUsername = useDebounce(username, 500);
 
-  // Check username availability
   useEffect(() => {
     const checkUsername = async () => {
       if (!debouncedUsername) {
@@ -303,7 +285,6 @@ export default function SetupProfilePage() {
         return;
       }
 
-      // Validate format
       const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
       if (!usernameRegex.test(debouncedUsername)) {
         setUsernameStatus('invalid');
@@ -339,7 +320,6 @@ export default function SetupProfilePage() {
         toast.error('Profile picture must be less than 5MB');
         return;
       }
-      // Open image editor instead of directly setting
       setEditorImageFile(file);
       setEditorType('profile');
       setShowImageEditor(true);
@@ -353,14 +333,12 @@ export default function SetupProfilePage() {
         toast.error('Cover photo must be less than 10MB');
         return;
       }
-      // Open image editor instead of directly setting
       setEditorImageFile(file);
       setEditorType('cover');
       setShowImageEditor(true);
     }
   };
 
-  // Handle save from image editor
   const handleImageEditorSave = (blob: Blob, previewUrl: string) => {
     const file = new File([blob], `${editorType}-photo.jpg`, { type: 'image/jpeg' });
 
@@ -400,7 +378,6 @@ export default function SetupProfilePage() {
       return;
     }
 
-    // Check if user is logged in (has accessToken)
     const accessToken = localStorage.getItem('accessToken');
     if (!accessToken) {
       toast.error('Session expired. Please login again.');
@@ -420,7 +397,6 @@ export default function SetupProfilePage() {
       });
 
       if (response.success && response.data) {
-        // Update user data in localStorage (keep existing tokens)
         if (response.data.accessToken) {
           localStorage.setItem('accessToken', response.data.accessToken);
         }
@@ -449,7 +425,6 @@ export default function SetupProfilePage() {
 
   return (
     <>
-      {/* Profile Image Editor Modal - WhatsApp/Instagram/Telegram style */}
       <ProfileImageEditor
         isOpen={showImageEditor}
         onClose={() => {
@@ -464,16 +439,13 @@ export default function SetupProfilePage() {
       />
 
       <main className="min-h-screen bg-gray-50 dark:bg-black flex">
-        {/* Left Side - Phone Mockup */}
         <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-black items-center justify-center">
-          {/* Background Pattern */}
           <div className="absolute inset-0 opacity-30">
             <div className="absolute top-20 left-20 w-72 h-72 bg-purple-500 rounded-full blur-[120px]"></div>
             <div className="absolute bottom-20 right-20 w-72 h-72 bg-pink-500 rounded-full blur-[120px]"></div>
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-500 rounded-full blur-[150px]"></div>
           </div>
 
-          {/* Logo */}
           <Link href="/" className="absolute top-8 left-8 flex items-center gap-2 z-20">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
               <Camera className="w-6 h-6 text-white" />
@@ -481,15 +453,11 @@ export default function SetupProfilePage() {
             <span className="text-2xl font-bold text-white">ClickME</span>
           </Link>
 
-          {/* Phone Mockup */}
           <div className="relative z-10">
             <div className="relative w-[320px] h-[650px] bg-gray-900 rounded-[3rem] p-2 shadow-2xl border border-gray-700">
-              {/* Notch */}
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-8 bg-gray-900 rounded-b-2xl z-20"></div>
 
-              {/* Screen */}
               <div className="w-full h-full bg-black rounded-[2.5rem] overflow-hidden flex flex-col">
-                {/* Status Bar */}
                 <div className="h-10 flex items-end justify-between px-6 pb-1 text-white text-xs flex-shrink-0">
                   <span className="font-medium">9:41</span>
                   <div className="flex gap-1 items-center">
@@ -515,7 +483,6 @@ export default function SetupProfilePage() {
                   </div>
                 </div>
 
-                {/* App Header */}
                 <div className="px-4 py-2 flex items-center justify-between border-b border-gray-800 flex-shrink-0">
                   <span className="text-white font-semibold text-lg">ClickME</span>
                   <div className="flex gap-4">
@@ -524,9 +491,7 @@ export default function SetupProfilePage() {
                   </div>
                 </div>
 
-                {/* Post Content */}
                 <div className="flex-1 overflow-hidden">
-                  {/* User Header */}
                   <div className="px-4 py-3 flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 p-0.5">
                       <div className="w-full h-full rounded-full bg-gray-800 flex items-center justify-center">
@@ -539,7 +504,6 @@ export default function SetupProfilePage() {
                     </div>
                   </div>
 
-                  {/* Image Carousel */}
                   <div className="relative aspect-square bg-gray-800">
                     {images.map((img, index) => (
                       <img
@@ -551,13 +515,11 @@ export default function SetupProfilePage() {
                         }`}
                       />
                     ))}
-                    {/* Play Button Overlay */}
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="w-16 h-16 rounded-full bg-black/30 flex items-center justify-center backdrop-blur-sm">
                         <Play className="w-8 h-8 text-white fill-white" />
                       </div>
                     </div>
-                    {/* Carousel Dots */}
                     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1">
                       {images.map((_, i) => (
                         <div
@@ -570,7 +532,6 @@ export default function SetupProfilePage() {
                     </div>
                   </div>
 
-                  {/* Action Buttons */}
                   <div className="px-4 py-3 flex items-center justify-between">
                     <div className="flex gap-4">
                       <Heart className="w-6 h-6 text-white" />
@@ -580,7 +541,6 @@ export default function SetupProfilePage() {
                     <Bookmark className="w-6 h-6 text-white" />
                   </div>
 
-                  {/* Likes */}
                   <div className="px-4 pb-2">
                     <p className="text-white text-sm font-semibold">1,234 likes</p>
                   </div>
@@ -590,10 +550,8 @@ export default function SetupProfilePage() {
           </div>
         </div>
 
-        {/* Right Side - Profile Setup Form */}
         <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8 overflow-y-auto">
           <div className="w-full max-w-lg">
-            {/* Mobile Logo */}
             <div className="lg:hidden text-center mb-6">
               <Link href="/" className="inline-flex items-center gap-2">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
@@ -603,14 +561,11 @@ export default function SetupProfilePage() {
               </Link>
             </div>
 
-            {/* Profile Card */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xl overflow-hidden">
-              {/* Cover Photo Section - Click to Upload */}
               <div
                 className="relative h-36 sm:h-44 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-400 group cursor-pointer"
                 onClick={() => coverInputRef.current?.click()}
               >
-                {/* Hidden file input */}
                 <input
                   ref={coverInputRef}
                   type="file"
@@ -630,7 +585,6 @@ export default function SetupProfilePage() {
                   </div>
                 )}
 
-                {/* Hover Overlay */}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center pointer-events-none">
                   <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-lg px-4 py-2 flex items-center gap-2 shadow-lg">
                     <Camera className="w-4 h-4 text-gray-700 dark:text-gray-300" />
@@ -640,7 +594,6 @@ export default function SetupProfilePage() {
                   </div>
                 </div>
 
-                {/* Remove button (only when cover exists) */}
                 {coverPreview && (
                   <button
                     type="button"
@@ -655,16 +608,13 @@ export default function SetupProfilePage() {
                   </button>
                 )}
 
-                {/* Camera icon button */}
                 <div className="absolute bottom-3 right-3 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-full p-2.5 shadow-lg pointer-events-none">
                   <Camera className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                 </div>
               </div>
 
-              {/* Profile Picture - Click to Upload */}
               <div className="relative px-6 -mt-14 mb-4">
                 <div className="relative inline-block">
-                  {/* Hidden file input */}
                   <input
                     ref={profileInputRef}
                     type="file"
@@ -673,7 +623,6 @@ export default function SetupProfilePage() {
                     className="hidden"
                   />
 
-                  {/* Profile Image - Click to open file picker */}
                   <div
                     className="w-28 h-28 rounded-full border-4 border-white dark:border-gray-900 bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 overflow-hidden shadow-xl cursor-pointer group"
                     onClick={() => profileInputRef.current?.click()}
@@ -685,7 +634,6 @@ export default function SetupProfilePage() {
                           alt="Profile"
                           className="w-full h-full object-cover"
                         />
-                        {/* Hover overlay for profile */}
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center rounded-full">
                           <Camera className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
@@ -700,7 +648,6 @@ export default function SetupProfilePage() {
                     )}
                   </div>
 
-                  {/* Camera Badge - Also triggers file picker */}
                   <button
                     type="button"
                     onClick={() => profileInputRef.current?.click()}
@@ -709,7 +656,6 @@ export default function SetupProfilePage() {
                     <Camera className="w-3.5 h-3.5 text-white" />
                   </button>
 
-                  {/* Remove button (only when profile exists) */}
                   {profilePreview && (
                     <button
                       type="button"
@@ -725,15 +671,12 @@ export default function SetupProfilePage() {
                   )}
                 </div>
 
-                {/* Helper text */}
                 <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                   Click to add or change photo
                 </p>
               </div>
 
-              {/* Form */}
               <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-5">
-                {/* Username */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Username <span className="text-red-500">*</span>
@@ -776,7 +719,6 @@ export default function SetupProfilePage() {
                     </p>
                   )}
 
-                  {/* Username Suggestions - Always visible */}
                   {showSuggestions && (suggestions.length > 0 || loadingSuggestions) && (
                     <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
                       <div className="flex items-center justify-between mb-2">
@@ -828,7 +770,6 @@ export default function SetupProfilePage() {
                     </div>
                   )}
 
-                  {/* Show suggestions button when hidden */}
                   {!showSuggestions && (
                     <button
                       type="button"
@@ -847,7 +788,6 @@ export default function SetupProfilePage() {
                   )}
                 </div>
 
-                {/* Bio */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Bio <span className="text-gray-400 font-normal">(Optional)</span>
@@ -865,7 +805,6 @@ export default function SetupProfilePage() {
                   </p>
                 </div>
 
-                {/* Interests Section */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -898,7 +837,6 @@ export default function SetupProfilePage() {
                     </p>
                   )}
 
-                  {/* Interests - Mixed Grid */}
                   <div className="flex flex-wrap gap-2">
                     {(showAllInterests ? allInterests : allInterests.slice(0, 5)).map(
                       (interest) => {
@@ -923,7 +861,6 @@ export default function SetupProfilePage() {
                     )}
                   </div>
 
-                  {/* Show More/Less Button */}
                   {allInterests.length > 5 && (
                     <button
                       type="button"
@@ -939,7 +876,6 @@ export default function SetupProfilePage() {
                   )}
                 </div>
 
-                {/* Submit Button */}
                 <Button
                   type="submit"
                   disabled={isSubmitting || usernameStatus !== 'available'}

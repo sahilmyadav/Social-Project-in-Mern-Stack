@@ -1,29 +1,41 @@
 'use client';
 
-import { endActiveCall, getCallState, subscribeCallStore } from '@/lib/call-store';
+import { useCallState } from '@/contexts/call-context';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-    emitAcceptCall,
-    emitAnswer,
-    emitEndCall,
-    emitIceCandidate,
-    emitOffer,
-    emitRejectCall,
-    offAnswer,
-    offCallAccepted,
-    offCallEnded,
-    offCallFailed,
-    offIceCandidate,
-    offOffer,
-    onAnswer,
-    onCallAccepted,
-    onCallEnded,
-    onCallFailed,
-    onIceCandidate,
-    onOffer,
+  emitAcceptCall,
+  emitAnswer,
+  emitEndCall,
+  emitIceCandidate,
+  emitOffer,
+  emitRejectCall,
+  offAnswer,
+  offCallAccepted,
+  offCallEnded,
+  offCallFailed,
+  offIceCandidate,
+  offOffer,
+  onAnswer,
+  onCallAccepted,
+  onCallEnded,
+  onCallFailed,
+  onIceCandidate,
+  onOffer,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
-import { ICE_SERVERS } from '@/lib/webrtc-config';
+import {
+  AUDIO_CONSTRAINTS,
+  ICE_RECONNECT_TIMEOUT_MS,
+  RING_TIMEOUT_MS,
+  attemptIceRestart,
+  cleanupMediaStream,
+  cleanupPeerConnection,
+  formatCallDuration,
+  getCallQualityStats,
+  getIceServers,
+  isGroupCallSignal,
+  registerBeforeUnloadCleanup,
+} from '@/lib/webrtc';
 import { Mic, MicOff, Phone, PhoneOff, User, Volume2, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -55,6 +67,7 @@ export default function VoiceCallModal({
   const [callStatus, setCallStatus] = useState<'ringing' | 'connecting' | 'active' | 'ended'>(
     'ringing'
   );
+  const { acquireCall, releaseCall } = useCallState();
   const [callFailedReason, setCallFailedReason] = useState<string | null>(null);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
@@ -67,8 +80,9 @@ export default function VoiceCallModal({
   const remoteDescriptionSet = useRef(false);
   const isEndingCall = useRef(false);
   const pendingOffer = useRef<any>(null);
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const iceRestartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Store handlers for cleanup
   const handlersRef = useRef<{
     offer?: (data: any) => void;
     answer?: (data: any) => void;
@@ -79,10 +93,18 @@ export default function VoiceCallModal({
   }>({});
 
   useEffect(() => {
-    console.log('📞 Voice Call Modal - isOpen:', isOpen, 'isIncomingCall:', isIncomingCall);
-
     if (isOpen) {
-      // Reset state when modal opens
+      // Acquire global call lock — bail if busy
+      const acquired = acquireCall('voice', {
+        remoteUserId: recipientId,
+        callId: threadId,
+        isIncoming: isIncomingCall,
+      });
+      if (!acquired) {
+        onClose();
+        return;
+      }
+
       setCallDuration(0);
       setCallStatus('ringing');
       setCallFailedReason(null);
@@ -90,20 +112,15 @@ export default function VoiceCallModal({
       iceCandidatesQueue.current = [];
       isEndingCall.current = false;
 
-      // Listen for call ended from remote user
       const handleCallEndedByRemote = () => {
-        console.log('📞 Remote user ended the call');
-        endCall(true);
+        endCall();
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
       onCallEnded(handleCallEndedByRemote);
 
-      // Listen for call failed (user offline or error)
       const handleCallFailedEvent = (data: any) => {
-        console.log('📞 Call failed:', data);
         setCallFailedReason(data.reason || 'Call failed');
         setCallStatus('ended');
-        // Auto close after showing the error
         setTimeout(() => {
           onClose();
         }, 2000);
@@ -111,30 +128,23 @@ export default function VoiceCallModal({
       handlersRef.current.callFailed = handleCallFailedEvent;
       onCallFailed(handleCallFailedEvent);
 
-      // For outgoing calls, listen for when other user accepts
       if (!isIncomingCall) {
         const handleCallAccepted = async (data: any) => {
           setCallStatus('connecting');
 
-          // Now initiate WebRTC connection
           try {
             const peerConnection = await createPeerConnection();
 
-            // Create and send offer
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
 
-            emitOffer(recipientId, offer as any, 'voice');
+            emitOffer(recipientId, offer as any);
 
-            // Set up answer handler
             const handleAnswer = async (answerData: any) => {
               try {
-                // Only handle voice call answers
-                if (answerData.callType && answerData.callType !== 'voice') {
-                  return;
-                }
+                // Skip group call signals — prevent cross-talk
+                if (isGroupCallSignal(answerData)) return;
 
-                // Only block if connection is actually closed or failed
                 if (
                   !peerConnection ||
                   peerConnection.connectionState === 'closed' ||
@@ -143,40 +153,37 @@ export default function VoiceCallModal({
                   return;
                 }
 
-                // Check if we're in the correct state to receive an answer
                 if (peerConnection.signalingState !== 'have-local-offer') {
                   return;
                 }
 
-                // Backend sends answer directly, not nested
                 const answer = new RTCSessionDescription(answerData.answer);
                 await peerConnection.setRemoteDescription(answer);
                 remoteDescriptionSet.current = true;
 
-                // Process queued ICE candidates
                 for (const candidate of iceCandidatesQueue.current) {
                   try {
                     await peerConnection.addIceCandidate(candidate);
                   } catch (err) {
-                    console.error('❌ Error adding queued candidate:', err);
+                    console.warn(
+                      '[VoiceCall] Failed to add queued ICE candidate:',
+                      (err as Error).message
+                    );
                   }
                 }
                 iceCandidatesQueue.current = [];
 
                 setCallStatus('active');
               } catch (error) {
-                console.error('❌ Error setting remote description:', error);
+                console.warn('[VoiceCall] Failed to handle answer:', (error as Error).message);
               }
             };
 
             const handleCandidate = async (candidateData: any) => {
               try {
-                // Only handle voice call ICE candidates
-                if (candidateData.callType && candidateData.callType !== 'voice') {
-                  return;
-                }
+                // Skip group call signals — prevent cross-talk
+                if (isGroupCallSignal(candidateData)) return;
 
-                // Skip if peer connection is closed or not ready
                 if (!peerConnection || peerConnection.connectionState === 'closed') {
                   return;
                 }
@@ -188,7 +195,6 @@ export default function VoiceCallModal({
                     sdpMid: candidateData.candidate.sdpMid,
                   });
 
-                  // Queue candidates if remote description not set yet
                   if (!remoteDescriptionSet.current) {
                     iceCandidatesQueue.current.push(candidate);
                   } else {
@@ -196,11 +202,13 @@ export default function VoiceCallModal({
                   }
                 }
               } catch (error) {
-                console.error('❌ Error adding ICE candidate:', error);
+                console.warn(
+                  '[VoiceCall] Failed to handle ICE candidate (caller):',
+                  (error as Error).message
+                );
               }
             };
 
-            // Unregister old handlers before registering new ones
             if (handlersRef.current.answer) {
               offAnswer(handlersRef.current.answer);
             }
@@ -213,7 +221,6 @@ export default function VoiceCallModal({
             onAnswer(handleAnswer);
             onIceCandidate(handleCandidate);
           } catch (error) {
-            console.error('❌ Error setting up call after acceptance:', error);
             setCallStatus('ended');
           }
         };
@@ -222,7 +229,6 @@ export default function VoiceCallModal({
         onCallAccepted(handleCallAccepted);
       }
 
-      // Cleanup function
       return () => {
         if (handlersRef.current.callAccepted) {
           offCallAccepted(handlersRef.current.callAccepted);
@@ -237,19 +243,29 @@ export default function VoiceCallModal({
     }
   }, [isOpen, isIncomingCall, recipientId]);
 
-  // Listen for external call-end signals (from chat page or global handler)
+  // Ring timeout: auto-fail if no answer within RING_TIMEOUT_MS
   useEffect(() => {
-    if (!isOpen) return;
-    const unsubscribe = subscribeCallStore(() => {
-      const { isCallModalOpen } = getCallState();
-      if (!isCallModalOpen && !isEndingCall.current) {
-        endCall(true);
+    if (!isOpen || callStatus !== 'ringing') {
+      if (ringTimeoutRef.current) {
+        clearTimeout(ringTimeoutRef.current);
+        ringTimeoutRef.current = null;
       }
-    });
-    return unsubscribe;
-  }, [isOpen]);
+      return;
+    }
+    ringTimeoutRef.current = setTimeout(() => {
+      setCallStatus('ended');
+      setCallFailedReason('No answer');
+      releaseCall();
+      setTimeout(() => onClose(), 2000);
+    }, RING_TIMEOUT_MS);
+    return () => {
+      if (ringTimeoutRef.current) {
+        clearTimeout(ringTimeoutRef.current);
+        ringTimeoutRef.current = null;
+      }
+    };
+  }, [isOpen, callStatus, onClose]);
 
-  // Timer effect
   useEffect(() => {
     if (callStatus !== 'active') return;
     const interval = setInterval(() => {
@@ -257,81 +273,99 @@ export default function VoiceCallModal({
     }, 1000);
     return () => clearInterval(interval);
   }, [callStatus]);
+  // beforeunload: ensure call cleanup on tab close/refresh
+  useEffect(() => {
+    if (!isOpen) return;
+    const unregister = registerBeforeUnloadCleanup(() => {
+      if (recipientId || callerId) {
+        emitEndCall(recipientId || callerId || '', threadId);
+      }
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      peerConnectionRef.current?.close();
+    });
+    return unregister;
+  }, [isOpen, recipientId, callerId, threadId]);
 
-  // Cleanup on unmount
+  // Quality monitoring — poll getStats every 5s during active call
+  useEffect(() => {
+    if (callStatus !== 'active') return;
+    const interval = setInterval(async () => {
+      if (peerConnectionRef.current) {
+        const stats = await getCallQualityStats(peerConnectionRef.current);
+        if (stats && stats.packetLossPercent > 5) {
+          console.warn(
+            `[VoiceCall] Poor quality: ${stats.packetLossPercent.toFixed(1)}% loss, RTT ${stats.roundTripTime.toFixed(0)}ms`
+          );
+        }
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [callStatus]);
   useEffect(() => {
     return () => {
-      // Clean up peer connection and streams
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-      }
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      cleanupPeerConnection(peerConnectionRef.current);
+      cleanupMediaStream(localStreamRef.current);
     };
   }, []);
 
-  const formatDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    if (hours > 0) {
-      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   const createPeerConnection = async () => {
     try {
-      const peerConnection = new RTCPeerConnection(ICE_SERVERS);
+      const peerConnection = new RTCPeerConnection(getIceServers());
       peerConnectionRef.current = peerConnection;
 
-      // Get local media stream
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
       localStreamRef.current = stream;
 
-      // Add tracks to peer connection
       stream.getTracks().forEach((track) => {
         peerConnection.addTrack(track, stream);
       });
 
-      // Set local audio
       if (localAudioRef.current) {
         localAudioRef.current.srcObject = stream;
       }
 
-      // Handle remote stream
       peerConnection.ontrack = (event) => {
         if (remoteAudioRef.current && event.streams[0]) {
           remoteAudioRef.current.srcObject = event.streams[0];
         }
       };
 
-      // Handle ICE candidates
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          emitIceCandidate(recipientId || callerId || '', event.candidate, 'voice');
+          emitIceCandidate(recipientId || callerId || '', event.candidate);
         }
       };
 
-      // Handle connection state
-      peerConnection.onconnectionstatechange = () => {
-        console.log('🧊 Voice connection state:', peerConnection.connectionState);
-        if (peerConnection.connectionState === 'failed') {
-          console.error('❌ Peer connection failed');
+      peerConnection.oniceconnectionstatechange = () => {
+        if (peerConnection.iceConnectionState === 'connected') {
+          setCallStatus('active');
+          if (iceRestartTimeoutRef.current) {
+            clearTimeout(iceRestartTimeoutRef.current);
+            iceRestartTimeoutRef.current = null;
+          }
+        } else if (peerConnection.iceConnectionState === 'disconnected') {
+          // Grace period — attempt ICE restart before giving up
+          iceRestartTimeoutRef.current = setTimeout(async () => {
+            if (peerConnection.iceConnectionState === 'disconnected') {
+              const restartOffer = await attemptIceRestart(peerConnection);
+              if (restartOffer) {
+                emitOffer(recipientId || callerId || '', restartOffer as any);
+              }
+            }
+          }, ICE_RECONNECT_TIMEOUT_MS);
+        } else if (peerConnection.iceConnectionState === 'failed') {
           endCall();
-        } else if (
-          peerConnection.connectionState === 'disconnected' ||
-          peerConnection.connectionState === 'closed'
-        ) {
-          // Remote peer likely hung up — treat as remote-ended
-          endCall(true);
+        }
+      };
+
+      peerConnection.onconnectionstatechange = () => {
+        if (peerConnection.connectionState === 'failed') {
+          endCall();
         }
       };
 
       return peerConnection;
     } catch (error) {
-      console.error('❌ Error creating peer connection:', error);
       showToast.error('Unable to access microphone. Please check permissions.');
       setCallStatus('ended');
       throw error;
@@ -342,66 +376,56 @@ export default function VoiceCallModal({
     setCallStatus('connecting');
 
     try {
-      // Set up offer handler BEFORE notifying caller to avoid race condition
       const processOffer = async (offerData: any, peerConnection: RTCPeerConnection) => {
         try {
-          // Check if we're in the correct state to receive an offer
           if (peerConnection.signalingState !== 'stable') {
             return;
           }
 
-          // Backend sends offer directly
           const offer = new RTCSessionDescription(offerData.offer);
           await peerConnection.setRemoteDescription(offer);
           remoteDescriptionSet.current = true;
 
-          // Create and send answer
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
 
-          // Send answer to caller
-          emitAnswer(callerId || '', answer as any, 'voice');
+          emitAnswer(callerId || '', answer as any);
 
-          // Process queued ICE candidates
           for (const candidate of iceCandidatesQueue.current) {
             try {
               await peerConnection.addIceCandidate(candidate);
             } catch (err) {
-              console.error('❌ Error adding queued candidate:', err);
+              console.warn(
+                '[VoiceCall] Failed to add queued ICE candidate:',
+                (err as Error).message
+              );
             }
           }
           iceCandidatesQueue.current = [];
 
           setCallStatus('active');
         } catch (error) {
-          console.error('❌ Error processing offer:', error);
+          console.warn('[VoiceCall] Failed to process offer:', (error as Error).message);
         }
       };
 
       const handleOffer = async (offerData: any) => {
-        // Only handle voice call offers
-        if (offerData.callType && offerData.callType !== 'voice') {
-          return;
-        }
+        // Skip group call signals — prevent cross-talk
+        if (isGroupCallSignal(offerData)) return;
 
-        // If peer connection doesn't exist yet, store offer for later
         if (!peerConnectionRef.current) {
           pendingOffer.current = offerData;
           return;
         }
 
-        // Process offer immediately if peer connection is ready
         await processOffer(offerData, peerConnectionRef.current);
       };
 
       const handleCandidate = async (candidateData: any) => {
         try {
-          // Only handle voice call ICE candidates
-          if (candidateData.callType && candidateData.callType !== 'voice') {
-            return;
-          }
+          // Skip group call signals — prevent cross-talk
+          if (isGroupCallSignal(candidateData)) return;
 
-          // Skip if peer connection is closed or not ready
           if (
             !peerConnectionRef.current ||
             peerConnectionRef.current.connectionState === 'closed'
@@ -416,7 +440,6 @@ export default function VoiceCallModal({
               sdpMid: candidateData.candidate.sdpMid,
             });
 
-            // Queue candidates if remote description not set yet
             if (!remoteDescriptionSet.current) {
               iceCandidatesQueue.current.push(candidate);
             } else {
@@ -424,11 +447,13 @@ export default function VoiceCallModal({
             }
           }
         } catch (error) {
-          console.error('❌ Error adding ICE candidate:', error);
+          console.warn(
+            '[VoiceCall] Failed to handle ICE candidate (callee):',
+            (error as Error).message
+          );
         }
       };
 
-      // Unregister old handlers before registering new ones
       if (handlersRef.current.offer) {
         offOffer(handlersRef.current.offer);
       }
@@ -441,28 +466,21 @@ export default function VoiceCallModal({
       onOffer(handleOffer);
       onIceCandidate(handleCandidate);
 
-      // Create peer connection FIRST before notifying caller
       const peerConnection = await createPeerConnection();
-      peerConnectionRef.current = peerConnection;
 
-      // NOW notify caller that we accepted (peer connection is ready)
       if (callerId && threadId) {
         emitAcceptCall(callerId, threadId);
       }
 
-      // Process pending offer if one arrived while we were setting up
       if (pendingOffer.current) {
         await processOffer(pendingOffer.current, peerConnection);
         pendingOffer.current = null;
       } else {
       }
     } catch (error) {
-      console.error('❌ Error accepting call:', error);
       setCallStatus('ended');
     }
   };
-
-  // No longer need handleInitiateCall - handled in useEffect
 
   const handleRejectCall = () => {
     if (callerId && threadId) {
@@ -471,15 +489,13 @@ export default function VoiceCallModal({
     endCall();
   };
 
-  const endCall = (remoteEnded = false) => {
-    // Prevent multiple calls to endCall
+  const endCall = () => {
     if (isEndingCall.current) {
       return;
     }
 
     isEndingCall.current = true;
 
-    // Clean up all event listeners
     if (handlersRef.current.offer) {
       offOffer(handlersRef.current.offer);
       handlersRef.current.offer = undefined;
@@ -500,33 +516,37 @@ export default function VoiceCallModal({
       offCallEnded(handlersRef.current.callEnded);
       handlersRef.current.callEnded = undefined;
     }
-
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
+    if (handlersRef.current.callFailed) {
+      offCallFailed(handlersRef.current.callFailed);
+      handlersRef.current.callFailed = undefined;
     }
 
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        track.stop();
-      });
-      localStreamRef.current = null;
+    // Clear ring & ICE restart timers
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
+    if (iceRestartTimeoutRef.current) {
+      clearTimeout(iceRestartTimeoutRef.current);
+      iceRestartTimeoutRef.current = null;
     }
 
-    // Reset state
+    cleanupPeerConnection(peerConnectionRef.current);
+    peerConnectionRef.current = null;
+
+    cleanupMediaStream(localStreamRef.current);
+    localStreamRef.current = null;
+
     remoteDescriptionSet.current = false;
     iceCandidatesQueue.current = [];
 
-    // Only emit endCall to server if we're ending locally (not when remote already ended)
-    if (!remoteEnded && (recipientId || callerId)) {
+    if (recipientId || callerId) {
       emitEndCall(recipientId || callerId || '', threadId);
     }
 
     setCallStatus('ended');
+    releaseCall();
     onCallEnd?.();
-
-    // Notify global call store so other components (chat page, global handler) close too
-    endActiveCall();
 
     setTimeout(() => {
       onClose();
@@ -555,10 +575,8 @@ export default function VoiceCallModal({
 
   return (
     <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
-      {/* Background gradient effect */}
       <div className="absolute inset-0 bg-gradient-to-b from-slate-900/50 via-black to-black pointer-events-none" />
 
-      {/* Close button */}
       <button
         onClick={onClose}
         className="absolute top-6 right-6 p-3 rounded-full bg-white/10 hover:bg-white/20 transition z-50 cursor-pointer"
@@ -567,11 +585,8 @@ export default function VoiceCallModal({
         <X size={24} className="text-white" />
       </button>
 
-      {/* Call container */}
       <div className="relative flex flex-col items-center justify-center w-full h-full max-w-md">
-        {/* Profile section */}
         <div className="flex flex-col items-center mb-12">
-          {/* Avatar */}
           <div className="relative mb-8">
             <div className="w-32 h-32 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-7xl shadow-2xl border-4 border-white/10">
               {recipientAvatar?.startsWith('http') ||
@@ -587,7 +602,6 @@ export default function VoiceCallModal({
               )}
             </div>
 
-            {/* Status indicator */}
             <div
               className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center ${
                 callStatus === 'active' ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
@@ -595,10 +609,8 @@ export default function VoiceCallModal({
             />
           </div>
 
-          {/* Name */}
           <h2 className="text-4xl font-bold text-white mb-4 text-center">{recipientName}</h2>
 
-          {/* Status and duration */}
           <div className="text-xl text-gray-300 text-center font-light tracking-wide">
             {callStatus === 'ringing' && (
               <div className="space-y-2">
@@ -641,7 +653,9 @@ export default function VoiceCallModal({
             )}
 
             {callStatus === 'active' && (
-              <p className="font-mono text-3xl tracking-widest">{formatDuration(callDuration)}</p>
+              <p className="font-mono text-3xl tracking-widest">
+                {formatCallDuration(callDuration)}
+              </p>
             )}
 
             {callStatus === 'ended' && (
@@ -650,13 +664,10 @@ export default function VoiceCallModal({
           </div>
         </div>
 
-        {/* Controls section */}
         <div className="flex flex-col items-center gap-8 mt-auto mb-16">
-          {/* Control buttons */}
           <div className="flex items-center justify-center gap-6">
             {callStatus === 'ringing' && isIncomingCall && (
               <>
-                {/* Reject button */}
                 <button
                   onClick={handleRejectCall}
                   className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 flex items-center justify-center transition transform shadow-xl hover:shadow-red-500/50 cursor-pointer"
@@ -665,7 +676,6 @@ export default function VoiceCallModal({
                   <PhoneOff size={32} className="text-white" />
                 </button>
 
-                {/* Accept button */}
                 <button
                   onClick={handleAcceptCall}
                   className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 active:scale-95 flex items-center justify-center transition transform shadow-xl hover:shadow-green-500/50 cursor-pointer"
@@ -678,7 +688,7 @@ export default function VoiceCallModal({
 
             {callStatus === 'ringing' && !isIncomingCall && (
               <button
-                onClick={() => endCall()}
+                onClick={endCall}
                 className="cursor-pointer w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 flex items-center justify-center transition transform shadow-xl hover:shadow-red-500/50"
                 title="Cancel call"
               >
@@ -704,7 +714,6 @@ export default function VoiceCallModal({
 
             {callStatus === 'active' && (
               <>
-                {/* Microphone toggle */}
                 <button
                   onClick={toggleMic}
                   className={`w-14 h-14 rounded-full transition transform active:scale-95 shadow-lg flex items-center justify-center ${
@@ -721,7 +730,6 @@ export default function VoiceCallModal({
                   )}
                 </button>
 
-                {/* Speaker toggle */}
                 <button
                   onClick={toggleSpeaker}
                   className={`w-14 h-14 rounded-full transition transform active:scale-95 shadow-lg flex items-center justify-center ${
@@ -738,9 +746,8 @@ export default function VoiceCallModal({
                   )}
                 </button>
 
-                {/* End call button */}
                 <button
-                  onClick={() => endCall()}
+                  onClick={endCall}
                   className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 flex items-center justify-center transition transform shadow-xl hover:shadow-red-500/50"
                   title="End call"
                 >
@@ -759,7 +766,6 @@ export default function VoiceCallModal({
             )}
           </div>
 
-          {/* Info text */}
           {callStatus === 'active' && (
             <div className="text-center text-gray-400 text-sm">
               <p>Tap to toggle microphone and speaker</p>
@@ -768,7 +774,6 @@ export default function VoiceCallModal({
         </div>
       </div>
 
-      {/* Audio elements */}
       <audio ref={localAudioRef} muted />
       <audio ref={remoteAudioRef} autoPlay />
     </div>

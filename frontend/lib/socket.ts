@@ -1,97 +1,51 @@
 import { io, Socket } from 'socket.io-client';
 import { API_CONFIG } from './api-config';
+import { getAccessToken, refreshAccessToken } from './auth';
 
 let socket: Socket | null = null;
 let isConnecting = false;
-let currentToken: string | null = null;
 
-// Function to refresh token silently
-const refreshAccessToken = async (): Promise<string | null> => {
-  try {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) return null;
+const typingCallbacks = new WeakMap<(data: unknown) => void, (data: unknown) => void>();
+const stopTypingCallbacks = new WeakMap<(data: unknown) => void, (data: unknown) => void>();
 
-    const response = await fetch(`${API_CONFIG.BASE_URL}/users/refresh-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.success && data.data?.accessToken) {
-        localStorage.setItem('accessToken', data.data.accessToken);
-        if (data.data.refreshToken) {
-          localStorage.setItem('refreshToken', data.data.refreshToken);
-        }
-        console.log('🔄 Token refreshed successfully');
-        return data.data.accessToken;
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('🔄 Token refresh failed:', error);
-    return null;
-  }
-};
-
-// Force reconnect with new token
 export const reconnectSocket = async (): Promise<Socket | null> => {
-  const token = localStorage.getItem('accessToken');
+  const token = getAccessToken();
   if (!token) return null;
-
-  // Disconnect existing socket
   if (socket) {
     socket.disconnect();
     socket = null;
   }
-
   isConnecting = false;
   return initSocket(token);
 };
 
 export const initSocket = (token: string) => {
-  // If socket exists and is connected, return it
-  if (socket?.connected) {
-    return socket;
-  }
-
-  // If socket exists and is still connecting, wait for it
-  if (socket && isConnecting) {
-    return socket;
-  }
-
-  // If socket exists but is truly disconnected (not connecting), create new one
+  if (socket?.connected) return socket;
+  if (socket && isConnecting) return socket;
   if (socket && !socket.connected && !isConnecting) {
     socket.disconnect();
     socket = null;
   }
 
   isConnecting = true;
-  currentToken = token;
 
   socket = io(API_CONFIG.SOCKET_URL, {
-    auth: {
-      token: token, // Backend expects token without 'Bearer' prefix
-    },
+    auth: { token },
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    reconnectionAttempts: Infinity, // Keep trying to reconnect
-    timeout: 20000, // Connection timeout
+    reconnectionAttempts: Infinity,
+    timeout: 20000,
     forceNew: false,
   });
 
   socket.on('connect', () => {
-    console.log('🔌 Socket connected! Socket ID:', socket?.id);
     isConnecting = false;
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('🔌 Socket disconnected. Reason:', reason);
     isConnecting = false;
-    // If the server closed the connection, try to reconnect
     if (reason === 'io server disconnect') {
       isConnecting = true;
       socket?.connect();
@@ -99,18 +53,10 @@ export const initSocket = (token: string) => {
   });
 
   socket.on('connect_error', async (error) => {
-    // Only log in development and avoid noisy errors during reconnection
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('🔌 Socket connection error:', error.message);
-    }
     isConnecting = false;
-
-    // If authentication error, try refreshing token
     if (error.message.includes('Authentication') || error.message.includes('Invalid token')) {
-      console.log('🔄 Attempting token refresh due to auth error...');
       const newToken = await refreshAccessToken();
       if (newToken) {
-        // Reconnect with new token
         setTimeout(() => {
           reconnectSocket();
         }, 1000);
@@ -118,41 +64,20 @@ export const initSocket = (token: string) => {
     }
   });
 
-  // Handle general socket errors silently (websocket errors during reconnection)
-  socket.on('error', (error) => {
-    // Suppress noisy websocket errors that occur during reconnection
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('🔌 Socket error (suppressed):', error);
-    }
-  });
-
-  socket.on('reconnect', (attemptNumber: number) => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔌 Socket reconnected after', attemptNumber, 'attempts');
-    }
+  socket.on('error', () => {});
+  socket.on('reconnect', () => {
     isConnecting = false;
   });
-
-  socket.on('reconnect_attempt', (attemptNumber) => {
-    console.log('🔌 Socket reconnection attempt:', attemptNumber);
+  socket.on('reconnect_attempt', () => {
     isConnecting = true;
   });
-
-  socket.on('reconnect_error', (error) => {
-    console.error('🔌 Socket reconnection error:', error.message);
-  });
+  socket.on('reconnect_error', () => {});
 
   return socket;
 };
 
-export const getSocket = () => {
-  return socket;
-};
-
-// Check if socket is healthy
-export const isSocketConnected = (): boolean => {
-  return socket?.connected ?? false;
-};
+export const getSocket = () => socket;
+export const isSocketConnected = (): boolean => socket?.connected ?? false;
 
 export const disconnectSocket = () => {
   if (socket) {
@@ -162,451 +87,206 @@ export const disconnectSocket = () => {
   }
 };
 
-// Socket event handlers
-export const onNewMessage = (callback: (data: any) => void) => {
-  socket?.on('newMessage', callback);
+type CB = (data: any) => void;
+const on = (event: string, cb: CB) => {
+  socket?.on(event, cb);
+};
+const off = (event: string, cb: CB) => {
+  socket?.off(event, cb);
+};
+const emit = (event: string, data?: unknown) => {
+  socket?.emit(event, data);
 };
 
-export const onMessageStatus = (callback: (data: any) => void) => {
-  socket?.on('messageStatus', callback);
+export const onNewMessage = (cb: CB) => on('newMessage', cb);
+export const offNewMessage = (cb: CB) => off('newMessage', cb);
+export const onMessageStatus = (cb: CB) => on('messageStatus', cb);
+export const offMessageStatus = (cb: CB) => off('messageStatus', cb);
+
+export const onTyping = (cb: CB) => {
+  const wrapped = (data: unknown) => {
+    if ((data as Record<string, unknown>).isTyping === true) cb(data);
+  };
+  typingCallbacks.set(cb, wrapped);
+  socket?.on('userTyping', wrapped);
 };
 
-export const onTyping = (callback: (data: any) => void) => {
-  // Filter for isTyping === true
-  socket?.on('userTyping', (data: any) => {
-    if (data.isTyping === true) {
-      callback(data);
-    }
-  });
+export const onStopTyping = (cb: CB) => {
+  const wrapped = (data: unknown) => {
+    if ((data as Record<string, unknown>).isTyping === false) cb(data);
+  };
+  stopTypingCallbacks.set(cb, wrapped);
+  socket?.on('userTyping', wrapped);
 };
 
-export const onStopTyping = (callback: (data: any) => void) => {
-  // Filter for isTyping === false
-  socket?.on('userTyping', (data: any) => {
-    if (data.isTyping === false) {
-      callback(data);
-    }
-  });
+export const offTyping = (cb: CB) => {
+  const wrapped = typingCallbacks.get(cb);
+  if (wrapped) {
+    socket?.off('userTyping', wrapped);
+    typingCallbacks.delete(cb);
+  }
 };
 
-export const offNewMessage = (callback: (data: any) => void) => {
-  socket?.off('newMessage', callback);
+export const offStopTyping = (cb: CB) => {
+  const wrapped = stopTypingCallbacks.get(cb);
+  if (wrapped) {
+    socket?.off('userTyping', wrapped);
+    stopTypingCallbacks.delete(cb);
+  }
 };
 
-export const offMessageStatus = (callback: (data: any) => void) => {
-  socket?.off('messageStatus', callback);
-};
+export const onNewThread = (cb: CB) => on('newThread', cb);
+export const offNewThread = (cb: CB) => off('newThread', cb);
 
-export const offTyping = (callback: (data: any) => void) => {
-  socket?.off('userTyping');
-};
+export const joinThread = (threadId: string) => emit('joinThread', threadId);
+export const emitTyping = (threadId: string, receiverId: string) =>
+  emit('typing', { threadId, receiverId });
+export const emitStopTyping = (threadId: string, receiverId: string) =>
+  emit('stopTyping', { threadId, receiverId });
+export const emitMessageDelivered = (messageId: string) => emit('messageDelivered', { messageId });
 
-export const offStopTyping = (callback: (data: any) => void) => {
-  socket?.off('userTyping');
-};
+export const onUserOnline = (cb: CB) => on('userOnline', cb);
+export const offUserOnline = (cb: CB) => off('userOnline', cb);
+export const onUserOffline = (cb: CB) => on('userOffline', cb);
+export const offUserOffline = (cb: CB) => off('userOffline', cb);
 
-export const onNewThread = (callback: (data: any) => void) => {
-  socket?.on('newThread', callback);
-};
-
-export const offNewThread = (callback: (data: any) => void) => {
-  socket?.off('newThread', callback);
-};
-
-// Emit events
-export const joinThread = (threadId: string) => {
-  socket?.emit('joinThread', threadId);
-};
-
-export const emitTyping = (threadId: string, receiverId: string) => {
-  socket?.emit('typing', { threadId, receiverId });
-};
-
-export const emitStopTyping = (threadId: string, receiverId: string) => {
-  socket?.emit('stopTyping', { threadId, receiverId });
-};
-
-export const emitMessageDelivered = (messageId: string) => {
-  socket?.emit('messageDelivered', { messageId });
-};
-
-// Online status handlers
-export const onUserOnline = (callback: (data: any) => void) => {
-  socket?.on('userOnline', callback);
-};
-
-export const offUserOnline = (callback: (data: any) => void) => {
-  socket?.off('userOnline', callback);
-};
-
-export const onUserOffline = (callback: (data: any) => void) => {
-  socket?.on('userOffline', callback);
-};
-
-export const offUserOffline = (callback: (data: any) => void) => {
-  socket?.off('userOffline', callback);
-};
-
-// User online/offline emit functions
 export const emitUserOnline = (userId?: string) => {
-  if (userId) {
-    socket?.emit('userOnline', { userId });
-  } else {
-    socket?.emit('userOnline');
-  }
+  userId ? socket?.emit('userOnline', { userId }) : socket?.emit('userOnline');
 };
-
 export const emitUserOffline = (userId?: string) => {
-  if (userId) {
-    socket?.emit('userOffline', { userId });
-  } else {
-    socket?.emit('userOffline');
-  }
+  userId ? socket?.emit('userOffline', { userId }) : socket?.emit('userOffline');
 };
 
-// export const emitMessageDelivered = (messageId: string) => {
-//   socket?.emit('messageDelivered', { messageId });
-// };
+export const onIncomingCall = (cb: CB) => on('incomingCall', cb);
+export const offIncomingCall = (cb: CB) => off('incomingCall', cb);
+export const onCallAccepted = (cb: CB) => on('callAccepted', cb);
+export const offCallAccepted = (cb: CB) => off('callAccepted', cb);
+export const onCallRejected = (cb: CB) => on('callRejected', cb);
+export const offCallRejected = (cb: CB) => off('callRejected', cb);
+export const onCallEnded = (cb: CB) => on('callEnded', cb);
+export const offCallEnded = (cb: CB) => off('callEnded', cb);
+export const onCallFailed = (cb: CB) => on('callFailed', cb);
+export const offCallFailed = (cb: CB) => off('callFailed', cb);
+export const onOffer = (cb: CB) => on('offer', cb);
+export const offOffer = (cb: CB) => off('offer', cb);
+export const onAnswer = (cb: CB) => on('answer', cb);
+export const offAnswer = (cb: CB) => off('answer', cb);
+export const onIceCandidate = (cb: CB) => on('iceCandidate', cb);
+export const offIceCandidate = (cb: CB) => off('iceCandidate', cb);
 
-// Voice call events
-export const onIncomingCall = (callback: (data: any) => void) => {
-  socket?.on('incomingCall', callback);
-};
-
-export const offIncomingCall = (callback: (data: any) => void) => {
-  socket?.off('incomingCall', callback);
-};
-
-export const onCallAccepted = (callback: (data: any) => void) => {
-  socket?.on('callAccepted', callback);
-};
-
-export const offCallAccepted = (callback: (data: any) => void) => {
-  socket?.off('callAccepted', callback);
-};
-
-export const onCallRejected = (callback: (data: any) => void) => {
-  socket?.on('callRejected', callback);
-};
-
-export const offCallRejected = (callback: (data: any) => void) => {
-  socket?.off('callRejected', callback);
-};
-
-export const onCallEnded = (callback: (data: any) => void) => {
-  socket?.on('callEnded', callback);
-};
-
-export const offCallEnded = (callback: (data: any) => void) => {
-  socket?.off('callEnded', callback);
-};
-
-// Call failed event (user offline or error)
-export const onCallFailed = (callback: (data: any) => void) => {
-  socket?.on('callFailed', callback);
-};
-
-export const offCallFailed = (callback: (data: any) => void) => {
-  socket?.off('callFailed', callback);
-};
-
-// WebRTC signaling events
-export const onOffer = (callback: (data: any) => void) => {
-  socket?.on('offer', callback);
-};
-
-export const offOffer = (callback: (data: any) => void) => {
-  socket?.off('offer', callback);
-};
-
-export const onAnswer = (callback: (data: any) => void) => {
-  socket?.on('answer', callback);
-};
-
-export const offAnswer = (callback: (data: any) => void) => {
-  socket?.off('answer', callback);
-};
-
-export const onIceCandidate = (callback: (data: any) => void) => {
-  socket?.on('iceCandidate', callback);
-};
-
-export const offIceCandidate = (callback: (data: any) => void) => {
-  socket?.off('iceCandidate', callback);
-};
-
-// Emit call events
 export const emitInitiateCall = (
   recipientId: string,
   threadId: string,
   callType: 'voice' | 'video' = 'voice'
 ) => {
-  socket?.emit('initiateCall', {
-    recipientId,
-    threadId,
-    callType,
-  });
+  emit('initiateCall', { recipientId, threadId, callType });
 };
 
-// Emit group call event - notifies all online group members
 export const emitInitiateGroupCall = (groupId: string, callType: 'voice' | 'video' = 'voice') => {
-  socket?.emit('initiateGroupCall', {
-    groupId,
-    callType,
-  });
+  emit('initiateGroupCall', { groupId, callType });
 };
 
 export const emitAcceptCall = (callerId: string, threadId: string) => {
-  socket?.emit('acceptCall', {
-    callerId,
-    threadId,
-  });
+  emit('acceptCall', { callerId, threadId });
 };
 
 export const emitRejectCall = (callerId: string, threadId: string) => {
-  socket?.emit('rejectCall', {
-    callerId,
-    threadId,
-  });
+  emit('rejectCall', { callerId, threadId });
 };
 
 export const emitEndCall = (recipientId: string, threadId: string) => {
-  socket?.emit('endCall', {
-    recipientId,
-    threadId,
-  });
+  emit('endCall', { recipientId, threadId });
 };
 
-export const emitOffer = (recipientId: string, offer: any, callType?: string) => {
-  socket?.emit('offer', {
-    recipientId,
-    offer: offer,
-    callType: callType || 'video',
-  });
+export const emitOffer = (recipientId: string, offer: RTCSessionDescriptionInit) => {
+  emit('offer', { recipientId, offer });
 };
 
-export const emitAnswer = (callerId: string, answer: any, callType?: string) => {
-  socket?.emit('answer', {
-    recipientId: callerId,
-    answer: answer,
-    callType: callType || 'video',
-  });
+export const emitAnswer = (callerId: string, answer: RTCSessionDescriptionInit) => {
+  emit('answer', { recipientId: callerId, answer });
 };
 
-export const emitIceCandidate = (recipientId: string, candidate: RTCIceCandidate, callType?: string) => {
-  socket?.emit('iceCandidate', {
+export const emitIceCandidate = (recipientId: string, candidate: RTCIceCandidate) => {
+  emit('iceCandidate', {
     recipientId,
     candidate: {
       candidate: candidate.candidate,
       sdpMLineIndex: candidate.sdpMLineIndex,
       sdpMid: candidate.sdpMid,
     },
-    callType: callType || 'video',
   });
 };
 
-// Group Chat Events
+export const onGroupCreated = (cb: CB) => on('groupCreated', cb);
+export const offGroupCreated = (cb: CB) => off('groupCreated', cb);
+export const onGroupUpdated = (cb: CB) => on('groupUpdated', cb);
+export const offGroupUpdated = (cb: CB) => off('groupUpdated', cb);
+export const onMemberAdded = (cb: CB) => on('memberAdded', cb);
+export const offMemberAdded = (cb: CB) => off('memberAdded', cb);
+export const onMemberRemoved = (cb: CB) => on('memberRemoved', cb);
+export const offMemberRemoved = (cb: CB) => off('memberRemoved', cb);
+export const onMemberLeft = (cb: CB) => on('memberLeft', cb);
+export const offMemberLeft = (cb: CB) => off('memberLeft', cb);
+export const onAdminChanged = (cb: CB) => on('adminChanged', cb);
+export const offAdminChanged = (cb: CB) => off('adminChanged', cb);
+export const onGroupMessage = (cb: CB) => on('groupMessage', cb);
+export const offGroupMessage = (cb: CB) => off('groupMessage', cb);
+export const onGroupMessageNotification = (cb: CB) => on('groupMessageNotification', cb);
+export const offGroupMessageNotification = (cb: CB) => off('groupMessageNotification', cb);
 
-// Listen for group events
-export const onGroupCreated = (callback: (data: any) => void) => {
-  socket?.on('groupCreated', callback);
-};
+export const emitJoinGroup = (groupId: string) => emit('joinGroup', groupId);
+export const emitLeaveGroupRoom = (groupId: string) => emit('leaveGroup', groupId);
 
-export const offGroupCreated = (callback: (data: any) => void) => {
-  socket?.off('groupCreated', callback);
-};
+export const onLiveStreamStarted = (cb: CB) => on('liveStreamStarted', cb);
+export const offLiveStreamStarted = (cb: CB) => off('liveStreamStarted', cb);
+export const onLiveStreamEnded = (cb: CB) => on('liveStreamEnded', cb);
+export const offLiveStreamEnded = (cb: CB) => off('liveStreamEnded', cb);
+export const onViewerJoined = (cb: CB) => on('viewerJoined', cb);
+export const offViewerJoined = (cb: CB) => off('viewerJoined', cb);
+export const onViewerLeft = (cb: CB) => on('viewerLeft', cb);
+export const offViewerLeft = (cb: CB) => off('viewerLeft', cb);
+export const onViewerCountUpdate = (cb: CB) => on('viewerCountUpdate', cb);
+export const offViewerCountUpdate = (cb: CB) => off('viewerCountUpdate', cb);
+export const onLiveComment = (cb: CB) => on('newLiveComment', cb);
+export const offLiveComment = (cb: CB) => off('newLiveComment', cb);
+export const onLiveStreamOffer = (cb: CB) => on('liveStreamOffer', cb);
+export const offLiveStreamOffer = (cb: CB) => off('liveStreamOffer', cb);
+export const onLiveStreamAnswer = (cb: CB) => on('liveStreamAnswer', cb);
+export const offLiveStreamAnswer = (cb: CB) => off('liveStreamAnswer', cb);
+export const onLiveStreamIceCandidate = (cb: CB) => on('liveStreamIceCandidate', cb);
+export const offLiveStreamIceCandidate = (cb: CB) => off('liveStreamIceCandidate', cb);
 
-export const onGroupUpdated = (callback: (data: any) => void) => {
-  socket?.on('groupUpdated', callback);
-};
-
-export const offGroupUpdated = (callback: (data: any) => void) => {
-  socket?.off('groupUpdated', callback);
-};
-
-export const onMemberAdded = (callback: (data: any) => void) => {
-  socket?.on('memberAdded', callback);
-};
-
-export const offMemberAdded = (callback: (data: any) => void) => {
-  socket?.off('memberAdded', callback);
-};
-
-export const onMemberRemoved = (callback: (data: any) => void) => {
-  socket?.on('memberRemoved', callback);
-};
-
-export const offMemberRemoved = (callback: (data: any) => void) => {
-  socket?.off('memberRemoved', callback);
-};
-
-export const onMemberLeft = (callback: (data: any) => void) => {
-  socket?.on('memberLeft', callback);
-};
-
-export const offMemberLeft = (callback: (data: any) => void) => {
-  socket?.off('memberLeft', callback);
-};
-
-export const onAdminChanged = (callback: (data: any) => void) => {
-  socket?.on('adminChanged', callback);
-};
-
-export const offAdminChanged = (callback: (data: any) => void) => {
-  socket?.off('adminChanged', callback);
-};
-
-// Listen for group message events
-export const onGroupMessage = (callback: (data: any) => void) => {
-  socket?.on('groupMessage', callback);
-};
-
-export const offGroupMessage = (callback: (data: any) => void) => {
-  socket?.off('groupMessage', callback);
-};
-
-export const onGroupMessageNotification = (callback: (data: any) => void) => {
-  socket?.on('groupMessageNotification', callback);
-};
-
-export const offGroupMessageNotification = (callback: (data: any) => void) => {
-  socket?.off('groupMessageNotification', callback);
-};
-
-// Emit group events
-export const emitJoinGroup = (groupId: string) => {
-  socket?.emit('joinGroup', groupId);
-};
-
-export const emitLeaveGroupRoom = (groupId: string) => {
-  socket?.emit('leaveGroup', groupId);
-};
-
-// ==================== LIVE STREAMING EVENTS ====================
-
-// Listen for live stream events
-export const onLiveStreamStarted = (callback: (data: any) => void) => {
-  socket?.on('liveStreamStarted', callback);
-};
-
-export const offLiveStreamStarted = (callback: (data: any) => void) => {
-  socket?.off('liveStreamStarted', callback);
-};
-
-export const onLiveStreamEnded = (callback: (data: any) => void) => {
-  socket?.on('liveStreamEnded', callback);
-};
-
-export const offLiveStreamEnded = (callback: (data: any) => void) => {
-  socket?.off('liveStreamEnded', callback);
-};
-
-export const onViewerJoined = (callback: (data: any) => void) => {
-  socket?.on('viewerJoined', callback);
-};
-
-export const offViewerJoined = (callback: (data: any) => void) => {
-  socket?.off('viewerJoined', callback);
-};
-
-export const onViewerLeft = (callback: (data: any) => void) => {
-  socket?.on('viewerLeft', callback);
-};
-
-export const offViewerLeft = (callback: (data: any) => void) => {
-  socket?.off('viewerLeft', callback);
-};
-
-export const onViewerCountUpdate = (callback: (data: any) => void) => {
-  socket?.on('viewerCountUpdate', callback);
-};
-
-export const offViewerCountUpdate = (callback: (data: any) => void) => {
-  socket?.off('viewerCountUpdate', callback);
-};
-
-export const onLiveComment = (callback: (data: any) => void) => {
-  socket?.on('newLiveComment', callback);
-};
-
-export const offLiveComment = (callback: (data: any) => void) => {
-  socket?.off('newLiveComment', callback);
-};
-
-// Live stream WebRTC signaling events
-export const onLiveStreamOffer = (callback: (data: any) => void) => {
-  socket?.on('liveStreamOffer', callback);
-};
-
-export const offLiveStreamOffer = (callback: (data: any) => void) => {
-  socket?.off('liveStreamOffer', callback);
-};
-
-export const onLiveStreamAnswer = (callback: (data: any) => void) => {
-  socket?.on('liveStreamAnswer', callback);
-};
-
-export const offLiveStreamAnswer = (callback: (data: any) => void) => {
-  socket?.off('liveStreamAnswer', callback);
-};
-
-export const onLiveStreamIceCandidate = (callback: (data: any) => void) => {
-  socket?.on('liveStreamIceCandidate', callback);
-};
-
-export const offLiveStreamIceCandidate = (callback: (data: any) => void) => {
-  socket?.off('liveStreamIceCandidate', callback);
-};
-
-// Emit live stream events
 export const emitStartLiveStream = (streamId: string, title: string, description?: string) => {
-  socket?.emit('startLiveStream', {
-    streamId,
-    title,
-    description,
-  });
+  emit('startLiveStream', { streamId, title, description });
 };
 
-export const emitEndLiveStream = (streamId: string) => {
-  socket?.emit('endLiveStream', { streamId });
-};
+export const emitEndLiveStream = (streamId: string) => emit('endLiveStream', { streamId });
 
 export const emitJoinLiveStream = (streamId: string) => {
-  if (!socket?.connected) {
-    console.warn('⚠️ Socket not connected, cannot join live stream');
-    return;
-  }
-  console.log('📤 Emitting joinLiveStream for:', streamId);
+  if (!socket?.connected) return;
   socket.emit('joinLiveStream', { streamId });
 };
 
-export const emitLeaveLiveStream = (streamId: string) => {
-  socket?.emit('leaveLiveStream', { streamId });
-};
+export const emitLeaveLiveStream = (streamId: string) => emit('leaveLiveStream', { streamId });
 
 export const emitLiveComment = (streamId: string, text: string) => {
-  socket?.emit('liveComment', {
-    streamId,
-    text,
-  });
+  emit('liveComment', { streamId, text });
 };
 
-export const emitLiveStreamOffer = (streamId: string, viewerId: string, offer: any) => {
-  console.log('📤 Emitting liveStreamOffer to viewer:', viewerId);
-  socket?.emit('liveStreamOffer', {
-    streamId,
-    viewerId,
-    offer,
-  });
+export const emitLiveStreamOffer = (
+  streamId: string,
+  viewerId: string,
+  offer: RTCSessionDescriptionInit
+) => {
+  emit('liveStreamOffer', { streamId, viewerId, offer });
 };
 
-export const emitLiveStreamAnswer = (streamId: string, broadcasterId: string, answer: any) => {
-  console.log('📤 Emitting liveStreamAnswer to broadcaster:', broadcasterId);
-  socket?.emit('liveStreamAnswer', {
-    streamId,
-    broadcasterId,
-    answer,
-  });
+export const emitLiveStreamAnswer = (
+  streamId: string,
+  broadcasterId: string,
+  answer: RTCSessionDescriptionInit
+) => {
+  emit('liveStreamAnswer', { streamId, broadcasterId, answer });
 };
 
 export const emitLiveStreamIceCandidate = (
@@ -614,7 +294,7 @@ export const emitLiveStreamIceCandidate = (
   targetId: string,
   candidate: RTCIceCandidate
 ) => {
-  socket?.emit('liveStreamIceCandidate', {
+  emit('liveStreamIceCandidate', {
     streamId,
     targetId,
     candidate: {
@@ -625,107 +305,29 @@ export const emitLiveStreamIceCandidate = (
   });
 };
 
-// ==================== LIVE REACTIONS (Hearts) ====================
-
-/**
- * Send a reaction (heart) during a live stream
- * These create floating heart animations for all viewers
- */
 export const emitLiveReaction = (
   streamId: string,
   type: 'heart' | 'like' | 'fire' | 'clap' = 'heart',
   color?: string
 ) => {
-  socket?.emit('liveReaction', {
-    streamId,
-    type,
-    color,
-  });
+  emit('liveReaction', { streamId, type, color });
 };
 
-/**
- * Listen for reactions from other viewers
- */
-export const onLiveReaction = (callback: (data: any) => void) => {
-  socket?.on('liveReaction', callback);
-};
+export const onLiveReaction = (cb: CB) => on('liveReaction', cb);
+export const offLiveReaction = (cb: CB) => off('liveReaction', cb);
 
-export const offLiveReaction = (callback: (data: any) => void) => {
-  socket?.off('liveReaction', callback);
-};
-
-// ==================== PINNED COMMENTS ====================
-
-/**
- * Pin a comment (broadcaster only)
- */
 export const emitPinComment = (streamId: string, commentId: string) => {
-  socket?.emit('pinLiveComment', {
-    streamId,
-    commentId,
-  });
+  emit('pinLiveComment', { streamId, commentId });
 };
+export const emitUnpinComment = (streamId: string) => emit('unpinLiveComment', { streamId });
+export const onCommentPinned = (cb: CB) => on('commentPinned', cb);
+export const offCommentPinned = (cb: CB) => off('commentPinned', cb);
+export const onCommentUnpinned = (cb: CB) => on('commentUnpinned', cb);
+export const offCommentUnpinned = (cb: CB) => off('commentUnpinned', cb);
 
-/**
- * Unpin the currently pinned comment (broadcaster only)
- */
-export const emitUnpinComment = (streamId: string) => {
-  socket?.emit('unpinLiveComment', { streamId });
-};
-
-/**
- * Listen for comment pinned events
- */
-export const onCommentPinned = (callback: (data: any) => void) => {
-  socket?.on('commentPinned', callback);
-};
-
-export const offCommentPinned = (callback: (data: any) => void) => {
-  socket?.off('commentPinned', callback);
-};
-
-/**
- * Listen for comment unpinned events
- */
-export const onCommentUnpinned = (callback: (data: any) => void) => {
-  socket?.on('commentUnpinned', callback);
-};
-
-export const offCommentUnpinned = (callback: (data: any) => void) => {
-  socket?.off('commentUnpinned', callback);
-};
-
-// ==================== NOTIFICATION EVENTS ====================
-
-/**
- * Listen for new notification events
- */
-export const onNewNotification = (callback: (data: any) => void) => {
-  socket?.on('newNotification', callback);
-};
-
-export const offNewNotification = (callback: (data: any) => void) => {
-  socket?.off('newNotification', callback);
-};
-
-/**
- * Listen for notification read events
- */
-export const onNotificationRead = (callback: (data: any) => void) => {
-  socket?.on('notificationRead', callback);
-};
-
-export const offNotificationRead = (callback: (data: any) => void) => {
-  socket?.off('notificationRead', callback);
-};
-
-/**
- * Listen for all notifications marked as read
- */
-export const onAllNotificationsRead = (callback: (data: any) => void) => {
-  socket?.on('allNotificationsRead', callback);
-};
-
-export const offAllNotificationsRead = (callback: (data: any) => void) => {
-  socket?.off('allNotificationsRead', callback);
-};
+export const onNewNotification = (cb: CB) => on('newNotification', cb);
+export const offNewNotification = (cb: CB) => off('newNotification', cb);
+export const onNotificationRead = (cb: CB) => on('notificationRead', cb);
+export const offNotificationRead = (cb: CB) => off('notificationRead', cb);
+export const onAllNotificationsRead = (cb: CB) => on('allNotificationsRead', cb);
+export const offAllNotificationsRead = (cb: CB) => off('allNotificationsRead', cb);

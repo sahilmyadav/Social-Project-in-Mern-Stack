@@ -10,9 +10,8 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { decryptMessage, encryptMessage } from '../utils/encryption.js';
-import { delteOnCloudinray, uploadOnCloudinary } from '../utils/localStorage.js';
-
-// ==================== GROUP MANAGEMENT ====================
+import { removeFile, uploadFile } from '../utils/localStorage.js';
+import logger from '../utils/logger.js';
 
 /**
  * Create a new group
@@ -49,7 +48,7 @@ export const createGroup = asyncHandler(async (req, res) => {
   let avatarUrl = null;
   let avatarPublicId = null;
   if (req.file) {
-    const uploadResult = await uploadOnCloudinary(req.file.path);
+    const uploadResult = await uploadFile(req.file.path);
     if (uploadResult) {
       avatarUrl = uploadResult.secure_url || uploadResult.url;
       avatarPublicId = uploadResult.public_id;
@@ -124,7 +123,7 @@ export const createGroup = asyncHandler(async (req, res) => {
   try {
     await Notification.insertMany(notifications);
   } catch (notifError) {
-    console.log('Failed to create group notifications:', notifError.message);
+    logger.error('Failed to create group notifications:', { error: notifError.message });
   }
 
   return res.status(201).json(new ApiResponse(201, populatedGroup, 'Group created successfully'));
@@ -263,9 +262,9 @@ export const updateGroup = asyncHandler(async (req, res) => {
   if (req.file) {
     // Delete old avatar
     if (group.avatarPublicId) {
-      await delteOnCloudinray(group.avatarPublicId);
+      await removeFile(group.avatarPublicId);
     }
-    const uploadResult = await uploadOnCloudinary(req.file.path);
+    const uploadResult = await uploadFile(req.file.path);
     if (uploadResult) {
       group.avatar = uploadResult.secure_url || uploadResult.url;
       group.avatarPublicId = uploadResult.public_id;
@@ -759,7 +758,7 @@ export const deleteGroup = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, null, 'Group deleted successfully'));
 });
 
-// ==================== MESSAGING ====================
+// Messaging
 
 /**
  * Send message to group
@@ -798,7 +797,7 @@ export const sendGroupMessage = asyncHandler(async (req, res) => {
   let mediaData = [];
 
   if (files.length > 0) {
-    const uploadPromises = files.map((file) => uploadOnCloudinary(file.path));
+    const uploadPromises = files.map((file) => uploadFile(file.path));
     const uploadResults = await Promise.all(uploadPromises);
 
     mediaData = uploadResults.filter(Boolean).map((result, i) => {

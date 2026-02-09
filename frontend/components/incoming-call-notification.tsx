@@ -24,10 +24,6 @@ export default function IncomingCallNotification({
   useEffect(() => {
     if (isVisible) {
       setIsAnimating(true);
-      // Play ringtone sound (optional)
-      // const audio = new Audio('/ringtone.mp3')
-      // audio.loop = true
-      // audio.play()
     } else {
       setIsAnimating(false);
     }
@@ -37,17 +33,14 @@ export default function IncomingCallNotification({
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9998] animate-in fade-in duration-300" />
 
-      {/* Notification Card */}
       <div
         className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[90%] max-w-md transition-all duration-300 ${
           isAnimating ? 'animate-in slide-in-from-top-4' : 'animate-out slide-out-to-top-4'
         }`}
       >
         <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl shadow-2xl border border-white/10 p-6">
-          {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm font-medium text-green-400 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
@@ -55,9 +48,7 @@ export default function IncomingCallNotification({
             </span>
           </div>
 
-          {/* Caller Info */}
           <div className="flex items-center gap-4 mb-6">
-            {/* Avatar */}
             <div className="relative">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-3xl shadow-lg ring-4 ring-white/10">
                 {callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/') || callerAvatar?.startsWith('uploads') ? (
@@ -71,20 +62,16 @@ export default function IncomingCallNotification({
                 )}
               </div>
 
-              {/* Pulsing ring animation */}
               <div className="absolute inset-0 rounded-full border-4 border-blue-400 animate-ping opacity-75" />
             </div>
 
-            {/* Name */}
             <div className="flex-1">
               <h3 className="text-xl font-bold text-white mb-1">{callerName}</h3>
               <p className="text-sm text-gray-400">Voice Call</p>
             </div>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex items-center justify-center gap-8">
-            {/* Reject Button */}
             <button
               onClick={onReject}
               className="group flex flex-col items-center gap-2 transition-transform hover:scale-110 active:scale-95"
@@ -98,7 +85,6 @@ export default function IncomingCallNotification({
               </span>
             </button>
 
-            {/* Accept Button */}
             <button
               onClick={onAccept}
               className="group flex flex-col items-center gap-2 transition-transform hover:scale-110 active:scale-95"
@@ -113,7 +99,6 @@ export default function IncomingCallNotification({
             </button>
           </div>
 
-          {/* Ringing animation dots */}
           <div className="flex justify-center gap-1.5 mt-6">
             <div
               className="w-2 h-2 rounded-full bg-blue-500 animate-bounce"

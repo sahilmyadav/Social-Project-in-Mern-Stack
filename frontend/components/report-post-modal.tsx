@@ -63,15 +63,12 @@ export default function ReportPostModal({
       });
 
       if (response.success) {
-        // Reset form and close modal
         setSelectedReason('');
         setAdditionalInfo('');
         onOpenChange(false);
 
-        // Call the onReported callback to hide the post
         onReported?.();
 
-        // Show success toast with undo option
         toast.success('Post reported. This post will be hidden from your feed.', {
           duration: 5000,
           action: {
@@ -85,7 +82,6 @@ export default function ReportPostModal({
         throw new Error(response.message || 'Failed to submit report');
       }
     } catch (error: any) {
-      console.error('Error submitting post report:', error);
       showToast.error(error.message || 'Failed to submit report');
     } finally {
       setIsSubmitting(false);

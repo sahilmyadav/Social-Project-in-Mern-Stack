@@ -1,19 +1,22 @@
 import dotenv from 'dotenv';
 import http from 'http';
 import { Server as ExpressApp } from './app.js';
+import { validateEnv } from './config/env.js';
 import { startStoryCleanupJob } from './controllers/story.controller.js';
 import connectDB from './db/connection.js';
 import { initializeSocket } from './socket/socket.js';
+import logger from './utils/logger.js';
 dotenv.config({
   path: '../../.env',
 });
+
+// Validate env vars early — fails fast in production if critical vars are missing.
+validateEnv();
 
 const Port = process.env.PORT || 3000;
 
 // Create HTTP server
 const httpServer = http.createServer(ExpressApp);
-
-// to do cluster configration for production ✅ DONE!
 
 connectDB()
   .then(async () => {
@@ -21,14 +24,14 @@ connectDB()
     await initializeSocket(httpServer);
 
     httpServer.listen(Port, () =>
-      console.log(`Server is Running on Port http://localhost:${Port}/ And PID is ${process.pid}`)
+      logger.info(`Server is Running on Port http://localhost:${Port}/ And PID is ${process.pid}`)
     );
 
     // Start automatic story cleanup job (deletes expired stories every hour)
     startStoryCleanupJob();
   })
   .catch((e) => {
-    console.error(`Something went wrong while connecting to DB`, e);
+    logger.error('Something went wrong while connecting to DB', e);
     process.exit(1);
   });
 

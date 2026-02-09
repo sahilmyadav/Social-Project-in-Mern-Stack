@@ -43,7 +43,6 @@ import {
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-// Interest categories with icons and colors
 const INTEREST_CATEGORIES = [
   { id: 'music', label: 'Music', icon: Music, color: 'from-purple-500 to-pink-500' },
   { id: 'photography', label: 'Photography', icon: Camera, color: 'from-blue-500 to-cyan-500' },
@@ -125,14 +124,12 @@ export default function SetupInterestsPage() {
 
     setSaving(true);
     try {
-      // Save interests to user profile
       const response = await authService.completeProfile({
         username: user?.username || `user_${Date.now()}`,
         interests: selectedInterests,
       });
 
       if (response.success) {
-        // Update local storage
         const userData = localStorage.getItem('user');
         if (userData) {
           const parsedUser = JSON.parse(userData);
@@ -144,7 +141,6 @@ export default function SetupInterestsPage() {
         showToast.success("Interests saved! Let's explore your personalized feed.");
         router.push('/home');
       } else {
-        // If profile is already completed, just update interests
         const updateResponse = await authService.updateProfile({
           interests: selectedInterests,
         } as any);
@@ -163,8 +159,6 @@ export default function SetupInterestsPage() {
         }
       }
     } catch (error) {
-      console.error('Failed to save interests:', error);
-      // Try updating profile directly
       try {
         await authService.updateProfile({ interests: selectedInterests } as any);
         const userData = localStorage.getItem('user');
@@ -189,7 +183,6 @@ export default function SetupInterestsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
       <div className="container max-w-4xl mx-auto px-4 py-8">
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
             <AnimatedLogo size={64} />
@@ -201,7 +194,6 @@ export default function SetupInterestsPage() {
           </p>
         </div>
 
-        {/* Progress Indicator */}
         <div className="flex items-center justify-center gap-2 mb-8">
           <div
             className={`
@@ -224,7 +216,6 @@ export default function SetupInterestsPage() {
           </div>
         </div>
 
-        {/* Selected Interests Pills */}
         {selectedInterests.length > 0 && (
           <div className="mb-6 p-4 rounded-xl bg-card border border-border">
             <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
@@ -254,7 +245,6 @@ export default function SetupInterestsPage() {
           </div>
         )}
 
-        {/* Interest Categories Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-8">
           {INTEREST_CATEGORIES.map((category) => {
             const isSelected = selectedInterests.includes(category.id);
@@ -298,7 +288,6 @@ export default function SetupInterestsPage() {
           })}
         </div>
 
-        {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Button variant="ghost" onClick={handleSkip} className="text-muted-foreground">
             Skip for now
@@ -320,7 +309,6 @@ export default function SetupInterestsPage() {
           </Button>
         </div>
 
-        {/* Hint */}
         <p className="text-center text-xs text-muted-foreground mt-6">
           You can always change your interests later in Settings
         </p>

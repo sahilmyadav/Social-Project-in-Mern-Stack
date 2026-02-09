@@ -136,6 +136,7 @@ import {
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { ICE_SERVERS, cleanupPeerConnection } from '@/lib/webrtc';
 
 /**
  * ============================================================================
@@ -269,61 +270,33 @@ export default function WatchLivePage() {
   const router = useRouter();
   const streamId = params.streamId as string;
 
-  // ========================================================================
-  // REFS
-  // ========================================================================
   const videoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
-  // ========================================================================
-  // STATE
-  // ========================================================================
-
-  // Stream data
   const [stream, setStream] = useState<LiveStream | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Video state
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState>('new');
   const [isMuted, setIsMuted] = useState(true); // Start muted for autoplay
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isProcessingOffer, setIsProcessingOffer] = useState(false);
 
-  // Viewer count
   const [viewerCount, setViewerCount] = useState(0);
 
-  // Comments
   const [comments, setComments] = useState<LiveComment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [pinnedComment, setPinnedComment] = useState<LiveComment | null>(null);
   const [showComments, setShowComments] = useState(true);
 
-  // Hearts/Reactions
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [heartCounter, setHeartCounter] = useState(0);
 
-  // User
   const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // ========================================================================
-  // WEBRTC CONFIGURATION
-  // ========================================================================
-  const rtcConfig: RTCConfiguration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-    ],
-    iceCandidatePoolSize: 10,
-  };
-
-  // ========================================================================
-  // FETCH STREAM DETAILS
-  // ========================================================================
   const fetchStreamDetails = async (): Promise<boolean> => {
     try {
       const response = await liveStreamService.getLiveStreamDetails(streamId);
@@ -332,7 +305,6 @@ export default function WatchLivePage() {
         setStream(response.data);
         setViewerCount(response.data.viewerCount || 0);
 
-        // Check if stream is still live
         if (response.data.status !== 'live') {
           setError('This stream has ended');
           toast.error('This stream has ended');
@@ -347,7 +319,6 @@ export default function WatchLivePage() {
         return false;
       }
     } catch (error: any) {
-      console.error('Error fetching stream:', error);
       setError('Failed to load live stream');
       toast.error('Failed to load live stream');
       return false;
@@ -356,9 +327,6 @@ export default function WatchLivePage() {
     }
   };
 
-  // ========================================================================
-  // JOIN LIVE STREAM
-  // ========================================================================
   /**
    * Join the live stream as a viewer
    *
@@ -370,51 +338,28 @@ export default function WatchLivePage() {
    */
   const joinStream = async () => {
     try {
-      console.log('📺 Attempting to join stream:', streamId);
-      // Register as viewer via API
       const response = await liveStreamService.joinLiveStream(streamId);
-      console.log('📺 Join stream response:', response);
 
       if (response.success) {
-        console.log('📺 Joined stream successfully, waiting for broadcaster offer...');
 
-        // Join socket room - this notifies the broadcaster to send us an offer
         emitJoinLiveStream(streamId);
 
-        // Set a timeout to detect if offer never arrives
-        // This helps with debugging connection issues
         const offerTimeout = setTimeout(() => {
           if (!peerConnectionRef.current || peerConnectionRef.current.connectionState === 'new') {
-            console.warn('⚠️ No offer received after 10 seconds. Possible issues:');
-            console.warn('  - Broadcaster may not be live yet');
-            console.warn('  - Socket connection may be broken');
-            console.warn('  - Network/firewall issues');
             toast.error('Waiting for broadcaster... Make sure the stream is live.');
           }
         }, 10000);
 
-        // Store timeout so we can clear it if offer arrives
         (window as any).__offerTimeout = offerTimeout;
 
-        // Note: We don't create peer connection here.
-        // When the broadcaster receives our join, they will send us an offer.
-        // handleOffer() will create the peer connection when the offer arrives.
       } else {
-        console.error('Join stream failed:', response);
         toast.error(response.message || 'Failed to join stream');
       }
     } catch (error: any) {
-      console.error(
-        'Error joining stream:',
-        error?.message || error?.error || JSON.stringify(error)
-      );
       toast.error(error?.message || error?.error || 'Failed to join stream');
     }
   };
 
-  // ========================================================================
-  // SETUP PEER CONNECTION
-  // ========================================================================
   /**
    * Create RTCPeerConnection to receive broadcaster's stream
    *
@@ -426,46 +371,33 @@ export default function WatchLivePage() {
    */
   const setupPeerConnection = useCallback(
     (broadcasterId: string) => {
-      console.log('🔧 Setting up peer connection for broadcaster:', broadcasterId);
 
-      // Clean up any existing connection
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-      }
+      cleanupPeerConnection(peerConnectionRef.current);
 
-      const pc = new RTCPeerConnection(rtcConfig);
+      const pc = new RTCPeerConnection(ICE_SERVERS);
       peerConnectionRef.current = pc;
 
-      // Handle incoming tracks (this is how we receive the video!)
       pc.ontrack = (event) => {
-        console.log('📹 Received track:', event.track.kind);
 
         const [remoteStream] = event.streams;
         setRemoteStream(remoteStream);
 
         if (videoRef.current) {
           videoRef.current.srcObject = remoteStream;
-          // Mute initially for autoplay policy compliance
           videoRef.current.muted = true;
           setIsMuted(true);
-          // Try to play
           videoRef.current.play().catch((err) => {
-            console.warn('Autoplay blocked even with muted:', err);
           });
         }
       };
 
-      // Handle ICE candidates - send to broadcaster
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log('🧊 Sending ICE candidate to broadcaster:', broadcasterId);
           emitLiveStreamIceCandidate(streamId, broadcasterId, event.candidate);
         }
       };
 
-      // Handle connection state changes
       pc.onconnectionstatechange = () => {
-        console.log(`📡 Connection state: ${pc.connectionState}`);
         setConnectionState(pc.connectionState);
 
         if (pc.connectionState === 'connected') {
@@ -477,9 +409,7 @@ export default function WatchLivePage() {
         }
       };
 
-      // Handle ICE connection state
       pc.oniceconnectionstatechange = () => {
-        console.log(`🧊 ICE state: ${pc.iceConnectionState}`);
       };
 
       return pc;
@@ -487,9 +417,6 @@ export default function WatchLivePage() {
     [streamId]
   );
 
-  // ========================================================================
-  // HANDLE WEBRTC OFFER FROM BROADCASTER
-  // ========================================================================
   /**
    * Process offer from broadcaster and send answer
    *
@@ -503,9 +430,7 @@ export default function WatchLivePage() {
    */
   const handleOffer = useCallback(
     async (data: any) => {
-      console.log('📨 Received offer from broadcaster:', data);
 
-      // Clear the offer timeout since we received one
       if ((window as any).__offerTimeout) {
         clearTimeout((window as any).__offerTimeout);
         delete (window as any).__offerTimeout;
@@ -513,55 +438,38 @@ export default function WatchLivePage() {
 
       const { offer, broadcasterId } = data;
 
-      // Check if we're already processing an offer or connected
       const pc = peerConnectionRef.current;
       if (pc) {
         const state = pc.signalingState;
         const connState = pc.connectionState;
-        console.log('📡 Current signaling state:', state, 'connection state:', connState);
 
-        // Skip if already connected or stable (already processed an offer)
         if (connState === 'connected' || connState === 'connecting') {
-          console.log('⏭️ Already connected/connecting, ignoring duplicate offer');
           return;
         }
         if (state !== 'stable' && state !== 'closed') {
-          console.log('⏭️ Signaling in progress, ignoring duplicate offer');
           return;
         }
       }
 
-      // Setup peer connection when we receive the offer (with broadcaster ID)
-      // This ensures the connection is ready and knows where to send ICE candidates
       let newPc = peerConnectionRef.current;
       if (!newPc || newPc.connectionState === 'closed' || newPc.connectionState === 'failed') {
-        console.log('🔧 Creating new peer connection for broadcaster:', broadcasterId);
         newPc = setupPeerConnection(broadcasterId);
       }
 
       try {
-        // Set the broadcaster's offer as our remote description
         await newPc.setRemoteDescription(new RTCSessionDescription(offer));
-        console.log('✅ Remote description set');
 
-        // Create our answer
         const answer = await newPc.createAnswer();
         await newPc.setLocalDescription(answer);
-        console.log('✅ Local description set, sending answer to:', broadcasterId);
 
-        // Send answer back to broadcaster
         emitLiveStreamAnswer(streamId, broadcasterId, answer);
       } catch (error) {
-        console.error('Error handling offer:', error);
         toast.error('Failed to connect to stream');
       }
     },
     [streamId, setupPeerConnection]
   );
 
-  // ========================================================================
-  // HANDLE ICE CANDIDATE FROM BROADCASTER
-  // ========================================================================
   /**
    * Add ICE candidate from broadcaster
    */
@@ -572,31 +480,19 @@ export default function WatchLivePage() {
     if (pc && candidate) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log('🧊 Added ICE candidate from broadcaster');
       } catch (error) {
-        console.error('Error adding ICE candidate:', error);
       }
     }
   }, []);
 
-  // ========================================================================
-  // HANDLE STREAM ENDED
-  // ========================================================================
   const handleStreamEnded = useCallback(() => {
-    console.log('📴 Stream ended');
     toast.info('The live stream has ended');
 
-    // Cleanup
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-    }
+    cleanupPeerConnection(peerConnectionRef.current);
 
     setTimeout(() => router.push('/live'), 2000);
   }, [router]);
 
-  // ========================================================================
-  // HANDLE NEW COMMENT
-  // ========================================================================
   const handleNewComment = useCallback(
     (data: any) => {
       const commentData = data.comment || data;
@@ -618,7 +514,6 @@ export default function WatchLivePage() {
 
       setComments((prev) => [...prev.slice(-99), formattedComment]);
 
-      // Auto-scroll
       setTimeout(() => {
         commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
@@ -626,9 +521,6 @@ export default function WatchLivePage() {
     [streamId]
   );
 
-  // ========================================================================
-  // SEND COMMENT
-  // ========================================================================
   const sendComment = () => {
     if (commentText.trim()) {
       emitLiveComment(streamId, commentText.trim());
@@ -636,11 +528,7 @@ export default function WatchLivePage() {
     }
   };
 
-  // ========================================================================
-  // SEND REACTION (HEART)
-  // ========================================================================
   const sendReaction = () => {
-    // Add local heart animation
     const id = heartCounter;
     setHeartCounter((prev) => prev + 1);
 
@@ -653,18 +541,13 @@ export default function WatchLivePage() {
 
     setFloatingHearts((prev) => [...prev, heart]);
 
-    // Remove after animation
     setTimeout(() => {
       setFloatingHearts((prev) => prev.filter((h) => h.id !== id));
     }, 3000);
 
-    // Emit socket event for others to see
     emitLiveReaction(streamId, 'heart', color);
   };
 
-  // ========================================================================
-  // MEDIA CONTROLS
-  // ========================================================================
   const toggleMute = () => {
     if (videoRef.current) {
       videoRef.current.muted = !videoRef.current.muted;
@@ -684,28 +567,17 @@ export default function WatchLivePage() {
         setIsFullscreen(false);
       }
     } catch (error) {
-      console.error('Fullscreen error:', error);
     }
   };
 
-  // ========================================================================
-  // LEAVE STREAM
-  // ========================================================================
   const leaveStream = () => {
-    // Emit leave event
     emitLeaveLiveStream(streamId);
 
-    // Close peer connection
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-    }
+    cleanupPeerConnection(peerConnectionRef.current);
 
     router.push('/live');
   };
 
-  // ========================================================================
-  // SHARE STREAM
-  // ========================================================================
   const shareStream = async () => {
     const url = window.location.href;
 
@@ -717,27 +589,21 @@ export default function WatchLivePage() {
           url,
         });
       } else {
-        // Fallback to clipboard
         await navigator.clipboard.writeText(url);
         toast.success('Link copied to clipboard!');
       }
     } catch (error: any) {
-      // If share was cancelled or clipboard failed, try alternative
       if (error.name !== 'AbortError') {
         try {
           await navigator.clipboard.writeText(url);
           toast.success('Link copied to clipboard!');
         } catch {
-          // Last resort: show the URL in a toast
           toast.info(`Share this link: ${url}`);
         }
       }
     }
   };
 
-  // ========================================================================
-  // SOCKET EVENT LISTENERS
-  // ========================================================================
   useEffect(() => {
     onLiveStreamOffer(handleOffer);
     onLiveStreamIceCandidate(handleIceCandidate);
@@ -754,11 +620,7 @@ export default function WatchLivePage() {
     };
   }, [handleOffer, handleIceCandidate, handleStreamEnded, handleNewComment]);
 
-  // ========================================================================
-  // INITIALIZE
-  // ========================================================================
   useEffect(() => {
-    // Check auth
     const userData = localStorage.getItem('user');
     if (!userData) {
       router.push('/login');
@@ -766,32 +628,24 @@ export default function WatchLivePage() {
     }
     setCurrentUser(JSON.parse(userData));
 
-    // Load stream and join if it's live
     fetchStreamDetails().then((isLive) => {
       if (isLive) {
         joinStream();
       }
     });
 
-    // Handle fullscreen change
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
-      // Cleanup
       emitLeaveLiveStream(streamId);
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-      }
+      cleanupPeerConnection(peerConnectionRef.current);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, [streamId]);
 
-  // ========================================================================
-  // LOADING STATE
-  // ========================================================================
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -803,9 +657,6 @@ export default function WatchLivePage() {
     );
   }
 
-  // ========================================================================
-  // ERROR STATE
-  // ========================================================================
   if (error) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -819,19 +670,11 @@ export default function WatchLivePage() {
     );
   }
 
-  // ========================================================================
-  // RENDER
-  // ========================================================================
   return (
     <div ref={containerRef} className="min-h-screen bg-background">
       <div className="h-screen flex flex-col lg:flex-row">
-        {/* ============================================================
-                    VIDEO SECTION
-                    ============================================================ */}
         <div className="flex-1 relative flex flex-col">
-          {/* Video Area */}
           <div className="flex-1 relative bg-black">
-            {/* Video Element */}
             <video
               ref={videoRef}
               autoPlay
@@ -841,13 +684,10 @@ export default function WatchLivePage() {
               onClick={toggleMute}
             />
 
-            {/* Connection Status Overlay */}
             <ConnectionStatus state={connectionState} />
 
-            {/* Top Overlay - Back, Status, Viewers */}
             <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent">
               <div className="flex items-center justify-between">
-                {/* Left - Back & Live Badge */}
                 <div className="flex items-center gap-3">
                   <Button
                     variant="ghost"
@@ -869,7 +709,6 @@ export default function WatchLivePage() {
                   <StreamDuration startedAt={stream?.startedAt} />
                 </div>
 
-                {/* Right - Viewers & Actions */}
                 <div className="flex items-center gap-2">
                   <div className="bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-lg flex items-center gap-2">
                     <Eye className="h-4 w-4" />
@@ -888,10 +727,8 @@ export default function WatchLivePage() {
               </div>
             </div>
 
-            {/* Floating Hearts */}
             <FloatingHearts hearts={floatingHearts} />
 
-            {/* Pinned Comment */}
             {pinnedComment && (
               <div className="absolute left-4 bottom-4 max-w-xs bg-black/70 backdrop-blur-sm rounded-lg p-3 border border-white/10">
                 <div className="flex items-center gap-2 mb-1">
@@ -902,12 +739,9 @@ export default function WatchLivePage() {
               </div>
             )}
 
-            {/* Bottom Overlay - Streamer Info */}
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
               <div className="flex items-end justify-between">
-                {/* Streamer Info */}
                 <div className="flex items-center gap-3">
-                  {/* Avatar with Instagram-style live ring */}
                   <div className="p-[3px] rounded-full live-avatar-ring">
                     <div className="p-[2px] rounded-full bg-black">
                       <Avatar className="w-12 h-12">
@@ -925,9 +759,7 @@ export default function WatchLivePage() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="flex items-center gap-2">
-                  {/* Heart/Reaction Button */}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -937,7 +769,6 @@ export default function WatchLivePage() {
                     <Heart className="h-6 w-6 text-red-500" />
                   </Button>
 
-                  {/* Mute Button */}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -947,7 +778,6 @@ export default function WatchLivePage() {
                     {isMuted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
                   </Button>
 
-                  {/* Fullscreen Button */}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -961,7 +791,6 @@ export default function WatchLivePage() {
                     )}
                   </Button>
 
-                  {/* Toggle Comments */}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -979,9 +808,6 @@ export default function WatchLivePage() {
           </div>
         </div>
 
-        {/* ============================================================
-                    CHAT SECTION - Right Sidebar
-                    ============================================================ */}
         {showComments && (
           <div
             className={cn(
@@ -991,7 +817,6 @@ export default function WatchLivePage() {
               'rounded-t-2xl lg:rounded-none'
             )}
           >
-            {/* Chat Header */}
             <div className="p-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold flex items-center gap-2 text-foreground">
                 <MessageCircle className="h-5 w-5 text-primary" />
@@ -1010,7 +835,6 @@ export default function WatchLivePage() {
               </Button>
             </div>
 
-            {/* Comments List */}
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
                 {comments.length === 0 ? (
@@ -1047,7 +871,6 @@ export default function WatchLivePage() {
               </div>
             </ScrollArea>
 
-            {/* Comment Input */}
             <div className="p-4 border-t border-border">
               <div className="flex gap-2">
                 <Input
@@ -1071,7 +894,6 @@ export default function WatchLivePage() {
         )}
       </div>
 
-      {/* CSS for floating hearts animation */}
       <style jsx global>{`
         @keyframes float-up {
           0% {

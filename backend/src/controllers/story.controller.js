@@ -3,7 +3,8 @@ import { Story } from '../models/story.model.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { delteOnCloudinray, uploadOnCloudinary } from '../utils/localStorage.js';
+import { removeFile, uploadFile } from '../utils/localStorage.js';
+import logger from '../utils/logger.js';
 
 // Upload a story
 export const uploadStory = asyncHandler(async (req, res) => {
@@ -14,17 +15,15 @@ export const uploadStory = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Media file (image/video) is required');
   }
 
-  // Upload media to Cloudinary (now uses local storage)
-  const mediaUpload = await uploadOnCloudinary(req.file.path, 'story');
+  const mediaUpload = await uploadFile(req.file.path, 'story');
 
   if (!mediaUpload) {
-    throw new ApiError(500, 'Failed to upload media to Cloudinary');
+    throw new ApiError(500, 'Failed to upload media');
   }
 
   // Determine media type
   const mediaType = mediaUpload.resource_type === 'video' ? 'video' : 'image';
 
-  // Prepare media object with cloudinary public_id for deletion
   const media = {
     url: mediaUpload.secure_url,
     type: mediaType,
@@ -32,7 +31,7 @@ export const uploadStory = asyncHandler(async (req, res) => {
     duration: duration || mediaUpload.duration,
     width: width || mediaUpload.width,
     height: height || mediaUpload.height,
-    public_id: mediaUpload.public_id, // Store for Cloudinary deletion
+    public_id: mediaUpload.public_id,
   };
 
   // Parse music data if provided
@@ -41,7 +40,7 @@ export const uploadStory = asyncHandler(async (req, res) => {
     try {
       musicData = typeof music === 'string' ? JSON.parse(music) : music;
     } catch (error) {
-      console.error('Error parsing music data:', error);
+      logger.error('Error parsing music data:', { error: error.message });
       // Don't throw error, just log it and continue without music
     }
   }
@@ -78,13 +77,12 @@ export const deleteStory = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'You are not authorized to delete this story');
   }
 
-  // Delete media from Cloudinary
+  // Delete media file
   if (story.media?.public_id) {
     try {
-      await delteOnCloudinray(story.media.public_id);
+      await removeFile(story.media.public_id);
     } catch (error) {
-      console.error('Error deleting from Cloudinary:', error);
-      // Continue with story deletion even if Cloudinary fails
+      logger.error('Error deleting media file:', { error: error.message });
     }
   }
 
@@ -186,14 +184,23 @@ export const getUserStories = asyncHandler(async (req, res) => {
     .populate('user_id', 'firstName lastName username profilePicture profileImage avatar')
     .sort({ createdAt: -1 });
 
+  // Build a Set of users the current user follows (for privacy filtering)
+  const followRecords = await Followers.find({
+    follower_id: currentUserId,
+    status: 'accepted',
+  }).select('following_id');
+  const followingIds = new Set(followRecords.map((f) => f.following_id.toString()));
+
   // Check privacy settings and transform data
   const filteredStories = stories
     .filter((story) => {
       if (story.privacy === 'public') return true;
       if (!currentUserId) return false;
       if (story.user_id._id.toString() === currentUserId.toString()) return true;
-      // For now, allow followers privacy stories when viewing user's stories (TODO: Implement proper follow check)
-      if (story.privacy === 'followers') return true;
+      // Only show followers-only stories to accepted followers
+      if (story.privacy === 'followers') {
+        return followingIds.has(story.user_id._id.toString());
+      }
       return false;
     })
     .map((story) => ({
@@ -282,34 +289,32 @@ export const cleanupExpiredStories = asyncHandler(async (req, res) => {
     });
 
     let deletedCount = 0;
-    let cloudinaryDeletedCount = 0;
+    let mediaDeletedCount = 0;
 
     for (const story of expiredStories) {
-      // Delete from Cloudinary
       if (story.media?.public_id) {
         try {
-          await delteOnCloudinray(story.media.public_id);
-          cloudinaryDeletedCount++;
+          await removeFile(story.media.public_id);
+          mediaDeletedCount++;
         } catch (error) {
-          console.error(`Failed to delete from Cloudinary: ${story.media.public_id}`, error);
+          logger.error(`Failed to delete media: ${story.media.public_id}`, {
+            error: error.message,
+          });
         }
       }
 
-      // Mark as deleted in database
       story.is_deleted = true;
       await story.save();
       deletedCount++;
     }
 
-    const message = `Cleaned up ${deletedCount} expired stories (${cloudinaryDeletedCount} from Cloudinary)`;
+    const message = `Cleaned up ${deletedCount} expired stories (${mediaDeletedCount} media files removed)`;
 
     return res
-      ? res
-          .status(200)
-          .json(new ApiResponse(200, { deletedCount, cloudinaryDeletedCount }, message))
-      : { deletedCount, cloudinaryDeletedCount };
+      ? res.status(200).json(new ApiResponse(200, { deletedCount, mediaDeletedCount }, message))
+      : { deletedCount, mediaDeletedCount };
   } catch (error) {
-    console.error('Error cleaning up expired stories:', error);
+    logger.error('Error cleaning up expired stories:', { error: error.message });
     if (res) {
       throw new ApiError(500, 'Failed to cleanup expired stories');
     }
@@ -324,7 +329,7 @@ export const startStoryCleanupJob = () => {
       try {
         await cleanupExpiredStories();
       } catch (error) {
-        console.error('Story cleanup job failed:', error);
+        logger.error('Story cleanup job failed:', { error: error.message });
       }
     },
     60 * 60 * 1000
@@ -335,7 +340,7 @@ export const startStoryCleanupJob = () => {
     try {
       await cleanupExpiredStories();
     } catch (error) {
-      console.error('Initial story cleanup failed:', error);
+      logger.error('Initial story cleanup failed:', { error: error.message });
     }
   }, 5000); // 5 seconds after startup
 };

@@ -30,7 +30,6 @@ interface MusicPickerModalProps {
   onSelectMusic: (music: MusicSelection) => void;
 }
 
-// Popular search terms for initial suggestions
 const POPULAR_SEARCHES = ['trending', 'arijit singh', 'bollywood', 'punjabi', 'romantic', 'party'];
 
 export default function MusicPickerModal({
@@ -50,13 +49,11 @@ export default function MusicPickerModal({
 
   useEffect(() => {
     if (isOpen) {
-      // Load trending music on open
       searchTracks('trending hits');
     }
   }, [isOpen]);
 
   useEffect(() => {
-    // Cleanup audio on unmount
     return () => {
       if (audioElement) {
         audioElement.pause();
@@ -70,7 +67,6 @@ export default function MusicPickerModal({
 
     setIsLoading(true);
     try {
-      // Using JioSaavn API - free, no API key required, has Indian music
       const response = await fetch(
         `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(query)}&limit=25`
       );
@@ -85,12 +81,10 @@ export default function MusicPickerModal({
             title: item.name,
             artist: item.artists?.primary?.[0]?.name || 'Unknown Artist',
             album: item.album?.name || item.name,
-            // Use 160kbps quality for preview (index 3), fallback to lower quality
             previewUrl:
               item.downloadUrl?.[3]?.url ||
               item.downloadUrl?.[2]?.url ||
               item.downloadUrl?.[0]?.url,
-            // Use 500x500 image (index 2), fallback to smaller
             artworkUrl: item.image?.[2]?.url || item.image?.[1]?.url || item.image?.[0]?.url,
             duration: item.duration || 180,
           }));
@@ -99,7 +93,6 @@ export default function MusicPickerModal({
         setTracks([]);
       }
     } catch (error) {
-      console.error('Error searching tracks:', error);
       setTracks([]);
     } finally {
       setIsLoading(false);
@@ -114,19 +107,16 @@ export default function MusicPickerModal({
   const handlePlayPreview = (track: Track, fromStart?: number) => {
     if (!track.previewUrl) return;
 
-    // Stop current audio if playing
     if (audioElement) {
       audioElement.pause();
       audioElement.src = '';
     }
 
     if (playingTrackId === track.trackId && fromStart === undefined) {
-      // Stop playing
       setPlayingTrackId(null);
       setAudioElement(null);
       setCurrentTime(0);
     } else {
-      // Play new track or from specific position
       const audio = new Audio(track.previewUrl);
       const playFromTime =
         fromStart !== undefined
@@ -140,10 +130,8 @@ export default function MusicPickerModal({
       setAudioElement(audio);
       setPlayingTrackId(track.trackId);
 
-      // Update current time as audio plays
       audio.ontimeupdate = () => {
         setCurrentTime(audio.currentTime);
-        // Stop after clip duration if playing selected track
         if (
           selectedTrack?.trackId === track.trackId &&
           audio.currentTime >= startTime + clipDuration
@@ -165,7 +153,6 @@ export default function MusicPickerModal({
   const handleSelectTrack = (track: Track) => {
     setSelectedTrack(track);
     setStartTime(0);
-    // Stop any playing audio
     if (audioElement) {
       audioElement.pause();
       audioElement.src = '';
@@ -215,7 +202,6 @@ export default function MusicPickerModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="bg-background rounded-3xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
@@ -228,7 +214,6 @@ export default function MusicPickerModal({
           </button>
         </div>
 
-        {/* Search */}
         <div className="p-4 border-b border-border">
           <form onSubmit={handleSearch} className="flex gap-2">
             <div className="relative flex-1">
@@ -246,7 +231,6 @@ export default function MusicPickerModal({
             </Button>
           </form>
 
-          {/* Quick Search Tags */}
           <div className="flex flex-wrap gap-2 mt-3">
             {POPULAR_SEARCHES.map((term) => (
               <button
@@ -263,7 +247,6 @@ export default function MusicPickerModal({
           </div>
         </div>
 
-        {/* Results */}
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
             <div className="text-center py-12">
@@ -287,7 +270,6 @@ export default function MusicPickerModal({
                   }`}
                   onClick={() => handleSelectTrack(track)}
                 >
-                  {/* Album Art */}
                   <div className="relative w-12 h-12 flex-shrink-0 rounded overflow-hidden">
                     {track.artworkUrl ? (
                       <img
@@ -302,15 +284,12 @@ export default function MusicPickerModal({
                     )}
                   </div>
 
-                  {/* Track Info */}
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold truncate">{track.title}</p>
                     <p className="text-sm text-muted-foreground truncate">{track.artist}</p>
                   </div>
 
-                  {/* Actions */}
                   <div className="flex items-center gap-2">
-                    {/* Play/Pause Preview */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -325,7 +304,6 @@ export default function MusicPickerModal({
                       )}
                     </button>
 
-                    {/* Selected Indicator */}
                     {selectedTrack?.trackId === track.trackId && (
                       <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
                         <Check className="w-4 h-4 text-primary-foreground" />
@@ -338,10 +316,8 @@ export default function MusicPickerModal({
           )}
         </div>
 
-        {/* Footer with Selected Track */}
         {selectedTrack && (
           <div className="p-4 border-t border-border space-y-3">
-            {/* Selected Track Info */}
             <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
               <div className="w-12 h-12 rounded overflow-hidden flex-shrink-0">
                 {selectedTrack.artworkUrl ? (
@@ -372,7 +348,6 @@ export default function MusicPickerModal({
               </button>
             </div>
 
-            {/* Clip Selector */}
             <div className="space-y-2 p-3 bg-muted/50 rounded-xl">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium">Select {clipDuration}s clip</span>
@@ -382,11 +357,8 @@ export default function MusicPickerModal({
                 </span>
               </div>
 
-              {/* Timeline Slider */}
               <div className="relative pt-2">
-                {/* Background Track */}
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  {/* Selected Range Highlight */}
                   <div
                     className="h-full bg-gradient-to-r from-purple-500 to-pink-600 absolute"
                     style={{
@@ -394,7 +366,6 @@ export default function MusicPickerModal({
                       width: `${(clipDuration / selectedTrack.duration) * 100}%`,
                     }}
                   />
-                  {/* Current Playback Position */}
                   {playingTrackId === selectedTrack.trackId && (
                     <div
                       className="absolute top-0 w-1 h-full bg-white shadow-lg"
@@ -403,7 +374,6 @@ export default function MusicPickerModal({
                   )}
                 </div>
 
-                {/* Range Input */}
                 <input
                   type="range"
                   min={0}
@@ -413,7 +383,6 @@ export default function MusicPickerModal({
                   onChange={(e) => {
                     const newStartTime = parseInt(e.target.value);
                     setStartTime(newStartTime);
-                    // If playing, update playback position
                     if (audioElement && playingTrackId === selectedTrack.trackId) {
                       audioElement.currentTime = newStartTime;
                     }
@@ -422,14 +391,12 @@ export default function MusicPickerModal({
                 />
               </div>
 
-              {/* Time Labels */}
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>0:00</span>
                 <span>{formatTime(selectedTrack.duration)}</span>
               </div>
             </div>
 
-            {/* Confirm Button */}
             <Button
               onClick={handleConfirmSelection}
               className="w-full bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700"

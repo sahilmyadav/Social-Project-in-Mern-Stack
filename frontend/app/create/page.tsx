@@ -20,7 +20,6 @@ import { useEffect, useState } from 'react';
 
 type ContentType = 'post' | 'reel';
 
-// Type for tagged users
 interface TaggedUser {
   _id: string;
   firstName: string;
@@ -30,7 +29,6 @@ interface TaggedUser {
   avatar?: string;
 }
 
-// Type for music selection
 interface MusicSelection {
   trackId: string;
   trackName: string;
@@ -78,11 +76,8 @@ export default function CreatePage() {
 
   const handleFileSelect = (file: File | null) => {
     if (!file) {
-      console.log('No file selected');
       return;
     }
-
-    console.log('File selected:', file.name, file.type, file.size);
 
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
@@ -97,7 +92,6 @@ export default function CreatePage() {
       return;
     }
 
-    // Only check image size limit (10MB), videos have no limit
     if (!isVideo && file.size > 10 * 1024 * 1024) {
       setError('Image size must be less than 10MB');
       return;
@@ -108,7 +102,6 @@ export default function CreatePage() {
     }
 
     const newPreviewUrl = URL.createObjectURL(file);
-    console.log('Preview URL created:', newPreviewUrl);
 
     setUploadedFile(file);
     setPreviewUrl(newPreviewUrl);
@@ -135,7 +128,6 @@ export default function CreatePage() {
 
     try {
       const formData = new FormData();
-      // Posts use 'files' field, reels use 'file' field
       if (contentType === 'post') {
         formData.append('files', uploadedFile);
       } else {
@@ -143,13 +135,11 @@ export default function CreatePage() {
       }
       formData.append('caption', caption.trim());
 
-      // Add tagged people (user IDs)
       if (taggedPeople.length > 0) {
         const taggedUserIds = taggedPeople.map((user) => user._id);
         formData.append('tags', JSON.stringify(taggedUserIds));
       }
 
-      // Add music data for reels
       if (contentType === 'reel' && selectedMusic) {
         formData.append('music', JSON.stringify(selectedMusic));
       }
@@ -171,7 +161,6 @@ export default function CreatePage() {
       }
     } catch (err) {
       const apiError = err as ApiError;
-      console.error(`Failed to publish ${contentType}:`, apiError);
 
       if (apiError.statusCode === 401) {
         setError('Please login to create content');
@@ -304,7 +293,6 @@ export default function CreatePage() {
                   onChange={(e) => {
                     const file = e.target.files?.[0] || null;
                     handleFileSelect(file);
-                    // Reset input value to allow selecting the same file again
                     e.target.value = '';
                   }}
                   accept={contentType === 'post' ? 'image/*,video/*' : 'video/*'}
@@ -329,7 +317,6 @@ export default function CreatePage() {
               <p className="text-xs text-muted-foreground text-right">{caption.length}/500</p>
             </div>
 
-            {/* Tag People Section */}
             <div className="mb-4 md:mb-8">
               <TagPeopleInput
                 selectedUsers={taggedPeople}
@@ -339,7 +326,6 @@ export default function CreatePage() {
               />
             </div>
 
-            {/* Music Section - Only for Reels */}
             {contentType === 'reel' && (
               <div className="mb-4 md:mb-8">
                 <label className="text-foreground font-semibold block mb-2 text-sm md:text-base">
@@ -443,7 +429,6 @@ export default function CreatePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Music Picker Modal */}
       <MusicPickerModal
         isOpen={showMusicPicker}
         onClose={() => setShowMusicPicker(false)}

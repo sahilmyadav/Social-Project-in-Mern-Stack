@@ -74,8 +74,6 @@ export default function FollowersModal({
 
     try {
       if (currentFollowing) {
-        // Unfollow the user
-        // Optimistically update UI
         setLocalUsers(
           localUsers.map((u) =>
             (u._id || u.id) === userId ? { ...u, isFollowing: false, isPending: false } : u
@@ -85,22 +83,17 @@ export default function FollowersModal({
         const response = await followService.unfollowUser(userId);
 
         if (!response.success) {
-          // Revert on failure
           setLocalUsers(
             localUsers.map((u) =>
               (u._id || u.id) === userId ? { ...u, isFollowing: true, isPending: false } : u
             )
           );
         } else {
-          // Update localStorage on success
           localStorage.setItem(`follow_status_${userId}`, 'none');
         }
 
-        // Notify parent
         onFollowChange?.(userId, false);
       } else if (isPending) {
-        // Cancel pending request
-        // Optimistically update UI
         setLocalUsers(
           localUsers.map((u) =>
             (u._id || u.id) === userId ? { ...u, isPending: false, isFollowing: false } : u
@@ -110,23 +103,17 @@ export default function FollowersModal({
         const response = await followService.cancelFollowRequest(userId);
 
         if (!response.success) {
-          // Revert on failure
           setLocalUsers(
             localUsers.map((u) =>
               (u._id || u.id) === userId ? { ...u, isPending: true, isFollowing: false } : u
             )
           );
         } else {
-          // Update localStorage on success
           localStorage.setItem(`follow_status_${userId}`, 'none');
         }
 
-        // Notify parent
         onFollowChange?.(userId, false);
       } else {
-        // Send follow request (works for both public and private accounts)
-
-        // Optimistically update UI
         setLocalUsers(
           localUsers.map((u) =>
             (u._id || u.id) === userId ? { ...u, isFollowing: !isPrivate, isPending: isPrivate } : u
@@ -136,11 +123,9 @@ export default function FollowersModal({
         const response = await followService.sendFollowRequest(userId);
 
         if (response.success) {
-          // Check if auto-approved (public account) or pending (private account)
           const autoApproved =
             response.data?.autoApproved || response.data?.followRequest?.status === 'accepted';
 
-          // Update based on actual response
           setLocalUsers(
             localUsers.map((u) =>
               (u._id || u.id) === userId
@@ -149,14 +134,12 @@ export default function FollowersModal({
             )
           );
 
-          // Update localStorage based on result
           if (autoApproved) {
             localStorage.setItem(`follow_status_${userId}`, 'following');
           } else {
             localStorage.setItem(`follow_status_${userId}`, 'pending');
           }
         } else {
-          // Revert on failure
           setLocalUsers(
             localUsers.map((u) =>
               (u._id || u.id) === userId ? { ...u, isFollowing: false, isPending: false } : u
@@ -164,12 +147,9 @@ export default function FollowersModal({
           );
         }
 
-        // Notify parent
         onFollowChange?.(userId, true);
       }
     } catch (error) {
-      console.error('Error toggling follow status:', error);
-      // Revert to original state on error
       setLocalUsers(
         localUsers.map((u) =>
           (u._id || u.id) === userId
@@ -182,7 +162,7 @@ export default function FollowersModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -218,10 +198,10 @@ export default function FollowersModal({
                 return (
                   <div
                     key={userId}
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted hover:bg-muted/80 transition"
+                    className="flex items-center gap-3 p-3 rounded-lg bg-muted hover:bg-muted/80 transition"
                   >
                     <div
-                      className="flex items-center gap-3 flex-1 cursor-pointer"
+                      className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
                       onClick={() => {
                         router.push(`/profile/${userId}`);
                         onOpenChange(false);
@@ -267,7 +247,7 @@ export default function FollowersModal({
                         e.stopPropagation();
                         handleFollowToggle(userId, user);
                       }}
-                      className={`flex-shrink-0 min-w-[90px] ${
+                      className={`flex-shrink-0 ml-2 ${
                         user.isFollowing
                           ? 'bg-muted hover:bg-muted/80 text-foreground border border-border'
                           : user.isPending

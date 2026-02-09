@@ -5,13 +5,12 @@ import type React from 'react';
 import { Toaster } from 'sonner';
 import './globals.css';
 
-const _geist = Geist({ subsets: ['latin'] });
-const _geistMono = Geist_Mono({ subsets: ['latin'] });
+const geist = Geist({ subsets: ['latin'], variable: '--font-geist-sans' });
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' });
 
 export const metadata: Metadata = {
   title: 'ClickME - Social Media',
   description: 'Share your moments, connect with friends',
-  generator: 'v0.app',
 };
 
 export const viewport = {
@@ -26,8 +25,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`font-sans antialiased`}>
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
+      <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
         <Providers>{children}</Providers>
         <Toaster
           position="top-right"

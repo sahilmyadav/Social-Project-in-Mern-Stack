@@ -63,21 +63,17 @@ export default function ReportReelModal({
       });
 
       if (response.success) {
-        // Reset form and close modal
         setSelectedReason('');
         setAdditionalInfo('');
         onOpenChange(false);
 
-        // Call the onReported callback to hide the reel
         onReported?.();
 
-        // Show success toast with undo option
         toast.success('Reel reported. This reel will be hidden from your feed.', {
           duration: 5000,
           action: {
             label: 'Undo',
             onClick: () => {
-              // In a real implementation, you would call an API to undo the report
               showToast.info('Report undone. The reel will appear in your feed again.');
             },
           },
@@ -86,7 +82,6 @@ export default function ReportReelModal({
         throw new Error(response.message || 'Failed to submit report');
       }
     } catch (error: any) {
-      console.error('Error submitting reel report:', error);
       showToast.error(error.message || 'Failed to submit report');
     } finally {
       setIsSubmitting(false);

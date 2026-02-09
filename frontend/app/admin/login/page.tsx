@@ -52,7 +52,6 @@ export default function AdminLogin() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full max-w-5xl">
-        {/* Left - Login Form */}
         <div className="flex flex-col justify-center">
           <Card className="p-8 border-purple-500/20 bg-slate-900/50 backdrop-blur">
             <div className="flex items-center gap-3 mb-8">
@@ -125,7 +124,6 @@ export default function AdminLogin() {
           </div>
         </div>
 
-        {/* Right - Test Credentials */}
         <div className="flex flex-col justify-center">
           <Card className="p-6 border-purple-500/20 bg-slate-900/50 backdrop-blur">
             <h3 className="text-lg font-bold text-white mb-4">Test Admin Accounts</h3>

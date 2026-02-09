@@ -62,7 +62,6 @@ export default function SignupPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Close gender dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (genderDropdownRef.current && !genderDropdownRef.current.contains(event.target as Node)) {
@@ -78,7 +77,6 @@ export default function SignupPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Calculate age from birthday
   const calculateAge = (birthday: string): number => {
     const birthDate = new Date(birthday);
     const today = new Date();
@@ -90,7 +88,6 @@ export default function SignupPage() {
     return age;
   };
 
-  // Get max date for 16+ restriction
   const getMaxDate = (): string => {
     const today = new Date();
     today.setFullYear(today.getFullYear() - 16);
@@ -101,7 +98,6 @@ export default function SignupPage() {
     e.preventDefault();
     setLoading(true);
 
-    // Validation - Only name, email, phone, and password are mandatory
     if (
       !formData.fullName ||
       !formData.email ||
@@ -114,7 +110,6 @@ export default function SignupPage() {
       return;
     }
 
-    // Full name validation (at least 2 words)
     const nameParts = formData.fullName
       .trim()
       .split(' ')
@@ -131,7 +126,6 @@ export default function SignupPage() {
       return;
     }
 
-    // Phone validation (10 digits)
     const phoneDigits = formData.phone.replace(/\D/g, '');
     if (phoneDigits.length < 10) {
       toast.error('Please enter a valid phone number (at least 10 digits)');
@@ -139,7 +133,6 @@ export default function SignupPage() {
       return;
     }
 
-    // Password validation - minimum 8 characters
     if (formData.password.length < 8) {
       toast.error('Password must be at least 8 characters');
       setLoading(false);
@@ -152,7 +145,6 @@ export default function SignupPage() {
       return;
     }
 
-    // Age validation (16+) - only if birthday is provided
     if (formData.birthday) {
       const age = calculateAge(formData.birthday);
       if (age < 16) {
@@ -174,24 +166,22 @@ export default function SignupPage() {
       });
 
       if (response.success && response.data.otpSent) {
-        // Store registration data for OTP verification and resend
         localStorage.setItem(
           'otpVerification',
           JSON.stringify({
             identifier: response.data.identifier,
             method: response.data.method,
-            // Store registration data for resend
             registrationData: {
               firstName: nameParts[0],
               lastName: nameParts.slice(1).join(' '),
               email: formData.email,
               phone: formData.phone,
-              password: formData.password,
               ...(formData.gender && { gender: formData.gender }),
               ...(formData.birthday && { dob: formData.birthday }),
             },
           })
         );
+        sessionStorage.setItem('_otpResendKey', formData.password);
         toast.success('OTP sent to your email!');
         router.push('/verify-otp');
       } else {
@@ -214,16 +204,13 @@ export default function SignupPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-black flex">
-      {/* Left Side - Phone Mockup */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-black items-center justify-center">
-        {/* Background Pattern */}
         <div className="absolute inset-0 opacity-30">
           <div className="absolute top-20 left-20 w-72 h-72 bg-purple-500 rounded-full blur-[120px]"></div>
           <div className="absolute bottom-20 right-20 w-72 h-72 bg-pink-500 rounded-full blur-[120px]"></div>
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-500 rounded-full blur-[150px]"></div>
         </div>
 
-        {/* Logo */}
         <Link href="/" className="absolute top-8 left-8 flex items-center gap-2 z-20">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
             <Camera className="w-6 h-6 text-white" />
@@ -231,15 +218,11 @@ export default function SignupPage() {
           <span className="text-2xl font-bold text-white">ClickME</span>
         </Link>
 
-        {/* Phone Mockup */}
         <div className="relative z-10">
           <div className="relative w-[320px] h-[650px] bg-gray-900 rounded-[3rem] p-2 shadow-2xl border border-gray-700">
-            {/* Notch */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-8 bg-gray-900 rounded-b-2xl z-20"></div>
 
-            {/* Screen */}
             <div className="w-full h-full bg-black rounded-[2.5rem] overflow-hidden flex flex-col">
-              {/* Status Bar */}
               <div className="h-10 flex items-end justify-between px-6 pb-1 text-white text-xs flex-shrink-0">
                 <span className="font-medium">9:41</span>
                 <div className="flex gap-1 items-center">
@@ -265,7 +248,6 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              {/* App Header */}
               <div className="px-4 py-2 flex items-center justify-between border-b border-gray-800 flex-shrink-0">
                 <span className="text-white font-semibold text-lg">ClickME</span>
                 <div className="flex gap-4">
@@ -274,7 +256,6 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              {/* Stories */}
               <div className="px-4 py-3 flex gap-4 overflow-hidden border-b border-gray-800 flex-shrink-0">
                 {['Your Story', 'emma', 'mike', 'sara'].map((name, i) => (
                   <div key={i} className="flex flex-col items-center gap-1">
@@ -294,9 +275,7 @@ export default function SignupPage() {
                 ))}
               </div>
 
-              {/* Post */}
               <div className="flex-1 flex flex-col min-h-0">
-                {/* Post Header */}
                 <div className="px-4 py-2 flex items-center gap-2 flex-shrink-0">
                   <div className="w-8 h-8 rounded-full overflow-hidden">
                     <img
@@ -309,7 +288,6 @@ export default function SignupPage() {
                   <span className="text-gray-500 text-xs">• 2h</span>
                 </div>
 
-                {/* Post Image with Animation */}
                 <div className="relative h-[240px] overflow-hidden flex-shrink-0">
                   {images.map((img, i) => (
                     <img
@@ -319,13 +297,11 @@ export default function SignupPage() {
                       className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${i === currentImage ? 'opacity-100' : 'opacity-0'}`}
                     />
                   ))}
-                  {/* Reel Play Icon */}
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
                       <Play className="w-5 h-5 text-white fill-white ml-1" />
                     </div>
                   </div>
-                  {/* Image Indicators */}
                   <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
                     {images.map((_, i) => (
                       <div
@@ -336,7 +312,6 @@ export default function SignupPage() {
                   </div>
                 </div>
 
-                {/* Post Actions */}
                 <div className="px-4 py-2 flex items-center justify-between flex-shrink-0">
                   <div className="flex gap-4">
                     <Heart className="w-5 h-5 text-white hover:text-red-500 cursor-pointer transition-colors" />
@@ -346,7 +321,6 @@ export default function SignupPage() {
                   <Bookmark className="w-5 h-5 text-white" />
                 </div>
 
-                {/* Likes */}
                 <div className="px-4 pb-3 flex-shrink-0">
                   <p className="text-white text-xs font-medium">12,458 likes</p>
                   <p className="text-white text-xs mt-1">
@@ -360,10 +334,8 @@ export default function SignupPage() {
         </div>
       </div>
 
-      {/* Right Side - Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center px-4 py-4 lg:px-8 lg:py-12 bg-white dark:bg-gray-950">
         <div className="w-full max-w-md">
-          {/* Mobile Logo */}
           <div className="lg:hidden flex justify-center mb-4">
             <Link href="/" className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center">
@@ -375,7 +347,6 @@ export default function SignupPage() {
             </Link>
           </div>
 
-          {/* Header */}
           <div className="mb-4 lg:mb-8">
             <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 dark:text-white">
               Create Account
@@ -385,9 +356,7 @@ export default function SignupPage() {
             </p>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSignup} className="space-y-3 lg:space-y-4">
-            {/* Full Name */}
             <div>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                 Full Name
@@ -404,7 +373,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Email */}
             <div>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                 Email
@@ -421,7 +389,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Phone Number */}
             <div>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                 Phone Number
@@ -438,7 +405,6 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* Gender & Birthday Row (Optional) */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
@@ -509,7 +475,6 @@ export default function SignupPage() {
               If provided, you must be at least 16 years old
             </p>
 
-            {/* Password */}
             <div>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                 Password
@@ -522,7 +487,6 @@ export default function SignupPage() {
                   value={formData.password}
                   onChange={(e) => {
                     handleChange(e);
-                    // Calculate password strength based on length only
                     const pwd = e.target.value;
                     let score = 0;
                     let label = '';
@@ -558,7 +522,6 @@ export default function SignupPage() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              {/* Password Strength Indicator */}
               {formData.password && (
                 <div className="mt-2">
                   <div className="flex items-center gap-2">
@@ -644,14 +607,12 @@ export default function SignupPage() {
             </Button>
           </form>
 
-          {/* Divider */}
           <div className="my-3 lg:my-6 flex items-center gap-4">
             <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"></div>
             <span className="text-sm text-gray-500 dark:text-gray-400">or</span>
             <div className="flex-1 h-px bg-gray-200 dark:bg-gray-800"></div>
           </div>
 
-          {/* Sign In Link */}
           <p className="text-center text-gray-600 dark:text-gray-400 text-sm">
             Already have an account?{' '}
             <Link
@@ -662,7 +623,6 @@ export default function SignupPage() {
             </Link>
           </p>
 
-          {/* Footer */}
           <p className="text-center text-gray-400 dark:text-gray-600 text-xs mt-4 lg:mt-8">
             © 2026 ClickME. All rights reserved.
           </p>

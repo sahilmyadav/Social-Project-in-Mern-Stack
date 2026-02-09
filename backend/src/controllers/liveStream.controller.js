@@ -6,7 +6,7 @@ import { LiveStreamViewer } from '../models/liveStreamViewer.model.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
-import { uploadOnCloudinary } from '../utils/localStorage.js';
+import { uploadFile } from '../utils/localStorage.js';
 
 // ==================== 1. CREATE LIVE STREAM ====================
 export const createLiveStream = asyncHandler(async (req, res) => {
@@ -21,7 +21,7 @@ export const createLiveStream = asyncHandler(async (req, res) => {
   let thumbnailUrl = null;
   if (req.file) {
     const thumbnailLocalPath = req.file.path;
-    const thumbnail = await uploadOnCloudinary(thumbnailLocalPath);
+    const thumbnail = await uploadFile(thumbnailLocalPath);
 
     if (thumbnail) {
       thumbnailUrl = thumbnail.url;
@@ -209,22 +209,25 @@ export const joinLiveStream = asyncHandler(async (req, res) => {
       joinedAt: new Date(),
     });
 
-    // Increment viewer count
-    liveStream.viewerCount += 1;
-    await liveStream.save();
+    // Increment viewer count (atomic)
+    await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
   } else if (viewer.leftAt) {
     // Viewer rejoining
     viewer.leftAt = null;
     viewer.joinedAt = new Date();
     await viewer.save();
 
-    liveStream.viewerCount += 1;
-    await liveStream.save();
+    await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
   }
+
+  // Re-fetch for response
+  const updatedStream = await LiveStream.findById(streamId);
 
   return res
     .status(200)
-    .json(new ApiResponse(200, { liveStream, viewer }, 'Joined live stream successfully'));
+    .json(
+      new ApiResponse(200, { liveStream: updatedStream, viewer }, 'Joined live stream successfully')
+    );
 });
 
 // ==================== 8. LEAVE LIVE STREAM ====================
@@ -245,12 +248,11 @@ export const leaveLiveStream = asyncHandler(async (req, res) => {
   viewer.leftAt = new Date();
   await viewer.save();
 
-  // Decrement viewer count
-  const liveStream = await LiveStream.findById(streamId);
-  if (liveStream && liveStream.viewerCount > 0) {
-    liveStream.viewerCount -= 1;
-    await liveStream.save();
-  }
+  // Decrement viewer count (atomic)
+  await LiveStream.updateOne(
+    { _id: streamId, viewerCount: { $gt: 0 } },
+    { $inc: { viewerCount: -1 } }
+  );
 
   return res.status(200).json(new ApiResponse(200, null, 'Left live stream successfully'));
 });

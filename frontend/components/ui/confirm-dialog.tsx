@@ -44,18 +44,15 @@ export function ConfirmDialog({
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-background rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-                {/* Icon */}
                 <div className="flex justify-center pt-8 pb-4">
                     {icons[variant]}
                 </div>
 
-                {/* Content */}
                 <div className="px-6 pb-6 text-center">
                     <h3 className="text-xl font-bold mb-2">{title}</h3>
                     <p className="text-muted-foreground">{message}</p>
                 </div>
 
-                {/* Actions */}
                 <div className="flex gap-3 p-6 border-t border-border">
                     {cancelText !== null && (
                         <Button
@@ -81,7 +78,6 @@ export function ConfirmDialog({
     );
 }
 
-// Hook for easy usage
 export function useConfirmDialog() {
     const [isOpen, setIsOpen] = useState(false);
     const [config, setConfig] = useState<Omit<ConfirmDialogProps, "isOpen" | "onClose">>({

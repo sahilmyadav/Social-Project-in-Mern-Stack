@@ -69,13 +69,11 @@ export default function ReelCommentsModal({
     try {
       const response = await reelService.getReelComments(reelId);
       if (response.success) {
-        // Reverse to show oldest at top, newest at bottom (chat style)
         setComments((response.data.comments || []).reverse());
       } else {
         setComments([]);
       }
     } catch (error) {
-      console.error('Error fetching comments:', error);
       setComments([]);
     } finally {
       setLoading(false);
@@ -109,7 +107,6 @@ export default function ReelCommentsModal({
         setNewComment('');
       }
     } catch (error) {
-      console.error('Error posting comment:', error);
       showToast.error('Failed to post comment');
     } finally {
       setSubmitting(false);
@@ -135,17 +132,14 @@ export default function ReelCommentsModal({
         const commentId = replyingTo.commentId;
         setReplyingTo(null);
 
-        // Update the parent comment's reply count
         setComments((prev) =>
           prev.map((c) =>
             c._id === commentId ? { ...c, replies_count: (c.replies_count || 0) + 1 } : c
           )
         );
 
-        // Auto-expand replies
         setExpandedReplies((prev) => new Set(prev).add(commentId));
 
-        // Reload replies
         try {
           const repliesResponse = await commentService.getCommentReplies(commentId, {
             page: 1,
@@ -155,11 +149,9 @@ export default function ReelCommentsModal({
             setRepliesData((prev) => new Map(prev).set(commentId, repliesResponse.data.replies));
           }
         } catch (error) {
-          console.error('Error loading replies:', error);
         }
       }
     } catch (error) {
-      console.error('Error posting reply:', error);
       showToast.error('Failed to post reply');
     } finally {
       setSubmittingReply(false);
@@ -189,7 +181,6 @@ export default function ReelCommentsModal({
             setRepliesData((prev) => new Map(prev).set(commentId, response.data.replies));
           }
         } catch (error) {
-          console.error('Error loading replies:', error);
         } finally {
           setLoadingReplies((prev) => {
             const newSet = new Set(prev);
@@ -206,7 +197,6 @@ export default function ReelCommentsModal({
       const comment = comments.find((c) => c._id === commentId);
       const isCurrentlyLiked = comment?.isLiked || false;
 
-      // Optimistic update
       setComments((prev) =>
         prev.map((c) =>
           c._id === commentId
@@ -221,7 +211,6 @@ export default function ReelCommentsModal({
         )
       );
 
-      // Update replies
       setRepliesData((prev) => {
         const newMap = new Map(prev);
         for (const [parentId, replies] of newMap.entries()) {
@@ -247,8 +236,6 @@ export default function ReelCommentsModal({
         await commentService.likeComment(commentId);
       }
     } catch (error) {
-      console.error('Error liking comment:', error);
-      // Revert on error
       fetchComments();
     }
   };
@@ -274,7 +261,6 @@ export default function ReelCommentsModal({
             }
           }
 
-          // Optimistic delete
           if (isMainComment) {
             setComments((prev) => prev.filter((c) => c._id !== commentId));
           } else if (parentCommentId) {
@@ -299,7 +285,6 @@ export default function ReelCommentsModal({
           await commentService.deleteComment(commentId);
           showToast.success('Comment deleted');
         } catch (error) {
-          console.error('Error deleting comment:', error);
           showToast.error('Failed to delete comment');
           fetchComments();
         }
@@ -310,7 +295,6 @@ export default function ReelCommentsModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[80vh] flex flex-col p-0 gap-0">
-        {/* Header */}
         <DialogHeader className="px-4 py-3 border-b border-border">
           <DialogTitle className="flex items-center gap-2 text-base">
             <MessageCircle size={18} />
@@ -318,7 +302,6 @@ export default function ReelCommentsModal({
           </DialogTitle>
         </DialogHeader>
 
-        {/* Comments List */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
@@ -330,7 +313,6 @@ export default function ReelCommentsModal({
                 .filter((comment) => comment?.user_id)
                 .map((comment) => (
                   <div key={comment._id} className="space-y-2">
-                    {/* Main Comment */}
                     <div className="flex gap-3">
                       <UserAvatar user={comment.user_id!} size="sm" />
                       <div className="flex-1 min-w-0">
@@ -349,7 +331,6 @@ export default function ReelCommentsModal({
                           <p className="text-sm text-foreground break-words">{comment.text}</p>
                         </div>
 
-                        {/* Comment Actions */}
                         <div className="flex items-center gap-4 mt-1 px-3">
                           <button
                             onClick={() => handleLikeComment(comment._id)}
@@ -367,16 +348,13 @@ export default function ReelCommentsModal({
                           <CommentReactions
                             commentId={comment._id}
                             onReact={(commentId, emoji) => {
-                              // Add emoji reaction as a reply comment
                               commentService
                                 .replyToComment(commentId, { text: emoji })
                                 .then(() => {
                                   showToast.success('Reaction added!');
-                                  // Refresh comments
                                   fetchComments();
                                 })
                                 .catch((error) => {
-                                  console.error('Error adding emoji reaction:', error);
                                 });
                             }}
                           />
@@ -411,7 +389,6 @@ export default function ReelCommentsModal({
                       </div>
                     </div>
 
-                    {/* Nested Replies */}
                     {expandedReplies.has(comment._id) && (
                       <div className="ml-12 mt-3 space-y-3 border-l-2 border-muted pl-4">
                         {loadingReplies.has(comment._id) ? (
@@ -443,7 +420,6 @@ export default function ReelCommentsModal({
                                   </p>
                                 </div>
 
-                                {/* Reply Actions */}
                                 <div className="flex items-center gap-3 mt-1 px-2">
                                   <button
                                     onClick={() => handleLikeComment(reply._id)}
@@ -498,7 +474,6 @@ export default function ReelCommentsModal({
           )}
         </div>
 
-        {/* Comment/Reply Input */}
         <div className="px-4 py-3 border-t border-border bg-background">
           {replyingTo && (
             <div className="mb-3 bg-primary/5 border border-primary/20 rounded-lg p-3">
@@ -572,7 +547,6 @@ export default function ReelCommentsModal({
         </div>
       </DialogContent>
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </Dialog>
   );

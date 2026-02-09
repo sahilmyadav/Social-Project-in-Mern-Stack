@@ -78,46 +78,35 @@ export default function NotificationsPage() {
   const router = useRouter();
   const notificationHandlerRef = useRef<((data: any) => void) | null>(null);
 
-  // Handle new notification from socket
   const handleNewNotification = useCallback((data: any) => {
-    console.log('🔔 New notification received:', data);
     const newNotification = data.notification;
 
     if (newNotification) {
       setNotifications((prev) => {
-        // Check if notification already exists
         const exists = prev.some((n) => n._id === newNotification._id);
         if (exists) return prev;
 
-        // Add new notification at the beginning
         return [newNotification, ...prev];
       });
 
-      // Update unread count
       if (!newNotification.is_read) {
         setUnreadCount((prev) => prev + 1);
       }
     }
   }, []);
 
-  // Set up socket listener for real-time notifications
   useEffect(() => {
     const socket = getSocket();
 
     if (socket) {
-      // Store the handler reference
       notificationHandlerRef.current = handleNewNotification;
 
-      // Subscribe to new notification events
       onNewNotification(handleNewNotification);
-      console.log('🔔 Subscribed to notification events');
     }
 
     return () => {
-      // Cleanup: remove the listener
       if (notificationHandlerRef.current) {
         offNewNotification(notificationHandlerRef.current);
-        console.log('🔔 Unsubscribed from notification events');
       }
     };
   }, [handleNewNotification]);
@@ -136,7 +125,6 @@ export default function NotificationsPage() {
         setFollowRequests(response.data);
       }
     } catch (error) {
-      console.error('Failed to load follow requests:', error);
     } finally {
       setLoadingRequests(false);
     }
@@ -149,7 +137,6 @@ export default function NotificationsPage() {
         setUser(JSON.parse(storedUser));
       }
     } catch (error) {
-      console.error('Failed to load user:', error);
     }
   };
 
@@ -166,7 +153,6 @@ export default function NotificationsPage() {
       if (response.success && response.data) {
         const data = response.data as NotificationResponse;
 
-        // Filter notifications based on selected filter
         const allNotifications = data.notifications || [];
         const filteredNotifications =
           filter === 'unread' ? allNotifications.filter((n) => !n.is_read) : allNotifications;
@@ -176,12 +162,10 @@ export default function NotificationsPage() {
         setHasMore(data.hasMore || false);
         setCursor(data.nextCursor);
       } else {
-        console.warn('⚠️ No notification data in response');
         setNotifications([]);
         setUnreadCount(0);
       }
     } catch (error: any) {
-      console.error('❌ Failed to load notifications:', error);
       setError(error.message || 'Failed to load notifications');
       setNotifications([]);
       setUnreadCount(0);
@@ -200,7 +184,6 @@ export default function NotificationsPage() {
 
       setUnreadCount((prev) => Math.max(0, prev - 1));
     } catch (error) {
-      console.error('Failed to mark as read:', error);
     }
   };
 
@@ -212,7 +195,6 @@ export default function NotificationsPage() {
 
       setUnreadCount(0);
     } catch (error) {
-      console.error('Failed to mark all as read:', error);
     }
   };
 
@@ -222,11 +204,9 @@ export default function NotificationsPage() {
       const response = await followService.acceptFollowRequest(requestId);
       if (response.success) {
         setFollowRequests((prev) => prev.filter((req) => req._id !== requestId));
-        // Reload notifications to show the "accepted" notification
         loadNotifications();
       }
     } catch (error) {
-      console.error('Failed to accept request:', error);
     } finally {
       setProcessingRequest(null);
     }
@@ -238,13 +218,11 @@ export default function NotificationsPage() {
       await followService.rejectFollowRequest(requestId);
       setFollowRequests((prev) => prev.filter((req) => req._id !== requestId));
     } catch (error) {
-      console.error('Failed to reject request:', error);
     } finally {
       setProcessingRequest(null);
     }
   };
 
-  // Check if current user is following the notification sender
   const checkFollowingStatus = async (userId: string) => {
     try {
       const response = await authService.getUserProfile(userId);
@@ -259,11 +237,9 @@ export default function NotificationsPage() {
         }
       }
     } catch (error) {
-      console.error('Failed to check following status:', error);
     }
   };
 
-  // Handle Follow Back button click
   const handleFollowBack = async (e: React.MouseEvent, userId: string) => {
     e.stopPropagation(); // Prevent notification click
     setProcessingFollowBack(userId);
@@ -273,8 +249,6 @@ export default function NotificationsPage() {
         setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
       }
     } catch (error: any) {
-      console.error('Failed to follow back:', error);
-      // If error is "already following" or similar, update status
       if (error?.message?.toLowerCase().includes('already')) {
         setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
       }
@@ -283,7 +257,6 @@ export default function NotificationsPage() {
     }
   };
 
-  // Check following status for follow notifications
   useEffect(() => {
     const followNotifications = notifications.filter(
       (n) => n.type === 'follow' && n.sender_id?._id
@@ -301,14 +274,10 @@ export default function NotificationsPage() {
       await handleMarkAsRead(notification._id);
     }
 
-    // Build the navigation URL based on notification type
     let targetUrl = notification.action_url;
 
-    // If action_url exists, parse it to get the post/reel ID
     if (notification.action_url) {
-      // Check if it's a comment notification - open with comments visible
       if (notification.type === 'comment' || notification.type === 'mention') {
-        // Extract post ID from action_url (e.g., /post/123 or /posts/123)
         const postIdMatch = notification.action_url.match(/\/posts?\/([a-zA-Z0-9]+)/);
         if (postIdMatch) {
           targetUrl = `/post/${postIdMatch[1]}?comments=true`;
@@ -316,7 +285,6 @@ export default function NotificationsPage() {
           targetUrl = `${notification.action_url}?comments=true`;
         }
       } else if (notification.type === 'reel_comment') {
-        // Extract reel ID from action_url
         const reelIdMatch = notification.action_url.match(/\/reels?\/([a-zA-Z0-9]+)/);
         if (reelIdMatch) {
           targetUrl = `/reel/${reelIdMatch[1]}?comments=true`;
@@ -324,13 +292,11 @@ export default function NotificationsPage() {
           targetUrl = `${notification.action_url}?comments=true`;
         }
       } else if (notification.type === 'like') {
-        // Navigate to post page
         const postIdMatch = notification.action_url.match(/\/posts?\/([a-zA-Z0-9]+)/);
         if (postIdMatch) {
           targetUrl = `/post/${postIdMatch[1]}`;
         }
       } else if (notification.type === 'reel_like') {
-        // Navigate to reel page
         const reelIdMatch = notification.action_url.match(/\/reels?\/([a-zA-Z0-9]+)/);
         if (reelIdMatch) {
           targetUrl = `/reel/${reelIdMatch[1]}`;
@@ -339,7 +305,6 @@ export default function NotificationsPage() {
         notification.type === 'follow' ||
         notification.type === 'follow_request_accepted'
       ) {
-        // Navigate to user profile
         const userIdMatch = notification.action_url.match(/\/profile\/([a-zA-Z0-9_]+)/);
         if (userIdMatch) {
           targetUrl = `/profile/${userIdMatch[1]}`;
@@ -350,7 +315,6 @@ export default function NotificationsPage() {
         }
       }
     } else {
-      // Fallback: construct URL based on notification type
       if (notification.type === 'follow' || notification.type === 'follow_request_accepted') {
         if (notification.sender_id?.username) {
           targetUrl = `/profile/${notification.sender_id.username}`;
@@ -409,14 +373,11 @@ export default function NotificationsPage() {
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Sidebar Navigation */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-2 max-w-2xl mx-auto pb-20 lg:pb-0 px-4 py-6">
-          {/* Header */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -438,7 +399,6 @@ export default function NotificationsPage() {
               </Button>
             </div>
 
-            {/* Action Bar */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex gap-2">
                 <Button
@@ -471,7 +431,6 @@ export default function NotificationsPage() {
             </div>
           </div>
 
-          {/* Follow Requests Section */}
           {followRequests.length > 0 && (
             <div className="mb-6 bg-card rounded-lg border border-border p-4">
               <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -538,7 +497,6 @@ export default function NotificationsPage() {
             </div>
           )}
 
-          {/* Error State */}
           {error && !loading && (
             <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-6">
               <p className="text-destructive text-sm">{error}</p>
@@ -548,7 +506,6 @@ export default function NotificationsPage() {
             </div>
           )}
 
-          {/* Notifications List */}
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -583,7 +540,6 @@ export default function NotificationsPage() {
                   ${!notification.is_read ? 'bg-primary/5 border-primary/20' : 'bg-card border-border'}
                 `}
                 >
-                  {/* Sender Avatar */}
                   <div className="relative flex-shrink-0">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-semibold overflow-hidden">
                       {notification.sender_id.profileImage ||
@@ -603,13 +559,11 @@ export default function NotificationsPage() {
                       )}
                     </div>
 
-                    {/* Notification Type Icon Badge */}
                     <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-background flex items-center justify-center border-2 border-background">
                       {getNotificationIcon(notification.type)}
                     </div>
                   </div>
 
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-foreground">
                       <span className="font-semibold">
@@ -627,11 +581,9 @@ export default function NotificationsPage() {
                     </p>
                   </div>
 
-                  {/* Thumbnail */}
                   {notification.thumbnail && (
                     <div className="flex-shrink-0">
                       {notification.type === 'reel_like' || notification.type === 'reel_comment' ? (
-                        // Reel thumbnail - check if it's a video or image
                         notification.thumbnail.includes('.mp4') ||
                         notification.thumbnail.includes('.webm') ||
                         notification.thumbnail.includes('.mov') ? (
@@ -649,7 +601,6 @@ export default function NotificationsPage() {
                           />
                         )
                       ) : (
-                        // Post thumbnail
                         <img
                           src={getMediaUrl(notification.thumbnail)}
                           alt="Post"
@@ -659,7 +610,6 @@ export default function NotificationsPage() {
                     </div>
                   )}
 
-                  {/* Follow Back Button - for follow notifications */}
                   {notification.type === 'follow' && notification.sender_id?._id && (
                     <div className="flex-shrink-0">
                       {followingStatus[notification.sender_id._id] === 'following' ? (
@@ -687,7 +637,6 @@ export default function NotificationsPage() {
                     </div>
                   )}
 
-                  {/* Unread Indicator */}
                   {!notification.is_read && (
                     <div className="flex-shrink-0 w-2 h-2 rounded-full bg-primary" />
                   )}
@@ -696,7 +645,6 @@ export default function NotificationsPage() {
             </div>
           )}
 
-          {/* Load More */}
           {hasMore && !loading && (
             <div className="text-center mt-6">
               <Button variant="outline" onClick={loadNotifications}>
@@ -706,11 +654,9 @@ export default function NotificationsPage() {
           )}
         </section>
 
-        {/* Empty right column for symmetry */}
         <aside className="hidden lg:block lg:col-span-1 h-screen sticky top-0 border-l border-border"></aside>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   );

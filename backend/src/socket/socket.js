@@ -2,9 +2,12 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
 import { createClient } from 'redis';
 import { Server } from 'socket.io';
+import { CallLog } from '../models/callLog.model.js';
 import { ChatMessage } from '../models/chatMessage.model.js';
+import { ChatThread } from '../models/chatThread.model.js';
 import { GroupChat } from '../models/groupChat.model.js';
 import { User } from '../models/user.model.js';
+import logger from '../utils/logger.js';
 import groupSocket from './group.socket.js';
 import liveStreamSocket from './liveStream.socket.js';
 
@@ -24,6 +27,187 @@ const disconnectTimeouts = new Map();
 // Grace period before marking user offline (5 seconds)
 const DISCONNECT_GRACE_PERIOD = 5000;
 
+// ── User info cache (avoids DB queries on hot signaling paths) ──
+const userInfoCache = new Map(); // userId -> { name, avatar, cachedAt }
+const USER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedUserInfo(userId) {
+  const cached = userInfoCache.get(userId);
+  if (cached && Date.now() - cached.cachedAt < USER_CACHE_TTL) {
+    return cached;
+  }
+  try {
+    const user = await User.findById(userId)
+      .select('firstName lastName username avatar profilePicture')
+      .lean();
+    if (!user) return null;
+    const name =
+      user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.username || 'Unknown';
+    const info = {
+      name,
+      avatar: user.profilePicture || user.avatar || '',
+      userId: user._id.toString(),
+      cachedAt: Date.now(),
+    };
+    userInfoCache.set(userId, info);
+    return info;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── Simple rate limiter for socket events ──
+// DISABLED per client request — can be re-enabled later
+// const rateLimitMap = new Map(); // `${userId}:${event}` -> { count, windowStart }
+//
+// function checkRateLimit(userId, event, maxPerWindow = 10, windowMs = 5000) {
+//   const key = `${userId}:${event}`;
+//   const now = Date.now();
+//   const entry = rateLimitMap.get(key);
+//   if (!entry || now - entry.windowStart > windowMs) {
+//     rateLimitMap.set(key, { count: 1, windowStart: now });
+//     return true;
+//   }
+//   entry.count++;
+//   if (entry.count > maxPerWindow) return false;
+//   return true;
+// }
+//
+// // Cleanup stale rate limit entries every 30s
+// setInterval(() => {
+//   const now = Date.now();
+//   for (const [key, entry] of rateLimitMap.entries()) {
+//     if (now - entry.windowStart > 30000) rateLimitMap.delete(key);
+//   }
+// }, 30000);
+
+// ── Cluster-safe group call tracking helpers ──
+async function getGroupCallParticipants(groupId) {
+  if (redisClient?.isOpen) {
+    try {
+      const members = await redisClient.sMembers(`groupcall:${groupId}`);
+      return new Set(members);
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  if (!global.activeGroupCalls) global.activeGroupCalls = new Map();
+  return global.activeGroupCalls.get(groupId) || new Set();
+}
+
+async function addGroupCallParticipant(groupId, userId) {
+  if (!global.activeGroupCalls) global.activeGroupCalls = new Map();
+  if (!global.activeGroupCalls.has(groupId)) global.activeGroupCalls.set(groupId, new Set());
+  global.activeGroupCalls.get(groupId).add(userId);
+  if (redisClient?.isOpen) {
+    try {
+      await redisClient.sAdd(`groupcall:${groupId}`, userId);
+      await redisClient.expire(`groupcall:${groupId}`, 7200); // 2hr TTL safety
+    } catch (e) {
+      /* ignore */
+    }
+  }
+}
+
+async function removeGroupCallParticipant(groupId, userId) {
+  if (global.activeGroupCalls?.has(groupId)) {
+    const participants = global.activeGroupCalls.get(groupId);
+    participants.delete(userId);
+    if (participants.size === 0) global.activeGroupCalls.delete(groupId);
+  }
+  if (redisClient?.isOpen) {
+    try {
+      await redisClient.sRem(`groupcall:${groupId}`, userId);
+      const remaining = await redisClient.sCard(`groupcall:${groupId}`);
+      if (remaining === 0) await redisClient.del(`groupcall:${groupId}`);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+}
+
+async function getGroupCallSize(groupId) {
+  if (redisClient?.isOpen) {
+    try {
+      return await redisClient.sCard(`groupcall:${groupId}`);
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  return global.activeGroupCalls?.get(groupId)?.size || 0;
+}
+
+async function clearGroupCall(groupId) {
+  if (global.activeGroupCalls) global.activeGroupCalls.delete(groupId);
+  if (redisClient?.isOpen) {
+    try {
+      await redisClient.del(`groupcall:${groupId}`);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+}
+
+async function getUserGroupCalls(userId) {
+  const groups = [];
+  if (global.activeGroupCalls) {
+    for (const [groupId, participants] of global.activeGroupCalls.entries()) {
+      if (participants.has(userId)) groups.push(groupId);
+    }
+  }
+  return groups;
+}
+
+// ── Cluster-safe call tracking helpers ──
+// Uses Redis when available (cluster mode), falls back to in-memory Map
+async function setActiveCallPeer(userId, peerId) {
+  if (!global.activeCallPeers) global.activeCallPeers = new Map();
+  global.activeCallPeers.set(userId, peerId);
+  if (redisClient?.isOpen) {
+    try {
+      await redisClient.set(`callpeer:${userId}`, peerId, { EX: 3600 });
+    } catch (e) {
+      /* ignore */
+    }
+  }
+}
+
+async function getActiveCallPeer(userId) {
+  if (redisClient?.isOpen) {
+    try {
+      return await redisClient.get(`callpeer:${userId}`);
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  if (!global.activeCallPeers) return null;
+  return global.activeCallPeers.get(userId) || null;
+}
+
+async function removeActiveCallPeer(userId) {
+  if (global.activeCallPeers) global.activeCallPeers.delete(userId);
+  if (redisClient?.isOpen) {
+    try {
+      await redisClient.del(`callpeer:${userId}`);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+}
+
+async function isInActiveCall(userId) {
+  if (redisClient?.isOpen) {
+    try {
+      return (await redisClient.exists(`callpeer:${userId}`)) === 1;
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  return global.activeCallPeers?.has(userId) || false;
+}
+
 /**
  * Initialize Redis clients for Socket.IO adapter
  */
@@ -42,8 +226,12 @@ async function initializeRedisAdapter(io) {
     redisSubClient = redisPubClient.duplicate();
 
     // Error handlers
-    redisPubClient.on('error', (err) => console.error(' Redis Pub Client Error:', err));
-    redisSubClient.on('error', (err) => console.error(' Redis Sub Client Error:', err));
+    redisPubClient.on('error', (err) =>
+      logger.error('Redis Pub Client Error', { error: err.message })
+    );
+    redisSubClient.on('error', (err) =>
+      logger.error('Redis Sub Client Error', { error: err.message })
+    );
 
     // Connect both clients
     await Promise.all([redisPubClient.connect(), redisSubClient.connect()]);
@@ -53,11 +241,11 @@ async function initializeRedisAdapter(io) {
 
     // Also create a regular Redis client for storing online users
     redisClient = createClient({ url: redisUrl });
-    redisClient.on('error', (err) => console.error(' Redis Client Error:', err));
+    redisClient.on('error', (err) => logger.error('Redis Client Error', { error: err.message }));
     await redisClient.connect();
   } catch (error) {
-    console.error(' Failed to initialize Redis adapter:', error);
-    console.warn(' Socket.IO will work but only within this worker process');
+    logger.error('Failed to initialize Redis adapter', { error: error.message });
+    logger.warn('Socket.IO will work but only within this worker process');
   }
 }
 
@@ -67,6 +255,7 @@ export const initializeSocket = async (server) => {
       origin: process.env.CORS_ORIGIN || '*',
       credentials: true,
     },
+    pingInterval: 25000,
     pingTimeout: 60000,
   });
 
@@ -93,46 +282,41 @@ export const initializeSocket = async (server) => {
 
   io.on('connection', async (socket) => {
     const userId = socket.userId.toString(); // Ensure string format
-    console.log(`✅ User connected: ${userId} (socket: ${socket.id})`);
 
     // Cancel any pending disconnect timeout for this user (they reconnected!)
     if (disconnectTimeouts.has(userId)) {
       clearTimeout(disconnectTimeouts.get(userId));
       disconnectTimeouts.delete(userId);
-      console.log(`🔄 User ${userId} reconnected, cancelled offline broadcast`);
     }
 
-    //  ADD USER TO ONLINE MAP (Redis + local)
+    // Add user to online map (Redis + local)
     await addOnlineUser(userId, socket.id);
 
     // Join user's personal room (ensure string format for consistency)
     socket.join(userId);
 
-    //  BROADCAST TO ALL USERS THAT THIS USER IS ONLINE
-    console.log(`📢 Broadcasting userOnline event for userId: ${userId}`);
+    // Broadcast to all users that this user is online
     io.emit('userOnline', {
       userId: userId,
       socketId: socket.id,
     });
 
-    //  SEND CURRENT ONLINE USERS LIST TO THE NEWLY CONNECTED USER (cluster-safe)
+    // Send current online users list to the newly connected user (cluster-safe)
     const onlineList = await getOnlineUsers();
-    console.log(`📋 Sending online users list to ${userId}: [${onlineList.join(', ')}]`);
     socket.emit('onlineUsersList', {
       users: onlineList,
     });
 
-    //  GET ONLINE USERS REQUEST (cluster-safe)
+    // Get online users request (cluster-safe)
     socket.on('getOnlineUsers', async () => {
       const onlineUsersList = await getOnlineUsers();
-      console.log(`📋 User ${userId} requested online users: [${onlineUsersList.join(', ')}]`);
       socket.emit('onlineUsersList', { users: onlineUsersList });
     });
 
-    // ==================== LIVE STREAMING HANDLERS ====================
+    // Live streaming handlers
     liveStreamSocket(io, socket, userId);
 
-    // ==================== GROUP CHAT & CALL HANDLERS ====================
+    // Group chat & call handlers
     groupSocket(io, socket, userId);
 
     // Join thread room
@@ -145,7 +329,7 @@ export const initializeSocket = async (server) => {
       socket.leave(threadId);
     });
 
-    //  HANDLE EXPLICIT ONLINE EVENT
+    // Handle explicit online event
     socket.on('userOnline', async (data) => {
       const targetUserId = data.userId || userId;
       await addOnlineUser(targetUserId, socket.id);
@@ -155,7 +339,7 @@ export const initializeSocket = async (server) => {
       });
     });
 
-    //  HANDLE EXPLICIT OFFLINE EVENT
+    // Handle explicit offline event
     socket.on('userOffline', async (data) => {
       const targetUserId = data.userId || userId;
       await removeOnlineUser(targetUserId);
@@ -181,14 +365,10 @@ export const initializeSocket = async (server) => {
       });
     });
 
-    // ============================================
-    // NEW MESSAGE SENDING (FIXED - PROPER FORMAT)
-    // ============================================
+    // Message sending
 
     socket.on('sendMessage', async (messageData) => {
       try {
-        console.log(`💬 Sending message via socket: ${socket.userId} -> ${messageData.receiverId}`);
-
         // Fetch sender's user info
         const senderUser = await User.findById(socket.userId).select(
           'firstName lastName username profilePicture avatar'
@@ -220,9 +400,6 @@ export const initializeSocket = async (server) => {
 
         // Also send to receiver's personal room (for notification when not in thread)
         io.to(messageData.receiverId).emit('newMessage', formattedMessage);
-        console.log(
-          `✅ Message sent to thread ${messageData.threadId} and receiver ${messageData.receiverId}`
-        );
 
         // Also send back to sender for confirmation (optional)
         socket.emit('messageSent', {
@@ -231,7 +408,7 @@ export const initializeSocket = async (server) => {
           timestamp: new Date(),
         });
       } catch (error) {
-        console.error('❌ Error sending message via socket:', error);
+        logger.error('Error sending message via socket', { error: error.message });
         socket.emit('messageError', {
           error: 'Failed to send message',
           details: error.message,
@@ -256,108 +433,150 @@ export const initializeSocket = async (server) => {
           });
         }
       } catch (error) {
-        console.error(' Message delivery error:', error);
+        logger.error('Message delivery error', { error: error.message });
       }
     });
 
-    // ============================================
-    // VOICE/VIDEO CALL SIGNALING (FIXED)
-    // ============================================
+    // Voice/video call signaling
 
     // Initiate call - User A calls User B
     socket.on('initiateCall', async ({ recipientId, threadId, callType = 'voice' }) => {
       try {
-        // Ensure recipientId is a string for room lookup consistency
         const recipientIdStr = recipientId?.toString();
-        console.log(`📞 Call initiated: ${userId} -> ${recipientIdStr}, type: ${callType}`);
 
-        // Check if recipient is connected (use string format for room lookup)
-        const recipientSockets = await io.in(recipientIdStr).allSockets();
-        console.log(`📞 Recipient ${recipientIdStr} has ${recipientSockets.size} active sockets`);
-
-        if (recipientSockets.size === 0) {
-          console.log(`❌ Recipient ${recipientIdStr} is offline`);
-          // Recipient is offline
+        // Server-side busy check: reject if CALLER is already in a call
+        if (!global.activeCallPeers) global.activeCallPeers = new Map();
+        if (await isInActiveCall(userId)) {
           socket.emit('callFailed', {
             recipientId: recipientIdStr,
-            reason: 'User is offline',
+            reason: 'You are already in a call',
           });
           return;
         }
 
-        // Fetch caller's user info to send with the notification
-        const callerUser = await User.findById(userId).select(
-          'firstName lastName username profilePicture avatar'
-        );
+        // Validate: check block status
+        const [caller, recipient] = await Promise.all([
+          User.findById(userId)
+            .select('blockedUsers firstName lastName username profilePicture avatar')
+            .lean(),
+          User.findById(recipientIdStr).select('blockedUsers').lean(),
+        ]);
 
-        // Construct proper caller name
-        let callerName = 'Unknown User';
-        if (callerUser?.firstName && callerUser?.lastName) {
-          callerName = `${callerUser.firstName} ${callerUser.lastName}`;
-        } else if (callerUser?.username) {
-          callerName = callerUser.username;
+        if (!caller || !recipient) {
+          socket.emit('callFailed', { recipientId: recipientIdStr, reason: 'User not found' });
+          return;
         }
 
-        console.log(`📞 Sending incoming call notification to ${recipientIdStr}`);
+        const callerBlocked = caller.blockedUsers?.some((id) => id.toString() === recipientIdStr);
+        const recipientBlocked = recipient.blockedUsers?.some((id) => id.toString() === userId);
+        if (callerBlocked || recipientBlocked) {
+          socket.emit('callFailed', {
+            recipientId: recipientIdStr,
+            reason: 'Cannot call this user',
+          });
+          return;
+        }
 
-        // Send incoming call notification to recipient with caller info
+        // Validate: thread exists and belongs to both users
+        if (threadId) {
+          const thread = await ChatThread.findById(threadId)
+            .select('participants isBlocked')
+            .lean();
+          if (thread?.isBlocked) {
+            socket.emit('callFailed', {
+              recipientId: recipientIdStr,
+              reason: 'Conversation is blocked',
+            });
+            return;
+          }
+        }
+
+        // Check if recipient is connected
+        const recipientSockets = await io.in(recipientIdStr).allSockets();
+        if (recipientSockets.size === 0) {
+          socket.emit('callFailed', { recipientId: recipientIdStr, reason: 'User is offline' });
+          return;
+        }
+
+        // Server-side busy check: if recipient is already in a 1:1 call
+        if (await isInActiveCall(recipientIdStr)) {
+          socket.emit('callFailed', {
+            recipientId: recipientIdStr,
+            reason: 'User is busy on another call',
+          });
+          return;
+        }
+
+        // Track active 1:1 call peer (for disconnect cleanup)
+        await setActiveCallPeer(userId, recipientIdStr);
+
+        // Create call log entry
+        try {
+          const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          await CallLog.create({
+            callId,
+            callType: callType === 'video' ? 'video' : 'audio',
+            callerId: userId,
+            receiverId: recipientIdStr,
+            threadId: threadId || undefined,
+            status: 'initiated',
+          });
+        } catch (e) {
+          logger.error('Error creating call log', { error: e.message });
+        }
+
+        let callerName = 'Unknown User';
+        if (caller?.firstName && caller?.lastName) {
+          callerName = `${caller.firstName} ${caller.lastName}`;
+        } else if (caller?.username) {
+          callerName = caller.username;
+        }
+
         io.to(recipientIdStr).emit('incomingCall', {
           callerId: userId,
           threadId: threadId,
           callType: callType,
           callerInfo: {
-            avatar: callerUser?.profilePicture || callerUser?.avatar || '👤',
+            avatar: caller?.profilePicture || caller?.avatar || '👤',
             name: callerName,
           },
           timestamp: new Date(),
           name: callerName,
         });
-
-        console.log(`✅ Call notification sent successfully to room: ${recipientIdStr}`);
       } catch (error) {
-        console.error('❌ Error initiating call:', error);
-        socket.emit('callFailed', {
-          recipientId,
-          reason: 'Internal server error',
-        });
+        logger.error('Error initiating call', { error: error.message });
+        socket.emit('callFailed', { recipientId, reason: 'Internal server error' });
       }
     });
 
     // Initiate GROUP call - User A calls ALL online members in a group
     socket.on('initiateGroupCall', async ({ groupId, callType = 'voice' }) => {
       try {
-        console.log(`📞 Group call initiated by ${userId} in group ${groupId}, type: ${callType}`);
-
-        // Fetch the group and its members
         const group = await GroupChat.findById(groupId).select('name avatar members').lean();
 
         if (!group) {
-          console.log(`❌ Group ${groupId} not found`);
-          socket.emit('callFailed', {
-            groupId,
-            reason: 'Group not found',
-          });
+          socket.emit('callFailed', { groupId, reason: 'Group not found' });
           return;
         }
 
-        // Get all member IDs except the caller
+        // Validate caller is a member of the group
+        const isMember = group.members.some((m) => m.user.toString() === userId);
+        if (!isMember) {
+          socket.emit('callFailed', { groupId, reason: 'You are not a member of this group' });
+          return;
+        }
+
         const memberIds = group.members.map((m) => m.user.toString()).filter((id) => id !== userId);
 
         if (memberIds.length === 0) {
-          console.log(`❌ No other members in group ${groupId}`);
-          socket.emit('callFailed', {
-            groupId,
-            reason: 'No other members in this group',
-          });
+          socket.emit('callFailed', { groupId, reason: 'No other members in this group' });
           return;
         }
 
-        // Fetch caller's user info to send with the notification
         const callerUser = await User.findById(userId).select(
           'firstName lastName username profilePicture avatar'
         );
 
-        // Construct proper caller name
         let callerName = 'Unknown User';
         if (callerUser?.firstName && callerUser?.lastName) {
           callerName = `${callerUser.firstName} ${callerUser.lastName}`;
@@ -365,22 +584,19 @@ export const initializeSocket = async (server) => {
           callerName = callerUser.username;
         }
 
-        // Track how many online members we found
         let onlineMembersCount = 0;
 
-        // Send incoming call notification to each online member
         for (const memberId of memberIds) {
           const memberSockets = await io.in(memberId).allSockets();
 
           if (memberSockets.size > 0) {
             onlineMembersCount++;
-            console.log(`📞 Sending group call notification to ${memberId}`);
 
             io.to(memberId).emit('incomingCall', {
               callerId: userId,
-              threadId: groupId, // Use groupId as threadId
+              threadId: groupId,
               callType: callType,
-              isGroupCall: true, // Flag to indicate this is a group call
+              isGroupCall: true,
               groupInfo: {
                 groupId: groupId,
                 groupName: group.name,
@@ -391,36 +607,24 @@ export const initializeSocket = async (server) => {
                 name: callerName,
               },
               timestamp: new Date(),
-              name: `${callerName} (${group.name})`, // Show caller name and group name
+              name: `${callerName} (${group.name})`,
             });
           }
         }
 
         if (onlineMembersCount === 0) {
-          console.log(`❌ No online members in group ${groupId}`);
-          socket.emit('callFailed', {
-            groupId,
-            reason: 'No group members are online',
-          });
+          socket.emit('callFailed', { groupId, reason: 'No group members are online' });
           return;
         }
-
-        console.log(`✅ Group call notification sent to ${onlineMembersCount} online members`);
       } catch (error) {
-        console.error('❌ Error initiating group call:', error);
-        socket.emit('callFailed', {
-          groupId,
-          reason: 'Internal server error',
-        });
+        logger.error('Error initiating group call', { error: error.message });
+        socket.emit('callFailed', { groupId, reason: 'Internal server error' });
       }
     });
 
-    // ============================================
-    // GROUP CALL MANAGEMENT
-    // ============================================
+    // Group call management
 
-    // Track active group calls: groupId -> Set of participant userIds
-    // Note: This is a simple in-memory store for now
+    // Track active group calls — uses Redis when available for cluster safety
     if (!global.activeGroupCalls) {
       global.activeGroupCalls = new Map();
     }
@@ -428,120 +632,131 @@ export const initializeSocket = async (server) => {
     // Join a group call
     socket.on('joinGroupCall', async ({ groupId, callType }) => {
       try {
-        console.log(`📞 User ${userId} joining group call ${groupId}`);
-
-        // Get or create the group call session
-        if (!global.activeGroupCalls.has(groupId)) {
-          global.activeGroupCalls.set(groupId, new Set());
-        }
-
-        const participants = global.activeGroupCalls.get(groupId);
+        // if (!checkRateLimit(userId, 'joinGroupCall', 3, 5000)) return; // Rate limit disabled
 
         // Get existing participants before adding new one
-        const existingParticipantIds = Array.from(participants);
+        const existingParticipants = await getGroupCallParticipants(groupId);
+        const existingParticipantIds = Array.from(existingParticipants).filter(
+          (id) => id !== userId
+        );
 
-        participants.add(userId);
+        await addGroupCallParticipant(groupId, userId);
 
         // Join the group call room
         socket.join(`group-call:${groupId}`);
 
-        // Get user info for the joining user
-        const user = await User.findById(userId).select(
-          'firstName lastName username avatar profilePicture'
-        );
-        const userName =
-          user?.firstName && user?.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user?.username || 'Unknown';
+        // Get user info (cached)
+        const userInfo = await getCachedUserInfo(userId);
+        const userName = userInfo?.name || 'Unknown';
+        const userAvatar = userInfo?.avatar || '';
+
+        // Create or update GroupCall record in MongoDB
+        try {
+          const callTypeNormalized = callType === 'video' ? 'video' : 'audio';
+          let groupCallRecord = await GroupCall.findOne({
+            groupId,
+            status: { $in: ['initiating', 'ringing', 'ongoing'] },
+          });
+
+          if (!groupCallRecord) {
+            // First participant — create the record
+            groupCallRecord = await GroupCall.create({
+              callId: `gc_${groupId}_${Date.now()}`,
+              groupId,
+              callType: callTypeNormalized,
+              initiator: userId,
+              status: 'ongoing',
+              startedAt: new Date(),
+              participants: [
+                {
+                  user: userId,
+                  status: 'joined',
+                  joinedAt: new Date(),
+                  role: 'host',
+                  isAudioEnabled: true,
+                  isVideoEnabled: callTypeNormalized === 'video',
+                },
+              ],
+            });
+          } else {
+            // Additional participant — add to existing record
+            const existingParticipant = groupCallRecord.participants.find(
+              (p) => p.user.toString() === userId
+            );
+            if (!existingParticipant) {
+              groupCallRecord.participants.push({
+                user: userId,
+                status: 'joined',
+                joinedAt: new Date(),
+                role: 'participant',
+                isAudioEnabled: true,
+                isVideoEnabled: callTypeNormalized === 'video',
+              });
+              await groupCallRecord.save();
+            }
+          }
+        } catch (dbErr) {
+          logger.error('Error creating/updating GroupCall record', { error: dbErr.message });
+        }
 
         // Notify all OTHER participants in the call that this user joined
         socket.to(`group-call:${groupId}`).emit('groupCallParticipantJoined', {
           userId: userId,
           userName: userName,
-          avatar: user?.profilePicture || user?.avatar,
+          avatar: userAvatar,
           callType: callType,
         });
 
         // Send the list of existing participants to the joining user
         if (existingParticipantIds.length > 0) {
-          const existingUsers = await User.find({ _id: { $in: existingParticipantIds } }).select(
-            'firstName lastName username avatar profilePicture'
-          );
-
-          for (const existingUser of existingUsers) {
-            const existingUserName =
-              existingUser?.firstName && existingUser?.lastName
-                ? `${existingUser.firstName} ${existingUser.lastName}`
-                : existingUser?.username || 'Unknown';
-
+          for (const existingUserId of existingParticipantIds) {
+            const existingInfo = await getCachedUserInfo(existingUserId);
             socket.emit('groupCallParticipantJoined', {
-              userId: existingUser._id.toString(),
-              userName: existingUserName,
-              avatar: existingUser?.profilePicture || existingUser?.avatar,
+              userId: existingUserId,
+              userName: existingInfo?.name || 'Unknown',
+              avatar: existingInfo?.avatar || '',
             });
           }
         }
-
-        console.log(
-          `✅ User ${userId} joined group call ${groupId}, total participants: ${participants.size}`
-        );
       } catch (error) {
-        console.error('❌ Error joining group call:', error);
+        logger.error('Error joining group call', { error: error.message });
       }
     });
 
     // Accept a group call (for incoming calls)
     socket.on('acceptGroupCall', async ({ groupId, callerId }) => {
       try {
-        console.log(`📞 User ${userId} accepting group call ${groupId}`);
-
-        // Get or create the group call session
-        if (!global.activeGroupCalls.has(groupId)) {
-          global.activeGroupCalls.set(groupId, new Set());
-        }
-
-        const participants = global.activeGroupCalls.get(groupId);
-
         // Get existing participants before adding new one
-        const existingParticipantIds = Array.from(participants);
+        const existingParticipants = await getGroupCallParticipants(groupId);
+        const existingParticipantIds = Array.from(existingParticipants).filter(
+          (id) => id !== userId
+        );
 
-        participants.add(userId);
+        await addGroupCallParticipant(groupId, userId);
 
         // Join the group call room
         socket.join(`group-call:${groupId}`);
 
-        // Get user info for the joining user
-        const user = await User.findById(userId).select(
-          'firstName lastName username avatar profilePicture'
-        );
-        const userName =
-          user?.firstName && user?.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user?.username || 'Unknown';
+        // Get user info (cached)
+        const userInfo = await getCachedUserInfo(userId);
+        const userName = userInfo?.name || 'Unknown';
+        const userAvatar = userInfo?.avatar || '';
 
         // Notify all OTHER participants in the call that this user joined
         socket.to(`group-call:${groupId}`).emit('groupCallParticipantJoined', {
           userId: userId,
           userName: userName,
-          avatar: user?.profilePicture || user?.avatar,
+          avatar: userAvatar,
         });
 
         // Send the list of existing participants to the joining user
         if (existingParticipantIds.length > 0) {
-          const existingUsers = await User.find({ _id: { $in: existingParticipantIds } }).select(
-            'firstName lastName username avatar profilePicture'
-          );
-
-          for (const existingUser of existingUsers) {
-            const existingUserName =
-              existingUser?.firstName && existingUser?.lastName
-                ? `${existingUser.firstName} ${existingUser.lastName}`
-                : existingUser?.username || 'Unknown';
-
+          for (const existingUserId of existingParticipantIds) {
+            const existingInfo = await getCachedUserInfo(existingUserId);
             socket.emit('groupCallParticipantJoined', {
-              userId: existingUser._id.toString(),
-              userName: existingUserName,
-              avatar: existingUser?.profilePicture || existingUser?.avatar,
+              userId: existingUserId,
+              userName: existingInfo?.name || 'Unknown',
+              avatar: existingInfo?.avatar || '',
             });
           }
         }
@@ -550,20 +765,16 @@ export const initializeSocket = async (server) => {
         io.to(callerId?.toString()).emit('groupCallAccepted', {
           userId: userId,
           userName: userName,
-          avatar: user?.profilePicture || user?.avatar,
+          avatar: userAvatar,
           groupId: groupId,
         });
-
-        console.log(`✅ User ${userId} accepted group call ${groupId}`);
       } catch (error) {
-        console.error('❌ Error accepting group call:', error);
+        logger.error('Error accepting group call', { error: error.message });
       }
     });
 
     // Reject a group call
     socket.on('rejectGroupCall', ({ groupId, callerId }) => {
-      console.log(`📞 User ${userId} rejected group call ${groupId}`);
-
       // Notify the caller (optional)
       io.to(callerId?.toString()).emit('groupCallRejected', {
         userId: userId,
@@ -574,31 +785,55 @@ export const initializeSocket = async (server) => {
     // Leave a group call
     socket.on('leaveGroupCall', async ({ groupId }) => {
       try {
-        console.log(`📞 User ${userId} leaving group call ${groupId}`);
-
-        // Remove from participants
-        if (global.activeGroupCalls.has(groupId)) {
-          const participants = global.activeGroupCalls.get(groupId);
-          participants.delete(userId);
-
-          // If no participants left, clean up the call
-          if (participants.size === 0) {
-            global.activeGroupCalls.delete(groupId);
-            console.log(`📞 Group call ${groupId} ended (no participants)`);
-          }
-        }
+        await removeGroupCallParticipant(groupId, userId);
 
         // Leave the group call room
         socket.leave(`group-call:${groupId}`);
+
+        // Update GroupCall record — mark participant as left
+        try {
+          const groupCallRecord = await GroupCall.findOne({
+            groupId,
+            status: { $in: ['initiating', 'ringing', 'ongoing'] },
+          });
+          if (groupCallRecord) {
+            const participant = groupCallRecord.participants.find(
+              (p) => p.user.toString() === userId && p.status === 'joined'
+            );
+            if (participant) {
+              participant.status = 'left';
+              participant.leftAt = new Date();
+              if (participant.joinedAt) {
+                participant.duration = Math.floor(
+                  (Date.now() - participant.joinedAt.getTime()) / 1000
+                );
+              }
+            }
+
+            // If no one is left, end the call
+            const remainingSize = await getGroupCallSize(groupId);
+            if (remainingSize === 0) {
+              groupCallRecord.status = 'ended';
+              groupCallRecord.endedAt = new Date();
+              groupCallRecord.endReason = 'completed';
+              if (groupCallRecord.startedAt) {
+                groupCallRecord.duration = Math.floor(
+                  (Date.now() - groupCallRecord.startedAt.getTime()) / 1000
+                );
+              }
+            }
+            await groupCallRecord.save();
+          }
+        } catch (dbErr) {
+          logger.error('Error updating GroupCall record on leave', { error: dbErr.message });
+        }
 
         // Notify remaining participants
         io.to(`group-call:${groupId}`).emit('groupCallParticipantLeft', {
           userId: userId,
         });
-
-        console.log(`✅ User ${userId} left group call ${groupId}`);
       } catch (error) {
-        console.error('❌ Error leaving group call:', error);
+        logger.error('Error leaving group call', { error: error.message });
       }
     });
 
@@ -621,54 +856,128 @@ export const initializeSocket = async (server) => {
     // End group call (host only)
     socket.on('endGroupCall', async ({ groupId }) => {
       try {
-        console.log(`📞 Group call ${groupId} ended by ${userId}`);
+        // Update GroupCall record
+        try {
+          await GroupCall.findOneAndUpdate(
+            { groupId, status: { $in: ['initiating', 'ringing', 'ongoing'] } },
+            {
+              status: 'ended',
+              endedAt: new Date(),
+              endReason: 'ended_by_host',
+              $set: {
+                'participants.$[elem].status': 'left',
+                'participants.$[elem].leftAt': new Date(),
+              },
+            },
+            {
+              arrayFilters: [{ 'elem.status': 'joined' }],
+            }
+          );
+        } catch (dbErr) {
+          logger.error('Error updating GroupCall record on end', { error: dbErr.message });
+        }
 
         // Notify all participants
         io.to(`group-call:${groupId}`).emit('groupCallEnded', {
           endedBy: userId,
         });
 
-        // Clean up
-        if (global.activeGroupCalls.has(groupId)) {
-          global.activeGroupCalls.delete(groupId);
-        }
+        // Clean up (Redis + local)
+        await clearGroupCall(groupId);
       } catch (error) {
-        console.error('❌ Error ending group call:', error);
+        logger.error('Error ending group call', { error: error.message });
       }
     });
 
     // Accept call - User B accepts the incoming call
-    socket.on('acceptCall', ({ callerId, threadId }) => {
+    socket.on('acceptCall', async ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
-      console.log(`📞 Call accepted: ${userId} accepted call from ${callerIdStr}`);
 
-      // Notify the caller that call was accepted
+      // Track the reverse peer mapping
+      await setActiveCallPeer(userId, callerIdStr);
+
+      // Update call log to 'answered'
+      try {
+        await CallLog.findOneAndUpdate(
+          { callerId: callerIdStr, receiverId: userId, status: { $in: ['initiated', 'ringing'] } },
+          { status: 'answered', startedAt: new Date() },
+          { sort: { createdAt: -1 } }
+        );
+      } catch (e) {
+        logger.error('Error updating call log on accept', { error: e.message });
+      }
+
       io.to(callerIdStr).emit('callAccepted', {
         receiverId: userId,
         threadId: threadId,
       });
-
-      console.log(`✅ Call accepted notification sent to ${callerIdStr}`);
     });
 
     // Reject call - User B rejects the incoming call
-    socket.on('rejectCall', ({ callerId, threadId }) => {
+    socket.on('rejectCall', async ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
-      console.log(`📞 Call rejected: ${userId} rejected call from ${callerIdStr}`);
 
-      // Notify the caller that call was rejected
+      // Clean up peer tracking
+      await removeActiveCallPeer(userId);
+      await removeActiveCallPeer(callerIdStr);
+
+      // Log rejected call
+      try {
+        await CallLog.findOneAndUpdate(
+          { callerId: callerIdStr, receiverId: userId, status: { $in: ['initiated', 'ringing'] } },
+          { status: 'rejected', endedAt: new Date(), endReason: 'declined' },
+          { sort: { createdAt: -1 } }
+        );
+      } catch (e) {
+        logger.error('Error updating call log on reject', { error: e.message });
+      }
+
       io.to(callerIdStr).emit('callRejected', {
         receiverId: userId,
         threadId: threadId,
       });
     });
 
-    // End call - Either party ends the active call
-    socket.on('endCall', ({ recipientId, threadId }) => {
-      const recipientIdStr = recipientId?.toString();
-      console.log(`📞 Call ended: ${userId} ended call with ${recipientIdStr}`);
+    // Busy signal - recipient is already in a call
+    socket.on('callBusy', ({ callerId, threadId }) => {
+      const callerIdStr = callerId?.toString();
+      io.to(callerIdStr).emit('callFailed', {
+        recipientId: userId,
+        threadId: threadId,
+        reason: 'User is busy on another call',
+      });
+    });
 
-      // Notify the other party that call ended
+    // End call - Either party ends the active call
+    socket.on('endCall', async ({ recipientId, threadId }) => {
+      const recipientIdStr = recipientId?.toString();
+
+      // Clean up peer tracking
+      await removeActiveCallPeer(userId);
+      await removeActiveCallPeer(recipientIdStr);
+
+      // Update call log with end time
+      try {
+        const callLog = await CallLog.findOne({
+          $or: [
+            { callerId: userId, receiverId: recipientIdStr },
+            { callerId: recipientIdStr, receiverId: userId },
+          ],
+          status: { $in: ['initiated', 'ringing', 'answered'] },
+        }).sort({ createdAt: -1 });
+        if (callLog) {
+          callLog.status = 'ended';
+          callLog.endedAt = new Date();
+          callLog.endReason = 'normal';
+          if (callLog.startedAt) {
+            callLog.duration = Math.floor((callLog.endedAt - callLog.startedAt) / 1000);
+          }
+          await callLog.save();
+        }
+      } catch (e) {
+        logger.error('Error updating call log on end', { error: e.message });
+      }
+
       io.to(recipientIdStr).emit('callEnded', {
         userId: userId,
         threadId: threadId,
@@ -676,64 +985,48 @@ export const initializeSocket = async (server) => {
       });
     });
 
-    // ============================================
-    // WEBRTC SIGNALING (SDP Offer/Answer/ICE)
-    // ============================================
+    // WebRTC signaling (SDP Offer/Answer/ICE)
+    // Uses cached user info to avoid DB queries on every signal
 
     // WebRTC offer - Send WebRTC offer for peer connection
     socket.on('offer', async ({ recipientId, offer, callType }) => {
-      console.log(`🔄 WebRTC offer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
-
-      // Get caller info to send with offer
-      const caller = await User.findById(socket.userId).select(
-        'firstName lastName username avatar profilePicture'
-      );
-      const callerName =
-        caller?.firstName && caller?.lastName
-          ? `${caller.firstName} ${caller.lastName}`
-          : caller?.username || 'Unknown';
-
+      // if (!checkRateLimit(userId, 'offer', 5, 3000)) return; // Rate limit disabled
+      const userInfo = await getCachedUserInfo(socket.userId);
       io.to(recipientId).emit('offer', {
         callerId: socket.userId,
         offer: offer,
         callType: callType,
-        callerInfo: {
-          odgoId: socket.userId,
-          odgoName: callerName,
-          odgoAvatar: caller?.profilePicture || caller?.avatar,
-        },
+        callerInfo: userInfo
+          ? {
+              userId: socket.userId,
+              userName: userInfo.name,
+              userAvatar: userInfo.avatar,
+            }
+          : { userId: socket.userId, userName: 'Unknown', userAvatar: '' },
       });
     });
 
     // WebRTC answer - Send WebRTC answer back to caller
     socket.on('answer', async ({ recipientId, answer, callType }) => {
-      console.log(`🔄 WebRTC answer: ${socket.userId} -> ${recipientId} (type: ${callType})`);
-
-      // Get answerer info to send with answer
-      const answerer = await User.findById(socket.userId).select(
-        'firstName lastName username avatar profilePicture'
-      );
-      const answererName =
-        answerer?.firstName && answerer?.lastName
-          ? `${answerer.firstName} ${answerer.lastName}`
-          : answerer?.username || 'Unknown';
-
+      // if (!checkRateLimit(userId, 'answer', 5, 3000)) return; // Rate limit disabled
+      const userInfo = await getCachedUserInfo(socket.userId);
       io.to(recipientId).emit('answer', {
         recipientId: socket.userId,
         answer: answer,
         callType: callType,
-        answererInfo: {
-          odgoId: socket.userId,
-          odgoName: answererName,
-          odgoAvatar: answerer?.profilePicture || answerer?.avatar,
-        },
+        answererInfo: userInfo
+          ? {
+              userId: socket.userId,
+              userName: userInfo.name,
+              userAvatar: userInfo.avatar,
+            }
+          : { userId: socket.userId, userName: 'Unknown', userAvatar: '' },
       });
     });
 
     // ICE candidate exchange for WebRTC connection
     socket.on('iceCandidate', ({ recipientId, candidate, callType }) => {
-      console.log(`🧊 ICE candidate: ${socket.userId} -> ${recipientId} (type: ${callType || 'unknown'})`);
-
+      // if (!checkRateLimit(userId, 'iceCandidate', 50, 5000)) return; // Rate limit disabled
       io.to(recipientId).emit('iceCandidate', {
         senderId: socket.userId,
         candidate: candidate,
@@ -741,44 +1034,97 @@ export const initializeSocket = async (server) => {
       });
     });
 
-    // USER DISCONNECT (tab close, internet loss, logout, etc.)
+    // User disconnect (tab close, internet loss, logout, etc.)
     socket.on('disconnect', async (reason) => {
-      console.log(`❌ User disconnected: ${userId} (reason: ${reason})`);
-
       // Check if user has other active sockets (multiple tabs/devices)
       const userSockets = await io.in(userId).allSockets();
 
       if (userSockets.size > 0) {
-        // User still has other connections, don't mark as offline
-        console.log(
-          `🔄 User ${userId} still has ${userSockets.size} other socket(s), staying online`
-        );
         return;
       }
 
+      // ── Call cleanup on disconnect ──
+      // 1:1 call cleanup — notify the other party
+      const peerId = await getActiveCallPeer(userId);
+      if (peerId) {
+        await removeActiveCallPeer(userId);
+        // Also clean the reverse mapping if it points back to us
+        const reversePeer = await getActiveCallPeer(peerId);
+        if (reversePeer === userId) {
+          await removeActiveCallPeer(peerId);
+        }
+        io.to(peerId).emit('callEnded', {
+          userId: userId,
+          reason: 'User disconnected',
+          endedAt: new Date(),
+        });
+      }
+
+      // Group call cleanup — remove from any active group calls (Redis + local)
+      try {
+        const userGroups = await getUserGroupCalls(userId);
+        for (const groupId of userGroups) {
+          await removeGroupCallParticipant(groupId, userId);
+
+          // Update GroupCall MongoDB record
+          try {
+            const gcRecord = await GroupCall.findOne({
+              groupId,
+              status: { $in: ['initiating', 'ringing', 'ongoing'] },
+            });
+            if (gcRecord) {
+              const participant = gcRecord.participants.find(
+                (p) => p.user.toString() === userId && p.status === 'joined'
+              );
+              if (participant) {
+                participant.status = 'left';
+                participant.leftAt = new Date();
+                if (participant.joinedAt) {
+                  participant.duration = Math.floor(
+                    (Date.now() - participant.joinedAt.getTime()) / 1000
+                  );
+                }
+              }
+              const remaining = await getGroupCallSize(groupId);
+              if (remaining === 0) {
+                gcRecord.status = 'ended';
+                gcRecord.endedAt = new Date();
+                gcRecord.endReason = 'completed';
+                if (gcRecord.startedAt) {
+                  gcRecord.duration = Math.floor(
+                    (Date.now() - gcRecord.startedAt.getTime()) / 1000
+                  );
+                }
+              }
+              await gcRecord.save();
+            }
+          } catch (dbErr) {
+            logger.error('Error updating GroupCall on disconnect', { error: dbErr.message });
+          }
+
+          io.to(`group-call:${groupId}`).emit('groupCallParticipantLeft', { userId });
+        }
+      } catch (e) {
+        logger.error('Error cleaning up group calls on disconnect', { error: e.message });
+      }
+
       // Use grace period to handle brief disconnections (network hiccup, page refresh)
-      console.log(`⏳ Starting ${DISCONNECT_GRACE_PERIOD}ms grace period for ${userId}`);
 
       const timeoutId = setTimeout(async () => {
         // Double-check user hasn't reconnected during grace period
         const currentSockets = await io.in(userId).allSockets();
         if (currentSockets.size > 0) {
-          console.log(`🔄 User ${userId} reconnected during grace period, staying online`);
           disconnectTimeouts.delete(userId);
           return;
         }
 
-        //  REMOVE USER FROM ONLINE MAP (Redis + local)
+        // Remove user from online map (Redis + local)
         await removeOnlineUser(userId);
 
-        //  BROADCAST TO ALL USERS THAT THIS USER IS OFFLINE
-        console.log(`📢 Broadcasting userOffline event for userId: ${userId.toString()}`);
+        // Broadcast to all users that this user is offline
         io.emit('userOffline', {
           userId: userId.toString(),
         });
-
-        const totalOnline = await getOnlineUsersCount();
-        console.log(`📊 Total online users: ${totalOnline}`);
 
         disconnectTimeouts.delete(userId);
       }, DISCONNECT_GRACE_PERIOD);
@@ -797,54 +1143,67 @@ export const getIO = () => {
   return io;
 };
 
-// HELPER FUNCTION: Check if a user is online (cluster-safe)
+// Check if a user is online (cluster-safe)
 export const isUserOnline = async (userId) => {
   if (redisClient && redisClient.isOpen) {
     try {
       const exists = await redisClient.exists(`online:${userId}`);
       return exists === 1;
     } catch (error) {
-      console.error('Error checking online status from Redis:', error);
+      logger.error('Error checking online status from Redis', { error: error.message });
     }
   }
   // Fallback to local Map if Redis is not available
   return onlineUsers.has(userId.toString());
 };
 
-//  HELPER FUNCTION: Get all online users (cluster-safe)
+// Get all online users (cluster-safe) — uses SCAN instead of blocking KEYS
 export const getOnlineUsers = async () => {
   if (redisClient && redisClient.isOpen) {
     try {
-      const keys = await redisClient.keys('online:*');
-      return keys.map((key) => key.replace('online:', ''));
+      const users = [];
+      let cursor = 0;
+      do {
+        const result = await redisClient.scan(cursor, { MATCH: 'online:*', COUNT: 200 });
+        cursor = result.cursor;
+        for (const key of result.keys) {
+          users.push(key.replace('online:', ''));
+        }
+      } while (cursor !== 0);
+      return users;
     } catch (error) {
-      console.error('Error getting online users from Redis:', error);
+      logger.error('Error getting online users from Redis', { error: error.message });
     }
   }
   // Fallback to local Map if Redis is not available
   return Array.from(onlineUsers.keys());
 };
 
-//  HELPER FUNCTION: Get online users count (cluster-safe)
+// Get online users count (cluster-safe) — uses SCAN instead of blocking KEYS
 export const getOnlineUsersCount = async () => {
   if (redisClient && redisClient.isOpen) {
     try {
-      const keys = await redisClient.keys('online:*');
-      return keys.length;
+      let count = 0;
+      let cursor = 0;
+      do {
+        const result = await redisClient.scan(cursor, { MATCH: 'online:*', COUNT: 200 });
+        cursor = result.cursor;
+        count += result.keys.length;
+      } while (cursor !== 0);
+      return count;
     } catch (error) {
-      console.error('Error getting online users count from Redis:', error);
+      logger.error('Error getting online users count from Redis', { error: error.message });
     }
   }
   // Fallback to local Map if Redis is not available
   return onlineUsers.size;
 };
 
-//  HELPER FUNCTION: Add user to online list (cluster-safe)
+// Add user to online list (cluster-safe)
 async function addOnlineUser(userId, socketId) {
   const userIdStr = userId.toString();
   // Add to local Map
   onlineUsers.set(userIdStr, socketId);
-  console.log(`✅ Added to online map: ${userIdStr} (total: ${onlineUsers.size})`);
 
   // Add to Redis for cross-worker tracking
   if (redisClient && redisClient.isOpen) {
@@ -853,12 +1212,12 @@ async function addOnlineUser(userId, socketId) {
         EX: 3600, // Expire after 1 hour (safety cleanup)
       });
     } catch (error) {
-      console.error('Error adding online user to Redis:', error);
+      logger.error('Error adding online user to Redis', { error: error.message });
     }
   }
 }
 
-//  HELPER FUNCTION: Remove user from online list (cluster-safe)
+// Remove user from online list (cluster-safe)
 async function removeOnlineUser(userId) {
   // Remove from local Map
   onlineUsers.delete(userId.toString());
@@ -868,12 +1227,12 @@ async function removeOnlineUser(userId) {
     try {
       await redisClient.del(`online:${userId}`);
     } catch (error) {
-      console.error('Error removing online user from Redis:', error);
+      logger.error('Error removing online user from Redis', { error: error.message });
     }
   }
 }
 
-// HELPER FUNCTION: Cleanup Redis connections on shutdown
+// Cleanup Redis connections on shutdown
 export const cleanupRedis = async () => {
   try {
     if (redisPubClient && redisPubClient.isOpen) {
@@ -886,7 +1245,7 @@ export const cleanupRedis = async () => {
       await redisClient.quit();
     }
   } catch (error) {
-    console.error('Error cleaning up Redis connections:', error);
+    logger.error('Error cleaning up Redis connections', { error: error.message });
   }
 };
 

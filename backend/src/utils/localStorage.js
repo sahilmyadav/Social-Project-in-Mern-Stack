@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { fileURLToPath } from 'url';
+import logger from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +23,8 @@ const MAX_FILE_SIZE = {
 };
 
 const ALLOWED_EXTENSIONS = {
-  image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'],
+  // SVG excluded — can contain inline <script> tags (XSS vector)
+  image: ['.jpg', '.jpeg', '.png', '.gif', '.webp'],
   video: ['.mp4', '.mov', '.avi', '.mkv', '.webm'],
   audio: ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.aac', '.flac'],
   document: [
@@ -91,7 +93,7 @@ const compressImage = async (inputPath, outputPath, contentType) => {
 
     return true;
   } catch (error) {
-    console.error('[Compression] Error compressing image:', error.message);
+    logger.error('[Compression] Error compressing image', { error: error.message });
     return false;
   }
 };
@@ -119,10 +121,7 @@ const validateFile = (file, contentType) => {
     return { valid: false, error: `File type ${ext} is not allowed` };
   }
 
-  const maxSize = fileType === 'video' ? MAX_FILE_SIZE.video : MAX_FILE_SIZE.image;
-  if (file.size && file.size > maxSize) {
-    return { valid: false, error: `File size exceeds ${maxSize / (1024 * 1024)}MB limit` };
-  }
+  // No file size limits per client request
 
   return { valid: true };
 };
@@ -158,17 +157,17 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
       fileSize = fileOrPath.size;
       mimetype = fileOrPath.mimetype;
     } else {
-      console.error('[Storage] Invalid file input:', fileOrPath);
+      logger.error('[Storage] Invalid file input:', { input: fileOrPath });
       return null;
     }
 
     if (!tempFilePath) {
-      console.error('[Storage] No file path provided');
+      logger.error('[Storage] No file path provided');
       return null;
     }
 
     if (!fs.existsSync(tempFilePath)) {
-      console.error('[Storage] Temp file does not exist:', fileOrPath);
+      logger.error('[Storage] Temp file does not exist:', { path: fileOrPath });
       return null;
     }
 
@@ -191,7 +190,7 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
       if (!compressed) {
         // Fallback to copy if compression fails
         await fs.promises.copyFile(tempFilePath, targetPath);
-        console.warn('[Storage] Compression failed, using original file');
+        logger.warn('[Storage] Compression failed, using original file');
       }
     } else {
       await fs.promises.copyFile(tempFilePath, targetPath);
@@ -200,7 +199,7 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
     try {
       await fs.promises.unlink(tempFilePath);
     } catch (unlinkErr) {
-      console.warn('[Storage] Could not delete temp file:', unlinkErr.message);
+      logger.warn('[Storage] Could not delete temp file:', { error: unlinkErr.message });
     }
 
     // Map content type to correct folder name
@@ -228,7 +227,7 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
       public_id: `${contentType}_${fileName}`,
     };
   } catch (error) {
-    console.error('[Storage] Error saving file:', error);
+    logger.error('[Storage] Error saving file:', { error: error.message });
 
     if (tempFilePath) {
       try {
@@ -236,7 +235,7 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
           await fs.promises.unlink(tempFilePath);
         }
       } catch (cleanupErr) {
-        console.error('[Storage] Cleanup error:', cleanupErr.message);
+        logger.error('[Storage] Cleanup error:', { error: cleanupErr.message });
       }
     }
 
@@ -281,7 +280,7 @@ const saveMultipleFilesLocally = async (files, userId, contentType = 'post') => 
   });
 
   if (errors.length > 0) {
-    console.warn('[Storage] Some files failed to save:', errors);
+    logger.warn('[Storage] Some files failed to save:', { errors });
   }
 
   return results;
@@ -298,13 +297,12 @@ const deleteLocalFile = async (filePath) => {
 
     if (fs.existsSync(fullPath)) {
       await fs.promises.unlink(fullPath);
-      console.log('[Storage] File deleted:', filePath);
       return true;
     }
 
     return false;
   } catch (error) {
-    console.error('[Storage] Error deleting file:', error);
+    logger.error('[Storage] Error deleting file:', { error: error.message });
     return false;
   }
 };
@@ -339,16 +337,18 @@ const getStorageStats = async () => {
         }
       }
     } catch (err) {
-      console.error(`[Storage] Error reading ${key} directory:`, err);
+      logger.error(`[Storage] Error reading ${key} directory:`, { error: err.message });
     }
   }
 
   return stats;
 };
 
-// Backwards-compatible aliases for Cloudinary functions
-const uploadOnCloudinary = async (localFilePath, category = 'general') => {
-  // Determine category from file path if possible
+/**
+ * Upload a file with automatic category detection from path.
+ * Wraps saveFileLocally with path-based content type inference.
+ */
+const uploadFile = async (localFilePath, category = 'general') => {
   let contentType = category;
   if (localFilePath && typeof localFilePath === 'string') {
     if (localFilePath.includes('avatar') || localFilePath.includes('profile')) {
@@ -366,7 +366,6 @@ const uploadOnCloudinary = async (localFilePath, category = 'general') => {
 
   const result = await saveFileLocally(localFilePath, 'user', contentType);
   if (result) {
-    // Add resource_type for compatibility
     const ext = localFilePath ? localFilePath.toLowerCase() : '';
     result.resource_type = ['.mp4', '.mov', '.avi', '.mkv', '.webm'].some((e) => ext.endsWith(e))
       ? 'video'
@@ -375,9 +374,11 @@ const uploadOnCloudinary = async (localFilePath, category = 'general') => {
   return result;
 };
 
-const delteOnCloudinray = async (publicId) => {
+/**
+ * Remove a file by its public_id (file path).
+ */
+const removeFile = async (publicId) => {
   if (!publicId) return null;
-  // Extract file path from public_id
   const result = await deleteLocalFile(publicId);
   return result ? { result: 'ok' } : null;
 };
@@ -386,16 +387,16 @@ export {
   AVATARS_DIR,
   deleteLocalFile,
   deleteMultipleFiles,
-  delteOnCloudinray,
   generateUniqueFileName,
   getFileType,
   getStorageStats,
   POSTS_DIR,
   REELS_DIR,
+  removeFile,
   saveFileLocally,
   saveMultipleFilesLocally,
   STORIES_DIR,
-  uploadOnCloudinary,
+  uploadFile,
   UPLOADS_DIR,
   validateFile,
 };

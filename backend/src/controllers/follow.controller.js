@@ -1,5 +1,6 @@
 import { Followers } from '../models/followers.model.js';
 import { User } from '../models/user.model.js';
+import { getFollowStatusMap } from '../services/enrichment.service.js';
 import {
   notifyFollow,
   notifyFollowRequest,
@@ -559,21 +560,6 @@ const totalFollowers = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, { count }, 'Total followers fetched successfully'));
 });
-// const totalFollowers = asyncHandler(async (req, res) => {
-//   const userId = req.user?.Id;
-
-//   if (!userId) return res.status.json(new ApiError(400, "User ID not found"));
-//   const count = await Followers.countDocuments({
-//     following_id: req.params.userId,
-//     status: "accepted",
-//   });
-
-//   return res
-//     .status(200)
-//     .json(
-//       new ApiResponse(200, { count }, "Total followers fetched successfully")
-//     );
-// });
 
 const totalFollowing = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -626,38 +612,29 @@ const getFollowers = asyncHandler(async (req, res) => {
     .sort('-created_at')
     .lean();
 
-  // Map followers and check if current user follows them back
-  const followerPromises = followerRecords
-    .filter((record) => record.follower_id != null) // Filter out records where user was deleted
-    .map(async (record) => {
-      const follower = record.follower_id;
+  // Map followers and check if current user follows them back (batch — no N+1)
+  const validFollowerRecords = followerRecords.filter((record) => record.follower_id != null);
+  const followerUserIds = validFollowerRecords.map((r) => r.follower_id._id);
+  const followStatusMap = await getFollowStatusMap(currentUserId, followerUserIds);
 
-      // Check if current user follows this follower back
-      const followRelationship = await Followers.findOne({
-        follower_id: currentUserId,
-        following_id: follower._id,
-      });
-
-      const isFollowingBack = followRelationship?.status === 'accepted';
-      const isPending = followRelationship?.status === 'requested';
-
-      return {
-        _id: follower._id,
-        firstName: follower.firstName,
-        lastName: follower.lastName,
-        fullName: `${follower.firstName} ${follower.lastName}`,
-        username: follower.username,
-        profilePicture: follower.profileImage || follower.avatar,
-        avatar: follower.avatar,
-        bio: follower.bio,
-        isVerified: follower.isVerified,
-        isPrivate: follower.isPrivate || false,
-        isFollowing: isFollowingBack,
-        isPending: isPending,
-      };
-    });
-
-  const followers = await Promise.all(followerPromises);
+  const followers = validFollowerRecords.map((record) => {
+    const follower = record.follower_id;
+    const status = followStatusMap.get(follower._id.toString());
+    return {
+      _id: follower._id,
+      firstName: follower.firstName,
+      lastName: follower.lastName,
+      fullName: `${follower.firstName} ${follower.lastName}`,
+      username: follower.username,
+      profilePicture: follower.profileImage || follower.avatar,
+      avatar: follower.avatar,
+      bio: follower.bio,
+      isVerified: follower.isVerified,
+      isPrivate: follower.isPrivate || false,
+      isFollowing: status === 'accepted',
+      isPending: status === 'requested',
+    };
+  });
 
   return res.status(200).json(
     new ApiResponse(
@@ -710,38 +687,29 @@ const getFollowing = asyncHandler(async (req, res) => {
     .sort('-created_at')
     .lean();
 
-  // Map following users and check if current user follows them
-  const followingPromises = followingRecords
-    .filter((record) => record.following_id != null) // Filter out records where user was deleted
-    .map(async (record) => {
-      const followedUser = record.following_id;
+  // Map following users and check if current user follows them (batch — no N+1)
+  const validFollowingRecords = followingRecords.filter((record) => record.following_id != null);
+  const followingUserIds = validFollowingRecords.map((r) => r.following_id._id);
+  const followingStatusMap = await getFollowStatusMap(currentUserId, followingUserIds);
 
-      // Check if current user follows this person
-      const followRelationship = await Followers.findOne({
-        follower_id: currentUserId,
-        following_id: followedUser._id,
-      });
-
-      const isFollowing = followRelationship?.status === 'accepted';
-      const isPending = followRelationship?.status === 'requested';
-
-      return {
-        _id: followedUser._id,
-        firstName: followedUser.firstName,
-        lastName: followedUser.lastName,
-        fullName: `${followedUser.firstName} ${followedUser.lastName}`,
-        username: followedUser.username,
-        profilePicture: followedUser.profileImage || followedUser.avatar,
-        avatar: followedUser.avatar,
-        bio: followedUser.bio,
-        isVerified: followedUser.isVerified,
-        isPrivate: followedUser.isPrivate || false,
-        isFollowing: isFollowing,
-        isPending: isPending,
-      };
-    });
-
-  const following = await Promise.all(followingPromises);
+  const following = validFollowingRecords.map((record) => {
+    const followedUser = record.following_id;
+    const status = followingStatusMap.get(followedUser._id.toString());
+    return {
+      _id: followedUser._id,
+      firstName: followedUser.firstName,
+      lastName: followedUser.lastName,
+      fullName: `${followedUser.firstName} ${followedUser.lastName}`,
+      username: followedUser.username,
+      profilePicture: followedUser.profileImage || followedUser.avatar,
+      avatar: followedUser.avatar,
+      bio: followedUser.bio,
+      isVerified: followedUser.isVerified,
+      isPrivate: followedUser.isPrivate || false,
+      isFollowing: status === 'accepted',
+      isPending: status === 'requested',
+    };
+  });
 
   return res.status(200).json(
     new ApiResponse(

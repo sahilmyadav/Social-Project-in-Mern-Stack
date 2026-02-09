@@ -23,7 +23,6 @@ interface ScrollBarProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const ScrollBar = React.forwardRef<HTMLDivElement, ScrollBarProps>(
   ({ className = '', orientation = 'vertical', ...props }, ref) => {
-    // This is a simplified scrollbar - in production you'd use radix-ui/react-scroll-area
     return (
       <div
         ref={ref}

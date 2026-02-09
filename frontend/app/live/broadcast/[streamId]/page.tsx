@@ -149,6 +149,7 @@ import {
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { ICE_SERVERS, cleanupPeerConnection, cleanupMediaStream } from '@/lib/webrtc';
 
 /**
  * ============================================================================
@@ -239,17 +240,9 @@ export default function BroadcastPage() {
   const router = useRouter();
   const streamId = params.streamId as string;
 
-  // ========================================================================
-  // REFS
-  // ========================================================================
   const videoRef = useRef<HTMLVideoElement>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
-  // ========================================================================
-  // STATE MANAGEMENT
-  // ========================================================================
-
-  // Stream state
   const [streamTitle, setStreamTitle] = useState('');
   const [streamDescription, setStreamDescription] = useState('');
   const [streamStartedAt, setStreamStartedAt] = useState<Date | null>(null);
@@ -258,58 +251,27 @@ export default function BroadcastPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Media state
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null); // Ref for callbacks
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
 
-  // WebRTC peer connections (one per viewer) - using ref to avoid stale closure issues
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
 
-  // Viewers state
   const [viewerCount, setViewerCount] = useState(0);
   const [viewers, setViewers] = useState<LiveViewer[]>([]);
   const [showViewers, setShowViewers] = useState(false);
 
-  // Comments state
   const [comments, setComments] = useState<LiveComment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [pinnedComment, setPinnedComment] = useState<LiveComment | null>(null);
   const [showComments, setShowComments] = useState(true);
 
-  // UI state
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [heartCounter, setHeartCounter] = useState(0);
 
-  // ========================================================================
-  // WEBRTC CONFIGURATION
-  // ========================================================================
-  /**
-   * ICE Servers Configuration
-   * -------------------------
-   * STUN servers: Help peers discover their public IP addresses
-   * TURN servers: Relay traffic when direct connection isn't possible
-   *
-   * Currently using Google's free STUN servers. For production,
-   * you should add your own TURN servers for better reliability.
-   */
-  const rtcConfig: RTCConfiguration = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      // Add TURN server for production:
-      // { urls: 'turn:your-turn-server.com', username: 'user', credential: 'pass' }
-    ],
-    iceCandidatePoolSize: 10,
-  };
-
-  // ========================================================================
-  // FETCH STREAM DETAILS
-  // ========================================================================
   /**
    * Load stream metadata from the API
    * This is called on mount to get the stream title, description, etc.
@@ -321,7 +283,6 @@ export default function BroadcastPage() {
         setStreamTitle(response.data.title);
         setStreamDescription(response.data.description || '');
 
-        // If stream is already live (page refresh), restore state
         if (response.data.status === 'live') {
           setIsLive(true);
           isLiveRef.current = true; // Keep ref in sync
@@ -334,15 +295,11 @@ export default function BroadcastPage() {
         setTimeout(() => router.push('/live'), 2000);
       }
     } catch (error: any) {
-      console.error('Error fetching stream details:', error);
       setError('Failed to load stream');
       toast.error('Failed to load stream');
     }
   }, [streamId, router]);
 
-  // ========================================================================
-  // INITIALIZE CAMERA & MICROPHONE
-  // ========================================================================
   /**
    * Request access to camera and microphone
    *
@@ -375,20 +332,17 @@ export default function BroadcastPage() {
       setLocalStream(stream);
       localStreamRef.current = stream; // Keep ref in sync
 
-      // Attach stream to video element
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         try {
           await videoRef.current.play();
         } catch (playError) {
-          console.warn('Auto-play blocked:', playError);
         }
       }
 
       setLoading(false);
       toast.success('Camera ready! Click "Go Live" when ready.');
     } catch (error: any) {
-      console.error('Media access error:', error);
 
       let errorMessage = 'Failed to access camera/microphone';
       if (error.name === 'NotAllowedError') {
@@ -406,9 +360,6 @@ export default function BroadcastPage() {
     }
   }, [facingMode]);
 
-  // ========================================================================
-  // START LIVE STREAM
-  // ========================================================================
   /**
    * Begin broadcasting to viewers
    *
@@ -424,35 +375,24 @@ export default function BroadcastPage() {
    */
   const startLiveStream = async () => {
     try {
-      console.log('📡 Starting live stream:', streamId);
       const response = await liveStreamService.startLiveStream(streamId);
-      console.log('📡 Start stream response:', response);
 
       if (response.success) {
         setIsLive(true);
         isLiveRef.current = true; // Keep ref in sync for callbacks
         setStreamStartedAt(new Date());
 
-        // Emit socket event to notify followers
         emitStartLiveStream(streamId, streamTitle, streamDescription);
 
         toast.success('🔴 You are now LIVE!');
       } else {
-        console.error('Start stream failed:', response);
         toast.error(response.message || 'Failed to start live stream');
       }
     } catch (error: any) {
-      console.error(
-        'Error starting live stream:',
-        error?.message || error?.error || JSON.stringify(error)
-      );
       toast.error(error?.message || error?.error || 'Failed to start live stream');
     }
   };
 
-  // ========================================================================
-  // END LIVE STREAM
-  // ========================================================================
   /**
    * Stop broadcasting and cleanup
    *
@@ -467,19 +407,12 @@ export default function BroadcastPage() {
     try {
       const response = await liveStreamService.endLiveStream(streamId);
       if (response.success) {
-        // Notify all viewers
         emitEndLiveStream(streamId);
 
-        // Close all peer connections
-        peerConnectionsRef.current.forEach((pc) => {
-          pc.close();
-        });
+        peerConnectionsRef.current.forEach((pc) => cleanupPeerConnection(pc));
         peerConnectionsRef.current = new Map();
 
-        // Stop all media tracks
-        if (localStream) {
-          localStream.getTracks().forEach((track) => track.stop());
-        }
+        cleanupMediaStream(localStream);
 
         toast.success('Live stream ended');
         router.push('/live');
@@ -487,14 +420,10 @@ export default function BroadcastPage() {
         toast.error(response.message || 'Failed to end live stream');
       }
     } catch (error: any) {
-      console.error('Error ending live stream:', error);
       toast.error(error.message || 'Failed to end live stream');
     }
   };
 
-  // ========================================================================
-  // CREATE PEER CONNECTION FOR NEW VIEWER
-  // ========================================================================
   /**
    * Create RTCPeerConnection for a specific viewer
    *
@@ -507,59 +436,41 @@ export default function BroadcastPage() {
    */
   const createPeerConnection = useCallback(
     (viewerId: string) => {
-      console.log(`📡 Creating peer connection for viewer: ${viewerId}`);
 
-      const pc = new RTCPeerConnection(rtcConfig);
+      const pc = new RTCPeerConnection(ICE_SERVERS);
 
-      // Add all local tracks to the peer connection (use ref to get current stream)
       const stream = localStreamRef.current;
       if (stream) {
         stream.getTracks().forEach((track) => {
-          console.log(`  Adding ${track.kind} track to peer`);
           pc.addTrack(track, stream);
         });
       } else {
-        console.warn('  ⚠️ No local stream available to add tracks!');
       }
 
-      // Handle ICE candidates
-      // These are network addresses that can be used to connect
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log(`  Sending ICE candidate to ${viewerId}`);
           emitLiveStreamIceCandidate(streamId, viewerId, event.candidate);
         }
       };
 
-      // Handle connection state changes
       pc.onconnectionstatechange = () => {
-        console.log(`  Connection state: ${pc.connectionState}`);
 
         if (pc.connectionState === 'connected') {
-          console.log(`  ✅ Connected to viewer ${viewerId}`);
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-          console.log(`  ❌ Disconnected from viewer ${viewerId}`);
-          // Cleanup this peer connection
-          pc.close();
+          cleanupPeerConnection(pc);
           peerConnectionsRef.current.delete(viewerId);
         }
       };
 
-      // Handle ICE connection state (more granular)
       pc.oniceconnectionstatechange = () => {
-        console.log(`  ICE state: ${pc.iceConnectionState}`);
       };
 
-      // Store the peer connection in ref (not state to avoid stale closure)
       peerConnectionsRef.current.set(viewerId, pc);
       return pc;
     },
-    [streamId, rtcConfig] // Using refs for localStream, so no dependency needed
+    [streamId] // Using refs for localStream, so no dependency needed
   );
 
-  // ========================================================================
-  // HANDLE NEW VIEWER JOINING
-  // ========================================================================
   /**
    * When a viewer joins, create a peer connection and send offer
    *
@@ -575,17 +486,13 @@ export default function BroadcastPage() {
   const handleViewerJoined = useCallback(
     async (data: any) => {
       const { viewerId, viewer, viewerCount: count } = data;
-      console.log(`👤 Viewer joined: ${viewerId}`, viewer);
 
-      // Update viewer count
       if (count !== undefined) {
         setViewerCount(count);
       }
 
-      // Add to viewers list
       if (viewer) {
         setViewers((prev) => {
-          // Avoid duplicates
           if (prev.some((v) => v.userId === viewer._id)) return prev;
           return [
             ...prev,
@@ -600,34 +507,26 @@ export default function BroadcastPage() {
         });
       }
 
-      // Only create peer connection if we're live (use ref to get current value)
       if (!isLiveRef.current) {
-        console.log('  Stream not live yet, skipping peer connection');
         return;
       }
 
       const pc = createPeerConnection(viewerId);
 
       try {
-        // Create and send offer
         const offer = await pc.createOffer({
           offerToReceiveAudio: false, // We're sending, not receiving
           offerToReceiveVideo: false,
         });
         await pc.setLocalDescription(offer);
 
-        console.log(`  Sending offer to ${viewerId}`);
         emitLiveStreamOffer(streamId, viewerId, offer);
       } catch (error) {
-        console.error('Error creating offer:', error);
       }
     },
     [createPeerConnection, streamId]
   );
 
-  // ========================================================================
-  // HANDLE VIEWER LEFT
-  // ========================================================================
   /**
    * Clean up when a viewer leaves
    *
@@ -638,27 +537,19 @@ export default function BroadcastPage() {
     const { viewerId, userId, viewerCount: count } = data;
     const id = viewerId || userId;
 
-    console.log(`👋 Viewer left: ${id}`);
-
-    // Update viewer count
     if (count !== undefined) {
       setViewerCount(count);
     }
 
-    // Remove from viewers list
     setViewers((prev) => prev.filter((v) => v.userId !== id));
 
-    // Close and remove peer connection
     const pc = peerConnectionsRef.current.get(id);
     if (pc) {
-      pc.close();
+      cleanupPeerConnection(pc);
       peerConnectionsRef.current.delete(id);
     }
   }, []);
 
-  // ========================================================================
-  // HANDLE WEBRTC ANSWER FROM VIEWER
-  // ========================================================================
   /**
    * Process answer from viewer to complete WebRTC handshake
    *
@@ -672,24 +563,16 @@ export default function BroadcastPage() {
     const { viewerId, senderId, answer } = data;
     const id = viewerId || senderId;
 
-    console.log(`📨 Received answer from ${id}`);
-
     const pc = peerConnectionsRef.current.get(id);
     if (pc && pc.signalingState === 'have-local-offer') {
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`  ✅ Remote description set for ${id}`);
       } catch (error) {
-        console.error('Error setting remote description:', error);
       }
     } else {
-      console.warn(`  ⚠️ No peer connection found for ${id} or wrong state`);
     }
   }, []);
 
-  // ========================================================================
-  // HANDLE ICE CANDIDATE FROM VIEWER
-  // ========================================================================
   /**
    * Add ICE candidate from viewer
    *
@@ -707,16 +590,11 @@ export default function BroadcastPage() {
     if (pc && candidate) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log(`  Added ICE candidate from ${id}`);
       } catch (error) {
-        console.error('Error adding ICE candidate:', error);
       }
     }
   }, []);
 
-  // ========================================================================
-  // HANDLE NEW COMMENT
-  // ========================================================================
   /**
    * Process incoming live comment
    *
@@ -744,7 +622,6 @@ export default function BroadcastPage() {
 
       setComments((prev) => [...prev.slice(-99), formattedComment]); // Keep last 100
 
-      // Auto-scroll to latest
       setTimeout(() => {
         commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
@@ -752,9 +629,6 @@ export default function BroadcastPage() {
     [streamId]
   );
 
-  // ========================================================================
-  // HANDLE REACTION (HEARTS)
-  // ========================================================================
   /**
    * Add floating heart animation when viewer sends reaction
    */
@@ -771,17 +645,12 @@ export default function BroadcastPage() {
 
       setFloatingHearts((prev) => [...prev, heart]);
 
-      // Remove after animation
       setTimeout(() => {
         setFloatingHearts((prev) => prev.filter((h) => h.id !== id));
       }, 3000);
     },
     [heartCounter]
   );
-
-  // ========================================================================
-  // MEDIA CONTROL FUNCTIONS
-  // ========================================================================
 
   /**
    * Toggle camera on/off
@@ -818,10 +687,8 @@ export default function BroadcastPage() {
   const flipCamera = async () => {
     if (!localStream) return;
 
-    // Stop current video track
     localStream.getVideoTracks().forEach((track) => track.stop());
 
-    // Toggle facing mode
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newFacingMode);
 
@@ -836,7 +703,6 @@ export default function BroadcastPage() {
 
       const newVideoTrack = newStream.getVideoTracks()[0];
 
-      // Replace video track in all peer connections
       peerConnectionsRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
         if (sender) {
@@ -844,7 +710,6 @@ export default function BroadcastPage() {
         }
       });
 
-      // Update local stream
       const audioTrack = localStream.getAudioTracks()[0];
       const updatedStream = new MediaStream([newVideoTrack, audioTrack].filter(Boolean));
       setLocalStream(updatedStream);
@@ -856,14 +721,10 @@ export default function BroadcastPage() {
 
       toast.success('Camera flipped');
     } catch (error) {
-      console.error('Error flipping camera:', error);
       toast.error('Failed to flip camera');
     }
   };
 
-  // ========================================================================
-  // SEND COMMENT
-  // ========================================================================
   const sendComment = () => {
     if (commentText.trim() && isLive) {
       emitLiveComment(streamId, commentText.trim());
@@ -876,7 +737,6 @@ export default function BroadcastPage() {
    */
   const pinComment = (comment: LiveComment) => {
     setPinnedComment(comment);
-    // TODO: Emit socket event to broadcast pinned comment
   };
 
   /**
@@ -908,20 +768,14 @@ export default function BroadcastPage() {
     }
   };
 
-  // ========================================================================
-  // SOCKET EVENT LISTENERS SETUP
-  // ========================================================================
   useEffect(() => {
-    // Viewer events
     onViewerJoined(handleViewerJoined);
     onViewerLeft(handleViewerLeft);
     onViewerCountUpdate((data) => setViewerCount(data.count || data.viewerCount || 0));
 
-    // WebRTC signaling events
     onLiveStreamAnswer(handleAnswer);
     onLiveStreamIceCandidate(handleIceCandidate);
 
-    // Chat events
     onLiveComment(handleNewComment);
 
     return () => {
@@ -934,17 +788,11 @@ export default function BroadcastPage() {
     };
   }, [handleViewerJoined, handleViewerLeft, handleAnswer, handleIceCandidate, handleNewComment]);
 
-  // ========================================================================
-  // INITIALIZE COMPONENT
-  // ========================================================================
   useEffect(() => {
-    // Fetch stream details first
     fetchStreamDetails();
 
-    // Request camera/microphone permissions immediately
     const requestMediaPermissions = async () => {
       try {
-        // Check if permissions API is available
         if (navigator.permissions) {
           const cameraPermission = await navigator.permissions.query({
             name: 'camera' as PermissionName,
@@ -953,15 +801,10 @@ export default function BroadcastPage() {
             name: 'microphone' as PermissionName,
           });
 
-          console.log('Camera permission:', cameraPermission.state);
-          console.log('Microphone permission:', micPermission.state);
         }
 
-        // Initialize media (this will trigger the permission prompt)
         await initializeMedia();
       } catch (error) {
-        console.error('Error requesting media permissions:', error);
-        // Still try to initialize media even if permissions query fails
         initializeMedia();
       }
     };
@@ -969,30 +812,19 @@ export default function BroadcastPage() {
     requestMediaPermissions();
 
     return () => {
-      // Cleanup on unmount - use ref to get current stream
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-      peerConnectionsRef.current.forEach((pc) => pc.close());
+      cleanupMediaStream(localStreamRef.current);
+      peerConnectionsRef.current.forEach((pc) => cleanupPeerConnection(pc));
     };
   }, []);
 
-  // ========================================================================
-  // ATTACH STREAM TO VIDEO ELEMENT WHEN READY
-  // ========================================================================
   useEffect(() => {
     if (localStream && videoRef.current) {
-      console.log('📹 Attaching local stream to video element');
       videoRef.current.srcObject = localStream;
       videoRef.current.play().catch((err) => {
-        console.warn('Auto-play blocked:', err);
       });
     }
   }, [localStream]);
 
-  // ========================================================================
-  // ERROR STATE
-  // ========================================================================
   if (error) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -1006,17 +838,10 @@ export default function BroadcastPage() {
     );
   }
 
-  // ========================================================================
-  // RENDER
-  // ========================================================================
   return (
     <div className="min-h-screen bg-background">
       <div className="h-screen flex flex-col lg:flex-row">
-        {/* ============================================================
-                    VIDEO SECTION - Left/Main Area
-                    ============================================================ */}
         <div className="flex-1 relative flex flex-col">
-          {/* Video Preview */}
           <div className="flex-1 relative bg-muted overflow-hidden">
             {loading ? (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -1027,7 +852,6 @@ export default function BroadcastPage() {
               </div>
             ) : (
               <>
-                {/* Video Element */}
                 <video
                   ref={videoRef}
                   autoPlay
@@ -1037,7 +861,6 @@ export default function BroadcastPage() {
                   style={{ transform: 'scaleX(-1)' }} // Mirror for selfie view
                 />
 
-                {/* Camera Off State */}
                 {!isCameraOn && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
                     <CameraOff className="h-20 w-20 text-muted-foreground mb-4" />
@@ -1045,10 +868,8 @@ export default function BroadcastPage() {
                   </div>
                 )}
 
-                {/* Top Overlay - Status Bar */}
                 <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
                   <div className="flex items-center justify-between">
-                    {/* Left Side - Live Badge & Timer */}
                     <div className="flex items-center gap-3">
                       {isLive ? (
                         <Badge className="bg-red-600 text-white border-0 px-4 py-2 text-sm animate-live-pulse animate-live-glow">
@@ -1068,7 +889,6 @@ export default function BroadcastPage() {
                       <StreamTimer startedAt={streamStartedAt} isLive={isLive} />
                     </div>
 
-                    {/* Right Side - Viewer Count */}
                     <Button
                       variant="ghost"
                       className="bg-black/60 hover:bg-black/80 gap-2"
@@ -1079,7 +899,6 @@ export default function BroadcastPage() {
                     </Button>
                   </div>
 
-                  {/* Stream Title */}
                   {streamTitle && (
                     <div className="mt-3">
                       <h2 className="text-lg font-semibold drop-shadow-lg">{streamTitle}</h2>
@@ -1087,10 +906,8 @@ export default function BroadcastPage() {
                   )}
                 </div>
 
-                {/* Floating Hearts */}
                 <FloatingHearts hearts={floatingHearts} />
 
-                {/* Pinned Comment */}
                 {pinnedComment && (
                   <div className="absolute left-4 bottom-32 max-w-xs bg-black/70 backdrop-blur-sm rounded-lg p-3 border border-white/10">
                     <div className="flex items-center gap-2 mb-1">
@@ -1115,10 +932,8 @@ export default function BroadcastPage() {
             )}
           </div>
 
-          {/* Bottom Controls */}
           <div className="bg-card border-t border-border p-4">
             <div className="flex items-center justify-between max-w-2xl mx-auto">
-              {/* Left Controls - Camera & Mic */}
               <div className="flex items-center gap-3">
                 <Button
                   variant={isCameraOn ? 'default' : 'destructive'}
@@ -1149,7 +964,6 @@ export default function BroadcastPage() {
                 </Button>
               </div>
 
-              {/* Center - Go Live / End Button */}
               <div>
                 {!isLive ? (
                   <Button
@@ -1174,7 +988,6 @@ export default function BroadcastPage() {
                 )}
               </div>
 
-              {/* Right Controls - Share, Settings */}
               <div className="flex items-center gap-3">
                 <Button
                   variant="outline"
@@ -1197,12 +1010,8 @@ export default function BroadcastPage() {
           </div>
         </div>
 
-        {/* ============================================================
-                    CHAT SECTION - Right Sidebar (Desktop)
-                    ============================================================ */}
         {showComments && (
           <div className="w-full lg:w-96 bg-card border-l border-border flex flex-col">
-            {/* Chat Header */}
             <div className="p-4 border-b border-border flex items-center justify-between">
               <h3 className="font-semibold flex items-center gap-2">
                 <MessageCircle className="h-5 w-5 text-primary" />
@@ -1218,7 +1027,6 @@ export default function BroadcastPage() {
               </Button>
             </div>
 
-            {/* Comments List */}
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
                 {comments.length === 0 ? (
@@ -1263,7 +1071,6 @@ export default function BroadcastPage() {
               </div>
             </ScrollArea>
 
-            {/* Comment Input */}
             <div className="p-4 border-t border-border">
               <div className="flex gap-2">
                 <Input
@@ -1283,7 +1090,6 @@ export default function BroadcastPage() {
         )}
       </div>
 
-      {/* End Stream Confirmation Dialog */}
       <ConfirmDialog
         isOpen={showEndConfirm}
         onClose={() => setShowEndConfirm(false)}
@@ -1295,7 +1101,6 @@ export default function BroadcastPage() {
         variant="danger"
       />
 
-      {/* Viewers Sheet/Modal */}
       {showViewers && (
         <div
           className="fixed inset-0 bg-black/80 z-50 flex items-end lg:items-center justify-center"
@@ -1338,7 +1143,6 @@ export default function BroadcastPage() {
         </div>
       )}
 
-      {/* CSS for floating hearts animation */}
       <style jsx global>{`
         @keyframes float-up {
           0% {

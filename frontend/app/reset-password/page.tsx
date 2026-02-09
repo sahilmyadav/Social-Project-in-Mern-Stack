@@ -40,14 +40,12 @@ function ResetPasswordForm() {
     e.preventDefault()
     setError("")
 
-    // Validate password
     const passwordError = validatePassword(newPassword)
     if (passwordError) {
       setError(passwordError)
       return
     }
 
-    // Check if passwords match
     if (newPassword !== confirmPassword) {
       setError("Passwords do not match")
       return
@@ -65,7 +63,6 @@ function ResetPasswordForm() {
 
       if (response.success) {
         setSuccess(true)
-        // Redirect to login after 3 seconds
         setTimeout(() => {
           router.push("/login")
         }, 3000)
@@ -139,7 +136,6 @@ function ResetPasswordForm() {
     <main className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="bg-card rounded-2xl border border-border p-8 shadow-lg">
-          {/* Header */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-primary to-secondary mb-4">
               <Lock className="w-8 h-8 text-white" />
@@ -148,7 +144,6 @@ function ResetPasswordForm() {
             <p className="text-muted-foreground mt-2">Enter your new password below</p>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-sm font-medium text-foreground block mb-2">
@@ -198,7 +193,6 @@ function ResetPasswordForm() {
             </Button>
           </form>
 
-          {/* Back to Login */}
           <div className="mt-6 text-center">
             <Link href="/login" className="inline-flex items-center gap-2 text-primary hover:underline">
               <ArrowLeft size={16} />

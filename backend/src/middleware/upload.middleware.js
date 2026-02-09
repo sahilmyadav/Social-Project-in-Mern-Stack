@@ -28,8 +28,8 @@ const storage = multer.diskStorage({
 
 // File filter to accept images, videos, audio, and documents
 const fileFilter = (req, file, cb) => {
-  // Allowed image formats
-  const imageTypes = /jpeg|jpg|png|gif|webp|svg/;
+  // Allowed image formats (SVG excluded — XSS risk via inline <script> tags)
+  const imageTypes = /jpeg|jpg|png|gif|webp/;
   // Allowed video formats
   const videoTypes = /mp4|mov|avi|mkv|webm|flv/;
   // Allowed audio formats
@@ -67,20 +67,18 @@ const fileFilter = (req, file, cb) => {
   } else {
     cb(
       new Error(
-        'Invalid file type. Allowed: images (jpeg, jpg, png, gif, webp, svg), videos (mp4, mov, avi, mkv, webm, flv), audio (mp3, wav, ogg, webm, m4a, aac, flac), documents (pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, zip, rar).'
+        'Invalid file type. Allowed: images (jpeg, jpg, png, gif, webp), videos (mp4, mov, avi, mkv, webm, flv), audio (mp3, wav, ogg, webm, m4a, aac, flac), documents (pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, zip, rar).'
       ),
       false
     );
   }
 };
 
-// Configure multer
+// No file size limits per client request — rely on nginx/proxy limits if needed
+
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
-  limits: {
-    fileSize: Infinity, // No file size limit
-  },
 });
 
 // Middleware for single file upload
@@ -89,11 +87,11 @@ export const uploadSingle = upload.single('file');
 // Middleware for cover photo upload
 export const uploadCoverPhoto = upload.single('coverPhoto');
 
-// Middleware for multiple files upload (unlimited - 100 max)
-export const uploadMultiple = upload.array('files', 100);
+// Middleware for multiple files upload (no limit per client request)
+export const uploadMultiple = upload.array('files');
 
-// Middleware for chat media (field name 'media', max 5 files)
-export const uploadChatMedia = upload.array('media', 5);
+// Middleware for chat media (field name 'media')
+export const uploadChatMedia = upload.array('media');
 
 // Middleware for group avatar upload
 export const uploadGroupAvatar = upload.single('avatar');

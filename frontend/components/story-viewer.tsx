@@ -81,7 +81,6 @@ export default function StoryViewer({
     currentStory?.media?.type === 'image' ||
     (!currentStory?.media?.type && rawMediaUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i));
 
-  // Calculate time ago
   const getTimeAgo = (date: string) => {
     const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
     if (seconds < 60) return `${seconds}s ago`;
@@ -90,10 +89,8 @@ export default function StoryViewer({
     return `${Math.floor(seconds / 86400)}d ago`;
   };
 
-  // Track if we should advance to next story
   const shouldAdvanceRef = useRef(false);
 
-  // Handle auto-advance when progress completes
   useEffect(() => {
     if (shouldAdvanceRef.current) {
       shouldAdvanceRef.current = false;
@@ -101,17 +98,13 @@ export default function StoryViewer({
     }
   }, [progress]);
 
-  // Auto-advance story
   useEffect(() => {
     if (!isOpen || isPaused || !mediaLoaded) return;
 
-    // Calculate duration based on content type
     let duration: number;
     if (isImage) {
-      // Images: 5 seconds, or 30 seconds if music is attached
       duration = currentStory?.music ? 30000 : 5000;
     } else {
-      // Videos: use actual video duration, or fallback to 15 seconds
       const actualVideoDuration = videoDuration > 0 ? videoDuration * 1000 : 15000;
       duration = actualVideoDuration;
     }
@@ -122,7 +115,6 @@ export default function StoryViewer({
       setProgress((prev) => {
         const newProgress = prev + (interval / duration) * 100;
         if (newProgress >= 100) {
-          // Use ref to trigger navigation in next render cycle
           shouldAdvanceRef.current = true;
           return 100; // Set to 100 to trigger the useEffect
         }
@@ -137,7 +129,6 @@ export default function StoryViewer({
     };
   }, [currentIndex, isOpen, isPaused, isImage, currentStory?.music, mediaLoaded, videoDuration]);
 
-  // Play music if story has music (only after media is loaded)
   useEffect(() => {
     if (!isOpen || !currentStory?.music || !mediaLoaded) {
       if (musicAudioRef.current) {
@@ -150,18 +141,15 @@ export default function StoryViewer({
     const audio = new Audio(currentStory.music.previewUrl);
     let checkPlayback: NodeJS.Timeout | null = null;
 
-    // Validate startTime is a finite number
     const startTime =
       typeof currentStory.music.startTime === 'number' && isFinite(currentStory.music.startTime)
         ? currentStory.music.startTime
         : 0;
 
-    // Wait for audio metadata to load before setting currentTime and playing
     audio.addEventListener('loadedmetadata', () => {
       audio.currentTime = startTime;
     });
 
-    // Start timer only when audio actually starts playing
     audio.addEventListener(
       'playing',
       () => {
@@ -195,13 +183,10 @@ export default function StoryViewer({
     };
   }, [currentStory?._id, isOpen, mediaLoaded]);
 
-  // Ensure video plays when story changes
   useEffect(() => {
     if (!isOpen || isImage || !videoRef.current || !mediaLoaded) return;
 
-    // Play the video
     videoRef.current.play().catch(() => {
-      // If autoplay fails, try muted autoplay
       if (videoRef.current) {
         videoRef.current.muted = true;
         videoRef.current.play().catch(() => {});
@@ -209,14 +194,12 @@ export default function StoryViewer({
     });
   }, [currentIndex, isOpen, isImage, mediaLoaded]);
 
-  // Reset progress and media loaded state when story changes or when modal opens
   useEffect(() => {
     setProgress(0);
     setMediaLoaded(false); // Reset media loaded state for new story
     setVideoDuration(0); // Reset video duration for new story
   }, [currentIndex, isOpen]);
 
-  // Load viewers for own stories
   const loadViewers = async () => {
     if (!currentStory || !isOwner) return;
 
@@ -228,33 +211,25 @@ export default function StoryViewer({
         setViewCount(viewersList.length);
       }
     } catch (error) {
-      console.error('❌ Error loading story viewers:', error);
-      // Don't break the story viewer if this fails
       setViewers([]);
       setViewCount(0);
     }
   };
 
-  // Track story view and load view count
   useEffect(() => {
     if (!isOpen || !currentStory) return;
 
     const trackView = async () => {
-      // Don't track view for own story
       if (isOwner) {
-        // Load viewers for own story
         loadViewers();
         return;
       }
 
-      // Track view only once per story
       if (!hasTrackedView.current.has(currentStory._id)) {
         try {
           await storyService.viewStory(currentStory._id);
           hasTrackedView.current.add(currentStory._id);
         } catch (error) {
-          console.error('❌ Error tracking story view:', error);
-          // Don't break the story viewer if tracking fails
         }
       }
     };
@@ -272,7 +247,6 @@ export default function StoryViewer({
       setCurrentIndex(currentIndex + 1);
       setProgress(0);
     } else {
-      // Use setTimeout to defer state update and avoid updating parent during render
       setTimeout(() => {
         onClose();
       }, 0);
@@ -297,13 +271,11 @@ export default function StoryViewer({
       onConfirm: async () => {
         await onDelete?.(currentStory._id);
 
-        // Move to next story or close if last one
         if (stories.length > 1) {
           if (currentIndex === stories.length - 1) {
             setCurrentIndex(Math.max(0, currentIndex - 1));
           }
         } else {
-          // Use setTimeout to defer state update and avoid updating parent during render
           setTimeout(() => {
             onClose();
           }, 0);
@@ -312,10 +284,8 @@ export default function StoryViewer({
     });
   };
 
-  // Close viewer if stories become invalid
   useEffect(() => {
     if (isOpen && (!stories || stories.length === 0 || !currentStory)) {
-      // Use setTimeout to defer state update and avoid updating parent during render
       const timeoutId = setTimeout(() => {
         onClose();
       }, 0);
@@ -342,7 +312,6 @@ export default function StoryViewer({
         ))}
       </div>
 
-      {/* Header */}
       <div className="absolute top-4 left-0 right-0 flex items-center justify-between px-4 z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
@@ -365,7 +334,6 @@ export default function StoryViewer({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* View Count (for own stories) */}
           {isOwner && viewCount > 0 && (
             <button
               onClick={() => setShowViewers(true)}
@@ -390,7 +358,6 @@ export default function StoryViewer({
         </div>
       </div>
 
-      {/* Story content */}
       <div
         className="relative w-full h-full flex items-center justify-center"
         onClick={() => setIsPaused(!isPaused)}
@@ -424,7 +391,6 @@ export default function StoryViewer({
               }}
               onLoadedData={() => {
                 setMediaLoaded(true);
-                // Ensure video plays
                 if (videoRef.current) {
                   videoRef.current.play().catch(() => {});
                 }
@@ -443,7 +409,6 @@ export default function StoryViewer({
           </div>
         )}
 
-        {/* Loading indicator */}
         {!mediaLoaded && mediaUrl && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-3">
@@ -454,7 +419,6 @@ export default function StoryViewer({
         )}
       </div>
 
-      {/* Music Indicator */}
       {currentStory?.music && (
         <div className="absolute bottom-20 left-4 right-4 z-10">
           <div className="bg-black/60 backdrop-blur-sm rounded-xl p-3 flex items-center gap-3">
@@ -471,7 +435,6 @@ export default function StoryViewer({
         </div>
       )}
 
-      {/* Navigation */}
       {currentIndex > 0 && (
         <button
           onClick={handlePrevious}
@@ -489,7 +452,6 @@ export default function StoryViewer({
         </button>
       )}
 
-      {/* Pause indicator */}
       {isPaused && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/50 rounded-full p-4">
           <div className="w-3 h-8 bg-white/80 rounded-sm mx-1 inline-block" />
@@ -497,7 +459,6 @@ export default function StoryViewer({
         </div>
       )}
 
-      {/* Viewers Modal */}
       {showViewers && isOwner && (
         <div
           className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
@@ -507,7 +468,6 @@ export default function StoryViewer({
             className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-purple-500" />
@@ -522,7 +482,6 @@ export default function StoryViewer({
               </button>
             </div>
 
-            {/* Viewers List */}
             <div className="flex-1 overflow-y-auto p-4">
               {viewers.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">

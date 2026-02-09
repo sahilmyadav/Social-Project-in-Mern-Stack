@@ -19,10 +19,8 @@ export default function IncomingVideoCallNotification({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="bg-gradient-to-b from-gray-900 to-black rounded-3xl p-8 shadow-2xl border border-white/10 max-w-sm w-full mx-4">
-        {/* Caller info */}
         <div className="text-center mb-8">
           <div className="relative inline-block mb-4">
-            {/* Pulsing animation */}
             <div className="absolute inset-0 rounded-full bg-blue-500 opacity-30 animate-ping" />
             <div
               className="absolute inset-0 rounded-full bg-blue-500 opacity-30 animate-ping"
@@ -49,7 +47,6 @@ export default function IncomingVideoCallNotification({
           </p>
         </div>
 
-        {/* Action buttons */}
         <div className="flex items-center justify-center gap-6">
           <button
             onClick={onReject}
@@ -65,7 +62,6 @@ export default function IncomingVideoCallNotification({
           </button>
         </div>
 
-        {/* Bouncing dots */}
         <div className="flex items-center justify-center gap-1.5 mt-6">
           <div
             className="w-2 h-2 rounded-full bg-blue-400 animate-bounce"

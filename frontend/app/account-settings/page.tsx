@@ -20,7 +20,6 @@ import {
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-// OTP Input Component
 function OTPInput({
   length = 6,
   value,
@@ -32,7 +31,6 @@ function OTPInput({
 }) {
   const handleChange = (index: number, char: string) => {
     if (char.length > 1) {
-      // Handle paste
       const pastedValue = char.slice(0, length).replace(/\D/g, '');
       onChange(pastedValue);
       return;
@@ -44,7 +42,6 @@ function OTPInput({
     newValue[index] = char;
     onChange(newValue.join(''));
 
-    // Auto focus next input
     if (char && index < length - 1) {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       nextInput?.focus();
@@ -88,7 +85,6 @@ export default function AccountSettingsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Form data
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -101,14 +97,12 @@ export default function AccountSettingsPage() {
     confirmPassword: '',
   });
 
-  // Edit states
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [isEditingPhone, setIsEditingPhone] = useState(false);
   const [isEditingDOB, setIsEditingDOB] = useState(false);
 
-  // OTP verification states
   const [showEmailOTP, setShowEmailOTP] = useState(false);
   const [showPhoneOTP, setShowPhoneOTP] = useState(false);
   const [emailOTP, setEmailOTP] = useState('');
@@ -116,7 +110,6 @@ export default function AccountSettingsPage() {
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
 
-  // Loading states
   const [nameLoading, setNameLoading] = useState(false);
   const [usernameLoading, setUsernameLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
@@ -124,13 +117,11 @@ export default function AccountSettingsPage() {
   const [dobLoading, setDobLoading] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
 
-  // Username availability
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>(
     'idle'
   );
   const [usernameCheckTimeout, setUsernameCheckTimeout] = useState<NodeJS.Timeout | null>(null);
 
-  // Notifications state
   const [notifications, setNotifications] = useState({
     likes: true,
     comments: true,
@@ -163,7 +154,6 @@ export default function AccountSettingsPage() {
         return;
       }
 
-      // First, set data from localStorage for quick display
       const parsedUser = JSON.parse(userData);
       setUser(parsedUser);
       setFormData({
@@ -180,17 +170,14 @@ export default function AccountSettingsPage() {
       setIsPrivateAccount(parsedUser.profile_type === 'private' || parsedUser.isPrivate || false);
       setAllowDownloads(parsedUser.allowDownloads !== false);
 
-      // Then fetch fresh data from server
       try {
         const response = await authService.getCurrentUser();
         if (response.success && response.data) {
           const freshUser = response.data;
-          // Merge fresh data with existing data
           const updatedUser = { ...parsedUser, ...freshUser };
           localStorage.setItem('user', JSON.stringify(updatedUser));
           setUser(updatedUser);
 
-          // Format date of birth properly for input
           let dobValue = '';
           if (freshUser.dob) {
             const date = new Date(freshUser.dob);
@@ -213,14 +200,12 @@ export default function AccountSettingsPage() {
           setAllowDownloads(freshUser.allowDownloads !== false);
         }
       } catch (error) {
-        console.error('Failed to fetch fresh user data:', error);
       }
     };
 
     loadUserData();
   }, [router]);
 
-  // Check username availability
   const checkUsernameAvailability = async (username: string) => {
     if (!username || username === user?.username) {
       setUsernameStatus('idle');
@@ -250,7 +235,6 @@ export default function AccountSettingsPage() {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
 
-    // Check username availability with debounce
     if (name === 'username') {
       if (usernameCheckTimeout) {
         clearTimeout(usernameCheckTimeout);
@@ -266,7 +250,6 @@ export default function AccountSettingsPage() {
     setNotifications({ ...notifications, [key]: !notifications[key] });
   };
 
-  // Save Name
   const handleSaveName = async () => {
     if (!formData.firstName.trim()) {
       confirm({
@@ -325,7 +308,6 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Save Username
   const handleSaveUsername = async () => {
     if (!formData.username.trim() || formData.username.length < 3) {
       confirm({
@@ -394,7 +376,6 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Request Email Change OTP
   const handleRequestEmailChange = async () => {
     if (!newEmail.trim() || !newEmail.includes('@')) {
       confirm({
@@ -442,7 +423,6 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Verify Email Change OTP
   const handleVerifyEmailOTP = async () => {
     if (emailOTP.length !== 6) {
       confirm({
@@ -504,7 +484,6 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Request Phone Change OTP
   const handleRequestPhoneChange = async () => {
     if (!newPhone.trim() || newPhone.length < 10) {
       confirm({
@@ -552,7 +531,6 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Verify Phone Change OTP
   const handleVerifyPhoneOTP = async () => {
     if (phoneOTP.length !== 6) {
       confirm({
@@ -615,7 +593,6 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Save Date of Birth
   const handleSaveDOB = async () => {
     if (!formData.dateOfBirth) {
       confirm({
@@ -673,7 +650,6 @@ export default function AccountSettingsPage() {
     }
   };
 
-  // Format date for display
   const formatDate = (dateString: string) => {
     if (!dateString) return 'Not set';
     try {
@@ -691,7 +667,6 @@ export default function AccountSettingsPage() {
   const handleChangePassword = async () => {
     setPasswordError('');
 
-    // Validation
     if (!formData.currentPassword || !formData.newPassword || !formData.confirmPassword) {
       setPasswordError('All fields are required');
       return;
@@ -751,7 +726,6 @@ export default function AccountSettingsPage() {
       if (response.success) {
         setIsPrivateAccount(newPrivacyStatus);
 
-        // Update user data in localStorage
         const userData = localStorage.getItem('user');
         if (userData) {
           const parsedUser = JSON.parse(userData);
@@ -778,7 +752,6 @@ export default function AccountSettingsPage() {
         });
       }
     } catch (error: any) {
-      console.error('Error updating privacy:', error);
       confirm({
         title: 'Error',
         message: error.message || 'Failed to update privacy settings',
@@ -803,7 +776,6 @@ export default function AccountSettingsPage() {
       if (response.success) {
         setAllowDownloads(newDownloadStatus);
 
-        // Update user data in localStorage
         const userData = localStorage.getItem('user');
         if (userData) {
           const parsedUser = JSON.parse(userData);
@@ -831,7 +803,6 @@ export default function AccountSettingsPage() {
         });
       }
     } catch (error: any) {
-      console.error('Error updating download settings:', error);
       confirm({
         title: 'Error',
         message: error.message || 'Failed to update download settings',
@@ -871,7 +842,6 @@ export default function AccountSettingsPage() {
 
         <section className="lg:col-span-3">
           <div className="max-w-3xl mx-auto p-4 lg:p-8">
-            {/* Header */}
             <div className="flex items-center gap-4 mb-8">
               <button
                 onClick={() => router.back()}
@@ -882,7 +852,6 @@ export default function AccountSettingsPage() {
               <h1 className="text-3xl font-bold text-foreground">Account Settings</h1>
             </div>
 
-            {/* Tabs */}
             <div className="flex gap-4 mb-8 border-b border-border overflow-x-auto pb-px scrollbar-hide">
               {[
                 { id: 'general', label: 'General', icon: '⚙️' },
@@ -905,19 +874,14 @@ export default function AccountSettingsPage() {
               ))}
             </div>
 
-            {/* General Settings */}
             {activeTab === 'general' && (
               <div className="space-y-6">
-                {/* Profile Info Card - Instagram Style */}
                 <div className="bg-card rounded-2xl border border-border overflow-hidden">
-                  {/* Card Header */}
                   <div className="px-5 py-4 border-b border-border">
                     <h2 className="text-base font-semibold text-foreground">Profile Information</h2>
                   </div>
 
-                  {/* Fields List */}
                   <div className="divide-y divide-border">
-                    {/* Name Field */}
                     <div className="px-5 py-4">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0 pr-4">
@@ -984,7 +948,6 @@ export default function AccountSettingsPage() {
                       </div>
                     </div>
 
-                    {/* Username Field */}
                     <div className="px-5 py-4">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0 pr-4">
@@ -1060,7 +1023,6 @@ export default function AccountSettingsPage() {
                       </div>
                     </div>
 
-                    {/* Email Field */}
                     <div className="px-5 py-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0 pr-4">
@@ -1137,7 +1099,6 @@ export default function AccountSettingsPage() {
                       </div>
                     </div>
 
-                    {/* Phone Field */}
                     <div className="px-5 py-4">
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0 pr-4">
@@ -1220,7 +1181,6 @@ export default function AccountSettingsPage() {
                       </div>
                     </div>
 
-                    {/* Date of Birth Field */}
                     <div className="px-5 py-4">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0 pr-4">
@@ -1289,7 +1249,6 @@ export default function AccountSettingsPage() {
               </div>
             )}
 
-            {/* Security Settings */}
             {activeTab === 'security' && (
               <div className="space-y-6">
                 <div className="bg-card rounded-lg border border-border p-6">
@@ -1393,7 +1352,6 @@ export default function AccountSettingsPage() {
               </div>
             )}
 
-            {/* Notifications Settings */}
             {activeTab === 'notifications' && (
               <div className="space-y-6">
                 <div className="bg-card rounded-lg border border-border p-6">
@@ -1440,7 +1398,6 @@ export default function AccountSettingsPage() {
               </div>
             )}
 
-            {/* Privacy Settings */}
             {activeTab === 'privacy' && (
               <div className="space-y-6">
                 <div className="bg-card rounded-lg border border-border p-6">
@@ -1509,7 +1466,6 @@ export default function AccountSettingsPage() {
                       </button>
                     </div>
 
-                    {/* Blocked Users */}
                     <button
                       onClick={() => router.push('/blocked-users')}
                       className="w-full flex items-center justify-between p-4 bg-muted rounded-lg hover:bg-muted/80 transition cursor-pointer"

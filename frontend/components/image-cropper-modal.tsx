@@ -33,7 +33,6 @@ interface ImageCropperModalProps {
   maxZoom?: number;
 }
 
-// Helper to create the cropped image
 const createImage = (url: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const image = new Image();
@@ -72,23 +71,18 @@ async function getCroppedImg(
 
   const rotRad = getRadianAngle(rotation);
 
-  // Calculate bounding box of the rotated image
   const { width: bBoxWidth, height: bBoxHeight } = rotateSize(image.width, image.height, rotation);
 
-  // Set canvas size to match the bounding box
   canvas.width = bBoxWidth;
   canvas.height = bBoxHeight;
 
-  // Translate canvas context to the center for rotation
   ctx.translate(bBoxWidth / 2, bBoxHeight / 2);
   ctx.rotate(rotRad);
   ctx.scale(flipHorizontal ? -1 : 1, flipVertical ? -1 : 1);
   ctx.translate(-image.width / 2, -image.height / 2);
 
-  // Draw rotated image
   ctx.drawImage(image, 0, 0);
 
-  // Create a new canvas for cropping
   const croppedCanvas = document.createElement('canvas');
   const croppedCtx = croppedCanvas.getContext('2d');
 
@@ -96,11 +90,9 @@ async function getCroppedImg(
     throw new Error('Could not get cropped canvas context');
   }
 
-  // Set the size of the cropped canvas
   croppedCanvas.width = pixelCrop.width;
   croppedCanvas.height = pixelCrop.height;
 
-  // Draw the cropped image
   croppedCtx.drawImage(
     canvas,
     pixelCrop.x,
@@ -113,7 +105,6 @@ async function getCroppedImg(
     pixelCrop.height
   );
 
-  // Return as blob
   return new Promise((resolve, reject) => {
     croppedCanvas.toBlob(
       (blob) => {
@@ -149,7 +140,6 @@ export function ImageCropperModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentAspectRatio, setCurrentAspectRatio] = useState(aspectRatio);
 
-  // Reset state when modal opens
   const resetState = useCallback(() => {
     setCrop({ x: 0, y: 0 });
     setZoom(1);
@@ -215,7 +205,6 @@ export function ImageCropperModal({
       onCropComplete(croppedBlob, croppedImageUrl);
       onClose();
     } catch (error) {
-      console.error('Error cropping image:', error);
     } finally {
       setIsProcessing(false);
     }
@@ -229,7 +218,6 @@ export function ImageCropperModal({
     onClose,
   ]);
 
-  // Aspect ratio presets
   const aspectRatios = [
     { value: 1, label: '1:1', icon: Square },
     { value: 16 / 9, label: '16:9', icon: RectangleHorizontal },
@@ -239,7 +227,6 @@ export function ImageCropperModal({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-[95vw] md:max-w-3xl p-0 gap-0 overflow-hidden bg-black/95 border-zinc-800">
-        {/* Header */}
         <DialogHeader className="px-4 py-3 border-b border-zinc-800 flex flex-row items-center justify-between">
           <DialogTitle className="text-lg font-semibold text-white">{title}</DialogTitle>
           <div className="flex items-center gap-2">
@@ -255,7 +242,6 @@ export function ImageCropperModal({
           </div>
         </DialogHeader>
 
-        {/* Cropper Area */}
         <div className="relative w-full h-[50vh] md:h-[60vh] bg-zinc-950">
           <Cropper
             image={imageSrc}
@@ -285,9 +271,7 @@ export function ImageCropperModal({
           />
         </div>
 
-        {/* Controls */}
         <div className="p-4 bg-zinc-900/95 border-t border-zinc-800 space-y-4">
-          {/* Zoom Slider */}
           <div className="flex items-center gap-4">
             <Button
               variant="ghost"
@@ -320,7 +304,6 @@ export function ImageCropperModal({
             </span>
           </div>
 
-          {/* Rotation Slider */}
           <div className="flex items-center gap-4">
             <Button
               variant="ghost"
@@ -349,10 +332,8 @@ export function ImageCropperModal({
             <span className="text-sm text-zinc-400 min-w-[48px] text-right">{rotation}°</span>
           </div>
 
-          {/* Tool Buttons */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {/* Flip Buttons */}
               <Button
                 variant={flipHorizontal ? 'secondary' : 'ghost'}
                 size="icon"
@@ -376,7 +357,6 @@ export function ImageCropperModal({
                 <FlipVertical2 className="w-5 h-5" />
               </Button>
 
-              {/* Aspect Ratio Selector */}
               <div className="flex items-center gap-1 ml-4 border-l border-zinc-700 pl-4">
                 {aspectRatios.map((ratio) => {
                   const Icon = ratio.icon;
@@ -400,7 +380,6 @@ export function ImageCropperModal({
               </div>
             </div>
 
-            {/* Action Buttons */}
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"

@@ -25,10 +25,8 @@ export default function AnimatedLogo({ size = 48, className = '' }: AnimatedLogo
   );
 }
 
-// Keep Lottie animation as backup/alternative
 import Lottie from 'lottie-react';
 
-// Beautiful click/tap animation with gradient background - matches ClickME brand
 const clickAnimation = {
   v: '5.7.4',
   fr: 60,
@@ -40,7 +38,6 @@ const clickAnimation = {
   ddd: 0,
   assets: [],
   layers: [
-    // Ripple 3 (outermost) - purple
     {
       ddd: 0,
       ind: 1,
@@ -96,7 +93,6 @@ const clickAnimation = {
       ip: 30,
       op: 90,
     },
-    // Ripple 2 - pink
     {
       ddd: 0,
       ind: 2,
@@ -152,7 +148,6 @@ const clickAnimation = {
       ip: 20,
       op: 90,
     },
-    // Ripple 1 (innermost) - white
     {
       ddd: 0,
       ind: 3,
@@ -208,7 +203,6 @@ const clickAnimation = {
       ip: 10,
       op: 90,
     },
-    // Finger with tapping animation
     {
       ddd: 0,
       ind: 4,
@@ -234,15 +228,11 @@ const clickAnimation = {
       },
       ao: 0,
       shapes: [
-        // Hand with finger pointing up
         {
           ty: 'gr',
           it: [
-            // Finger tip (rounded)
             { ty: 'el', d: 1, s: { a: 0, k: [30, 30] }, p: { a: 0, k: [0, -30] } },
-            // Finger body
             { ty: 'rc', d: 1, s: { a: 0, k: [30, 55] }, p: { a: 0, k: [0, 0] }, r: { a: 0, k: 8 } },
-            // Hand base
             {
               ty: 'rc',
               d: 1,
@@ -250,7 +240,6 @@ const clickAnimation = {
               p: { a: 0, k: [0, 40] },
               r: { a: 0, k: 12 },
             },
-            // Fill - warm skin tone
             { ty: 'fl', c: { a: 0, k: [1, 0.87, 0.7, 1] }, o: { a: 0, k: 100 }, r: 1 },
             {
               ty: 'tr',
@@ -261,7 +250,6 @@ const clickAnimation = {
             },
           ],
         },
-        // Finger shadow for depth
         {
           ty: 'gr',
           it: [
@@ -280,7 +268,6 @@ const clickAnimation = {
       ip: 0,
       op: 90,
     },
-    // Center tap dot
     {
       ddd: 0,
       ind: 5,
@@ -337,7 +324,6 @@ const clickAnimation = {
       ip: 0,
       op: 90,
     },
-    // Background with purple-pink gradient
     {
       ddd: 0,
       ind: 6,
@@ -370,7 +356,6 @@ const clickAnimation = {
                 p: 3,
                 k: {
                   a: 0,
-                  // Purple to pink to light purple gradient
                   k: [0, 0.45, 0.25, 0.75, 0.5, 0.65, 0.35, 0.85, 1, 0.75, 0.45, 0.95],
                 },
               },
@@ -395,7 +380,6 @@ const clickAnimation = {
   markers: [],
 };
 
-// Alternative Lottie-based animated logo component
 export function AnimatedLogoLottie({
   size = 48,
   className = '',

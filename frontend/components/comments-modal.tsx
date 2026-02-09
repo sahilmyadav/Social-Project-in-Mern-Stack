@@ -60,7 +60,6 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
         setComments(response.data.comments || []);
       }
     } catch (error) {
-      console.error('Error loading comments:', error);
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +73,6 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
       const response = await postService.commentOnPost(postId, { text: newComment.trim() });
 
       if (response.success && response.data) {
-        // Add the new comment with current user data
         const newCommentData: Comment = {
           ...response.data,
           _id: response.data._id || response.data.id,
@@ -96,7 +94,6 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
         setNewComment('');
       }
     } catch (error) {
-      console.error('Error posting comment:', error);
       showToast.error('Failed to post comment. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -105,13 +102,11 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
 
   const handleLikeComment = async (commentId: string) => {
     try {
-      // Find the comment
       const comment = comments.find((c) => c._id === commentId || c.id === commentId);
       if (!comment) return;
 
       const isCurrentlyLiked = comment.isLiked;
 
-      // Optimistic update
       setComments((prev) =>
         prev.map((c) =>
           c._id === commentId || c.id === commentId
@@ -126,15 +121,12 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
         )
       );
 
-      // Call API
       if (isCurrentlyLiked) {
         await commentService.unlikeComment(commentId);
       } else {
         await commentService.likeComment(commentId);
       }
     } catch (error) {
-      console.error('Error liking comment:', error);
-      // Revert on error
       const comment = comments.find((c) => c._id === commentId || c.id === commentId);
       if (comment) {
         setComments((prev) =>
@@ -190,7 +182,6 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Add Comment */}
           <div className="flex items-start gap-3 p-4 bg-muted rounded-lg">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg overflow-hidden">
               {currentUser?.profileImage || currentUser?.avatar ? (
@@ -233,7 +224,6 @@ export default function CommentsModal({ isOpen, onClose, postId, postAuthor }: C
             </div>
           </div>
 
-          {/* Comments List */}
           <div className="space-y-3 max-h-[50vh] overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center py-8">

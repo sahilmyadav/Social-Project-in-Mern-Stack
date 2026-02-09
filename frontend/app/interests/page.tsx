@@ -19,7 +19,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-// Only 5 main interest categories
 const INTEREST_CATEGORIES: Record<string, { label: string; icon: any; color: string }> = {
   sports: { label: 'Sports', icon: Trophy, color: 'from-orange-500 to-amber-500' },
   music: { label: 'Music', icon: Music, color: 'from-purple-500 to-pink-500' },
@@ -55,7 +54,6 @@ export default function InterestsPage() {
       }
       setUser(JSON.parse(userData));
     } catch (error) {
-      console.error('Failed to load user:', error);
       router.push('/login');
     } finally {
       setLoading(false);
@@ -78,7 +76,6 @@ export default function InterestsPage() {
         setReels(reelsResponse.data.reels || []);
       }
     } catch (error) {
-      console.error('Failed to load content:', error);
     } finally {
       setLoadingContent(false);
     }
@@ -104,14 +101,11 @@ export default function InterestsPage() {
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Sidebar Navigation */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-2 max-w-2xl mx-auto pb-20 lg:pb-0 px-4 py-6">
-          {/* Header */}
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-2">
               <div className="p-2 rounded-xl bg-gradient-to-br from-primary to-secondary">
@@ -124,7 +118,6 @@ export default function InterestsPage() {
             </p>
           </div>
 
-          {/* User's Interests Pills */}
           {userInterests.length > 0 && (
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-3">
@@ -149,7 +142,6 @@ export default function InterestsPage() {
             </div>
           )}
 
-          {/* No Interests Message */}
           {userInterests.length === 0 && (
             <div className="text-center py-12 bg-card rounded-xl border border-border">
               <Sparkles className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -166,17 +158,14 @@ export default function InterestsPage() {
             </div>
           )}
 
-          {/* Loading State */}
           {loadingContent && (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           )}
 
-          {/* Content */}
           {!loadingContent && userInterests.length > 0 && (
             <div className="space-y-8">
-              {/* Reels Section */}
               {reels.length > 0 && (
                 <div>
                   <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -190,7 +179,6 @@ export default function InterestsPage() {
                         href={`/reel/${reel._id}`}
                         className="relative aspect-[9/16] rounded-xl overflow-hidden bg-muted group"
                       >
-                        {/* Thumbnail */}
                         {reel.thumbnailUrl || reel.videoUrl ? (
                           <Image
                             src={reel.thumbnailUrl || reel.videoUrl}
@@ -202,17 +190,14 @@ export default function InterestsPage() {
                           <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20" />
                         )}
 
-                        {/* Overlay */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
-                        {/* Play Icon */}
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                           <div className="w-12 h-12 rounded-full bg-white/30 backdrop-blur-sm flex items-center justify-center">
                             <Play className="w-6 h-6 text-white fill-white" />
                           </div>
                         </div>
 
-                        {/* Views */}
                         <div className="absolute bottom-2 left-2 flex items-center gap-1 text-white text-xs">
                           <Play className="w-3 h-3 fill-white" />
                           {reel.views || 0}
@@ -223,7 +208,6 @@ export default function InterestsPage() {
                 </div>
               )}
 
-              {/* Posts Section */}
               {posts.length > 0 && (
                 <div>
                   <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -238,7 +222,6 @@ export default function InterestsPage() {
                 </div>
               )}
 
-              {/* No Content */}
               {posts.length === 0 && reels.length === 0 && (
                 <div className="text-center py-12 bg-card rounded-xl border border-border">
                   <Sparkles className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -252,11 +235,9 @@ export default function InterestsPage() {
           )}
         </section>
 
-        {/* Empty right column for symmetry */}
         <aside className="hidden lg:block lg:col-span-1 h-screen sticky top-0 border-l border-border"></aside>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   );

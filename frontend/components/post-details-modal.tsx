@@ -43,11 +43,9 @@ export default function PostDetailsModal({
   const scrollPositionRef = useRef(0);
   const { confirm, dialogProps } = useConfirmDialog();
 
-  // Save scroll position when modal opens
   useEffect(() => {
     if (isOpen) {
       scrollPositionRef.current = window.scrollY;
-      // Load current user
       const userData = localStorage.getItem('user');
       if (userData) {
         setCurrentUser(JSON.parse(userData));
@@ -55,16 +53,13 @@ export default function PostDetailsModal({
     }
   }, [isOpen]);
 
-  // Restore scroll position when modal closes
   const handleClose = () => {
     onClose();
-    // Restore scroll position after a short delay to ensure modal is closed
     setTimeout(() => {
       window.scrollTo(0, scrollPositionRef.current);
     }, 0);
   };
 
-  // Fetch full post details when modal opens
   useEffect(() => {
     const fetchPostDetails = async () => {
       if (!initialPost?._id && !initialPost?.id) return;
@@ -77,12 +72,10 @@ export default function PostDetailsModal({
         if (response.success && response.data) {
           setPost(response.data);
           setLikeCount(response.data.likes_count || 0);
-          // Backend may return is_liked (snake_case) or isLiked (camelCase)
           setLiked(response.data.isLiked || response.data.is_liked || false);
           setSavedPost(response.data.isSaved || response.data.is_saved || false);
           setComments(response.data.comments || []);
         } else {
-          // Fallback to initial post data
           setPost(initialPost);
           setLikeCount(initialPost.likes_count || 0);
           setLiked(initialPost.isLiked || initialPost.is_liked || false);
@@ -90,8 +83,6 @@ export default function PostDetailsModal({
           setComments([]);
         }
       } catch (error) {
-        console.error('Error fetching post details:', error);
-        // Fallback to initial post data
         setPost(initialPost);
         setLikeCount(initialPost.likes_count || 0);
         setLiked(initialPost.isLiked || initialPost.is_liked || false);
@@ -122,7 +113,6 @@ export default function PostDetailsModal({
     ? getMediaUrl(rawAuthorAvatar)
     : authorName?.charAt(0)?.toUpperCase() || '😊';
 
-  // Format timestamp
   const formatTimestamp = (timestamp: string) => {
     if (!timestamp) return 'Just now';
     const date = new Date(timestamp);
@@ -145,7 +135,6 @@ export default function PostDetailsModal({
     const previousLiked = liked;
     const previousCount = likeCount;
 
-    // Optimistic update
     setLiked(!liked);
     setLikeCount(liked ? Math.max(0, likeCount - 1) : likeCount + 1);
 
@@ -159,20 +148,16 @@ export default function PostDetailsModal({
       }
 
       if (response.success && response.data) {
-        // Always use server response for final state
         const serverIsLiked = response.data.isLiked ?? !previousLiked;
         const serverLikeCount =
           response.data.likes_count ?? response.data.likesCount ?? previousCount;
         setLiked(serverIsLiked);
         setLikeCount(serverLikeCount);
       } else {
-        // Revert on failure
         setLiked(previousLiked);
         setLikeCount(previousCount);
       }
     } catch (error: any) {
-      console.error('Error toggling like:', error.message || error);
-      // Revert on error
       setLiked(previousLiked);
       setLikeCount(previousCount);
     } finally {
@@ -191,15 +176,11 @@ export default function PostDetailsModal({
       });
 
       if (response.success && response.data) {
-        // Add new comment to the list
         const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-        // Ensure the comment has complete user data
-        // The API might return user_id but without all fields like profileImage
         const newCommentObj = {
           ...response.data,
           user_id: {
-            // Merge API user_id with localStorage user data
             ...(response.data.user_id || {}),
             _id: response.data.user_id?._id || user._id || user.id,
             firstName: response.data.user_id?.firstName || user.firstName,
@@ -215,14 +196,12 @@ export default function PostDetailsModal({
         setComments([newCommentObj, ...comments]);
         setNewComment('');
 
-        // Update comments count
         setPost((prev: any) => ({
           ...prev,
           comments_count: (prev.comments_count || 0) + 1,
         }));
       }
     } catch (error) {
-      console.error('Error submitting comment:', error);
     } finally {
       setIsSubmittingComment(false);
     }
@@ -234,7 +213,6 @@ export default function PostDetailsModal({
     setIsSaving(true);
     const previousSaved = savedPost;
 
-    // Optimistic update
     setSavedPost(!savedPost);
 
     try {
@@ -253,23 +231,18 @@ export default function PostDetailsModal({
         toasts.postSaved();
       }
     } catch (error: any) {
-      console.error('Error toggling save:', error.message || error);
 
-      // Check if error is "already saved" or "already unsaved"
       const errorMessage = error?.message || error?.error || '';
 
       if (errorMessage.toLowerCase().includes('already saved')) {
-        // Post is already saved - sync state to saved
         setSavedPost(true);
         toasts.postSaved();
       } else if (
         errorMessage.toLowerCase().includes('not saved') ||
         errorMessage.toLowerCase().includes('already unsaved')
       ) {
-        // Post is not saved - sync state to not saved
         setSavedPost(false);
       } else {
-        // Other error - revert to previous state
         setSavedPost(previousSaved);
         toasts.saveError();
       }
@@ -297,7 +270,6 @@ export default function PostDetailsModal({
             throw new Error(response.message || 'Failed to delete post');
           }
         } catch (error: any) {
-          console.error('Error deleting post:', error.message || error);
           toasts.error('Failed to delete post. Please try again.');
         } finally {
           setIsDeleting(false);
@@ -306,10 +278,8 @@ export default function PostDetailsModal({
     });
   };
 
-  // Check if current user is the post author
   const isOwnPost = currentUser?._id === post?.user_id?._id;
 
-  // Format comment timestamp
   const formatCommentTime = (timestamp: string) => {
     if (!timestamp) return 'Just now';
     const date = new Date(timestamp);
@@ -325,11 +295,9 @@ export default function PostDetailsModal({
 
   const handleLikeComment = async (commentId: string) => {
     try {
-      // Find the comment to check current like status
       const comment = comments.find((c) => c._id === commentId || c.id === commentId);
       const isCurrentlyLiked = comment?.isLiked || false;
 
-      // Optimistically update the UI
       setComments((prev) =>
         prev.map((c) =>
           c._id === commentId || c.id === commentId
@@ -342,15 +310,12 @@ export default function PostDetailsModal({
         )
       );
 
-      // Call the appropriate API
       if (isCurrentlyLiked) {
         await commentService.unlikeComment(commentId);
       } else {
         await commentService.likeComment(commentId);
       }
     } catch (error) {
-      console.error('Error liking comment:', error);
-      // Revert on error
       setComments((prev) =>
         prev.map((c) =>
           c._id === commentId || c.id === commentId
@@ -390,7 +355,6 @@ export default function PostDetailsModal({
           </div>
         ) : (
           <div className="space-y-6 p-6">
-            {/* Post Image/Video */}
             <div className="relative w-full h-96 rounded-xl overflow-hidden bg-muted">
               {mediaUrl ? (
                 mediaType === 'video' ? (
@@ -409,7 +373,6 @@ export default function PostDetailsModal({
               )}
             </div>
 
-            {/* Post Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-xl overflow-hidden">
@@ -455,7 +418,6 @@ export default function PostDetailsModal({
               </DropdownMenu>
             </div>
 
-            {/* Post Content */}
             {post.caption && (
               <div>
                 <p className="text-foreground text-lg leading-relaxed whitespace-pre-wrap">
@@ -464,7 +426,6 @@ export default function PostDetailsModal({
               </div>
             )}
 
-            {/* Location */}
             {post.location?.name && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span>📍</span>
@@ -472,7 +433,6 @@ export default function PostDetailsModal({
               </div>
             )}
 
-            {/* Post Stats */}
             <div className="grid grid-cols-3 gap-4 p-4 bg-muted rounded-xl">
               <div className="text-center">
                 <p className="text-2xl font-bold text-primary">{likeCount}</p>
@@ -488,7 +448,6 @@ export default function PostDetailsModal({
               </div>
             </div>
 
-            {/* Interaction Buttons */}
             <div className="flex gap-3 p-4 bg-muted rounded-xl">
               <Button
                 onClick={handleLike}
@@ -524,7 +483,6 @@ export default function PostDetailsModal({
               </Button>
             </div>
 
-            {/* Comments Section */}
             <div className="border-t border-border pt-4">
               <h3 className="font-semibold text-foreground mb-4">Comments ({comments.length})</h3>
 
@@ -579,12 +537,10 @@ export default function PostDetailsModal({
                             <CommentReactions
                               commentId={comment._id || comment.id}
                               onReact={(commentId, emoji) => {
-                                // Add emoji reaction as a reply comment
                                 commentService
                                   .replyToComment(commentId, { text: emoji })
                                   .then(() => {
                                     toasts.commentAdded();
-                                    // Refresh comments
                                     postService.getPostDetails(post._id).then((response) => {
                                       if (response.success && response.data) {
                                         setComments(response.data.comments || []);
@@ -592,13 +548,11 @@ export default function PostDetailsModal({
                                     });
                                   })
                                   .catch((error) => {
-                                    console.error('Error adding emoji reaction:', error);
                                   });
                               }}
                             />
                             <button
                               onClick={() => {
-                                // TODO: Implement reply functionality
                               }}
                               className="text-xs text-muted-foreground hover:text-primary transition font-medium"
                             >
@@ -607,7 +561,6 @@ export default function PostDetailsModal({
                             {comment.replies_count > 0 && (
                               <button
                                 onClick={() => {
-                                  // TODO: Implement view replies functionality
                                 }}
                                 className="text-xs text-primary hover:underline font-medium"
                               >
@@ -627,7 +580,6 @@ export default function PostDetailsModal({
                 )}
               </div>
 
-              {/* Add Comment */}
               <div className="flex gap-2 pt-4 border-t border-border">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
                   {(() => {
@@ -682,7 +634,6 @@ export default function PostDetailsModal({
         )}
       </DialogContent>
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </Dialog>
   );

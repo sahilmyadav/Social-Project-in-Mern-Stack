@@ -2,6 +2,7 @@ import { Followers } from '../models/followers.model.js';
 import { Notification } from '../models/notification.model.js';
 import { User } from '../models/user.model.js';
 import { getIO } from '../socket/socket.js';
+import logger from '../utils/logger.js';
 import { sendPushNotification } from './firebase.service.js';
 
 /**
@@ -63,7 +64,7 @@ export const createNotification = async ({
 
     return notification;
   } catch (error) {
-    console.error('Error creating notification:', error);
+    logger.error('Error creating notification:', { error: error.message });
     return null;
   }
 };
@@ -301,7 +302,7 @@ export const notifyNewPost = async (postId, creatorId, postThumbnail) => {
       await Promise.allSettled(batch);
     }
   } catch (error) {
-    console.error('Error notifying followers about new post:', error);
+    logger.error('Error notifying followers about new post:', { error: error.message });
   }
 };
 
@@ -343,6 +344,6 @@ export const notifyNewReel = async (reelId, creatorId, reelThumbnail) => {
       await Promise.allSettled(batch);
     }
   } catch (error) {
-    console.error('Error notifying followers about new reel:', error);
+    logger.error('Error notifying followers about new reel:', { error: error.message });
   }
 };

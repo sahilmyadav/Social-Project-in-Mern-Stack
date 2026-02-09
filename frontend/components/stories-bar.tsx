@@ -69,7 +69,6 @@ export default function StoriesBar({
   const [selectedUserStories, setSelectedUserStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Group stories by user
   const groupedStories = stories.reduce(
     (acc, story) => {
       const userId = story.user._id;
@@ -88,17 +87,14 @@ export default function StoriesBar({
     try {
       setLoading(true);
 
-      // Parallel fetch: Stories + Live Streams
       const [myStoriesResponse, feedStoriesResponse, liveResponse] = await Promise.all([
         storyService.getUserStories(currentUserId),
         storyService.getAllStories({ page: 1, limit: 50 }),
         liveStreamService.getActiveLiveStreams({ limit: 10 }),
       ]);
 
-      // 1. Handle My Stories
       if (myStoriesResponse.success && myStoriesResponse.data) {
         let userStories: any[] = [];
-        // Handle nested structure
         if (myStoriesResponse.data.stories && Array.isArray(myStoriesResponse.data.stories)) {
           if (myStoriesResponse.data.stories[0]?.stories) {
             myStoriesResponse.data.stories.forEach((userStoryGroup: any) => {
@@ -118,11 +114,9 @@ export default function StoriesBar({
           userStories = myStoriesResponse.data || [];
         }
 
-        // Transform
         setMyStories(transformStories(userStories));
       }
 
-      // 2. Handle Feed Stories
       if (feedStoriesResponse.success && feedStoriesResponse.data) {
         let feedStories: any[] = [];
         if (feedStoriesResponse.data.stories && Array.isArray(feedStoriesResponse.data.stories)) {
@@ -142,19 +136,15 @@ export default function StoriesBar({
         setStories(transformStories(feedStories));
       }
 
-      // 3. Handle Live Streams
       if (liveResponse.success && liveResponse.data) {
-        // Filter out streams where streamer might be null (e.g. deleted user)
         setLiveStreams(liveResponse.data.filter((s: any) => s.streamer));
       }
     } catch {
-      // Silently fail - no stories/live to show
     } finally {
       setLoading(false);
     }
   };
 
-  // Helper to normalize story user structure
   const transformStories = (list: any[]) => {
     return list.map((story: any) => {
       if (story.user_id && !story.user) {
@@ -192,7 +182,6 @@ export default function StoriesBar({
   const deletingStoryRef = useRef<string | null>(null);
 
   const handleDeleteStory = async (storyId: string) => {
-    // Prevent double delete
     if (deletingStoryRef.current === storyId) {
       return;
     }
@@ -201,24 +190,19 @@ export default function StoriesBar({
     try {
       const response = await storyService.deleteStory(storyId);
       if (response.success) {
-        // Immediately update selectedUserStories to remove deleted story
         setSelectedUserStories((prev) => {
           const updated = prev.filter((s) => s._id !== storyId);
-          // Close viewer if no stories left
           if (updated.length === 0) {
             setIsViewerOpen(false);
           }
           return updated;
         });
 
-        // Show success toast
         showToast.success('Deleted', 'Story deleted successfully');
 
-        // Also refresh from server
         await loadData();
       }
     } catch (error) {
-      console.error('Error deleting story:', error);
       showToast.error('Error', 'Failed to delete story');
     } finally {
       deletingStoryRef.current = null;
@@ -231,7 +215,6 @@ export default function StoriesBar({
     <>
       <div className="bg-card border border-border rounded-2xl p-4 mb-6">
         <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-hide">
-          {/* Add Story Button */}
           <div className="flex-shrink-0">
             <button
               onClick={handleAddStory}
@@ -261,7 +244,6 @@ export default function StoriesBar({
             </button>
           </div>
 
-          {/* Live Streams (Priority) */}
           {liveStreams.map((stream) => (
             <div key={stream._id} className="flex-shrink-0">
               <button
@@ -269,7 +251,6 @@ export default function StoriesBar({
                 className="flex flex-col items-center gap-2 group cursor-pointer"
               >
                 <div className="relative">
-                  {/* Red Pulse Ring for Live */}
                   <div className="absolute -inset-0.5 rounded-full bg-red-600 blur opacity-75 group-hover:opacity-100 animate-pulse transition"></div>
                   <div className="relative w-16 h-16 rounded-full p-0.5 bg-red-600">
                     <div className="w-full h-full rounded-full border-2 border-background overflow-hidden relative">
@@ -299,7 +280,6 @@ export default function StoriesBar({
             </div>
           ))}
 
-          {/* My Stories */}
           {hasMyStory && (
             <div className="flex-shrink-0">
               <button
@@ -327,7 +307,6 @@ export default function StoriesBar({
             </div>
           )}
 
-          {/* Other Users' Stories */}
           {uniqueUsers
             .filter((userStories) => userStories[0].user._id !== currentUserId)
             .map((userStories) => {
@@ -372,14 +351,12 @@ export default function StoriesBar({
         </div>
       </div>
 
-      {/* Add Story Modal */}
       <AddStoryModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onSuccess={loadData}
       />
 
-      {/* Story Viewer */}
       <StoryViewer
         isOpen={isViewerOpen}
         onClose={() => setIsViewerOpen(false)}

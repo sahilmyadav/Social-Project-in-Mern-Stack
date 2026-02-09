@@ -1,5 +1,6 @@
 'use client';
 
+import { getAccessToken, isTokenExpiring, redirectToLogin, refreshAccessToken } from '@/lib/auth';
 import {
   disconnectSocket,
   emitUserOffline,
@@ -13,7 +14,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-// Request browser notification permission
 const requestNotificationPermission = async () => {
   if (typeof window !== 'undefined' && 'Notification' in window) {
     if (Notification.permission === 'default') {
@@ -22,7 +22,6 @@ const requestNotificationPermission = async () => {
   }
 };
 
-// Show browser notification
 const showBrowserNotification = (
   title: string,
   options?: NotificationOptions & { onClick?: () => void }
@@ -52,51 +51,11 @@ const showBrowserNotification = (
   return null;
 };
 
-// Check if token is expired or about to expire (within 5 minutes)
-const isTokenExpiredOrExpiring = (token: string): boolean => {
+const tryRefreshToken = async (): Promise<string | null> => {
   try {
-    const parts = token.split('.');
-    if (parts.length === 3) {
-      const payload = JSON.parse(atob(parts[1]));
-      if (payload.exp) {
-        const expiryTime = payload.exp * 1000;
-        const now = Date.now();
-        return now > expiryTime - 5 * 60 * 1000;
-      }
-    }
-  } catch (e) {
-    console.error('Error parsing token:', e);
-  }
-  return false;
-};
-
-// Refresh access token
-const refreshAccessToken = async (): Promise<string | null> => {
-  try {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) return null;
-
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://clikkme.in/api/v1';
-    const response = await fetch(`${apiUrl}/users/refresh-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.success && data.data?.accessToken) {
-        localStorage.setItem('accessToken', data.data.accessToken);
-        if (data.data.refreshToken) {
-          localStorage.setItem('refreshToken', data.data.refreshToken);
-        }
-        console.log('Token refreshed successfully');
-        return data.data.accessToken;
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('Token refresh failed:', error);
+    await refreshAccessToken();
+    return getAccessToken();
+  } catch {
     return null;
   }
 };
@@ -115,11 +74,9 @@ export default function GlobalSocketHandler() {
 
     if (!token || !userData) return;
 
-    if (isTokenExpiredOrExpiring(token)) {
-      console.log('Token expiring soon, refreshing...');
-      const newToken = await refreshAccessToken();
+    if (isTokenExpiring(token)) {
+      const newToken = await tryRefreshToken();
       if (!newToken) {
-        console.warn('Token refresh failed');
         return;
       }
     }
@@ -141,7 +98,7 @@ export default function GlobalSocketHandler() {
           }, 1000);
         }
       } else {
-        const newToken = await refreshAccessToken();
+        const newToken = await tryRefreshToken();
         if (newToken) {
           reconnectAttempts.current = 0;
           await reconnectSocket();
@@ -191,24 +148,13 @@ export default function GlobalSocketHandler() {
 
     if (!token || !userData) return;
 
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(atob(parts[1]));
-        if (payload.exp && Date.now() > payload.exp * 1000) {
-          console.warn('Token expired, attempting refresh...');
-          refreshAccessToken().then((newToken) => {
-            if (!newToken) {
-              localStorage.removeItem('accessToken');
-              localStorage.removeItem('user');
-              window.location.href = '/login';
-            }
-          });
-          return;
+    if (isTokenExpiring(token)) {
+      tryRefreshToken().then((newToken) => {
+        if (!newToken) {
+          redirectToLogin();
         }
-      }
-    } catch (e) {
-      console.error('Error parsing token:', e);
+      });
+      return;
     }
 
     const user = JSON.parse(userData);
@@ -283,20 +229,17 @@ export default function GlobalSocketHandler() {
       });
     });
 
-    // Listen for new notifications globally
     socket?.on('newNotification', (data) => {
       const notification = data.notification;
       if (!notification) return;
 
       const isOnNotificationsPage = pathname?.startsWith('/notifications');
 
-      // Get sender info
       const sender = notification.sender_id;
       const senderName = sender?.firstName
         ? `${sender.firstName} ${sender.lastName || ''}`.trim()
         : sender?.username || 'Someone';
 
-      // Show toast notification (except when on notifications page)
       if (!isOnNotificationsPage) {
         toast.message(notification.title || 'New Notification', {
           description: notification.message || `${senderName} interacted with your content`,
@@ -308,7 +251,6 @@ export default function GlobalSocketHandler() {
         });
       }
 
-      // Show browser notification
       showBrowserNotification(notification.title || 'New Notification', {
         body: notification.message || `${senderName} interacted with your content`,
         tag: `notification-${notification._id}`,

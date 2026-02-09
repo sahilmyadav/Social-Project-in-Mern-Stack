@@ -50,7 +50,6 @@ export default function SharedContentPreview({
 
   const handleClick = () => {
     if (messageType === 'shared_reel') {
-      // Navigate to reel page
       router.push(`/reel/${contentData._id}`);
     } else {
       setShowModal(true);
@@ -63,7 +62,6 @@ export default function SharedContentPreview({
         onClick={handleClick}
         className="mt-2 border border-border rounded-lg overflow-hidden cursor-pointer hover:border-primary/50 transition max-w-sm"
       >
-        {/* Preview Image/Video */}
         {mediaUrl && (
           <div className="relative aspect-square bg-muted">
             {isVideo ? (
@@ -87,7 +85,6 @@ export default function SharedContentPreview({
           </div>
         )}
 
-        {/* Content Info */}
         <div className="p-3 bg-card">
           <div className="flex items-center gap-2 mb-2">
             <UserAvatar user={contentData.user} size="sm" />
@@ -126,7 +123,6 @@ export default function SharedContentPreview({
         </div>
       </div>
 
-      {/* Full View Modal - Only for posts */}
       {showModal && messageType === 'shared_post' && (
         <PostDetailsModal
           post={{

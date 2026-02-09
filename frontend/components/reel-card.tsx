@@ -44,7 +44,6 @@ export default function ReelCard({
 }: ReelCardProps) {
   const router = useRouter();
   const { isMuted: globalMuted, toggleMute: toggleGlobalMute } = useVideoSafe();
-  // Backend may return is_liked (snake_case) or isLiked (camelCase)
   const [liked, setLiked] = useState(reel.isLiked || reel.is_liked || false);
   const [likeCount, setLikeCount] = useState(reel.likes_count || 0);
   const [saved, setSaved] = useState(reel.isSaved || reel.is_saved || false);
@@ -63,17 +62,14 @@ export default function ReelCard({
   const hasTrackedView = useRef(reel.isViewed || false);
   const { confirm, dialogProps } = useConfirmDialog();
 
-  // Check if this is the user's own reel
   const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
 
-  // Sync video muted state with global mute
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = globalMuted;
     }
   }, [globalMuted]);
 
-  // Intersection Observer for auto-play/pause
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -97,20 +93,16 @@ export default function ReelCard({
     };
   }, []);
 
-  // Auto-play/pause based on visibility
   useEffect(() => {
     if (!videoRef.current) return;
 
     if (isInView && !userPaused) {
-      // Auto-play when in view and user hasn't manually paused
       videoRef.current.play().catch((error) => {});
     } else {
-      // Pause when out of view
       videoRef.current.pause();
     }
   }, [isInView, userPaused]);
 
-  // Track reel view when in view
   useEffect(() => {
     if (!isInView || hasTrackedView.current || !reel._id) return;
 
@@ -121,23 +113,18 @@ export default function ReelCard({
         const response = await reelService.viewReel(reel._id);
         if (response.success && response.data) {
           setViewCount(response.data.views_count);
-          // Notify parent of the view update
           onViewUpdate?.(reel._id, response.data.views_count);
         }
       } catch (error) {
-        console.error('Error tracking reel view:', error);
         hasTrackedView.current = false; // Allow retry
         setIsViewed(false);
       }
     };
 
-    // Small delay to avoid tracking if user is just scrolling through
     const timeoutId = setTimeout(trackView, 1500);
     return () => clearTimeout(timeoutId);
   }, [isInView, reel._id, onViewUpdate]);
 
-  // If reel is hidden (reported), don't render it
-  // IMPORTANT: This must come AFTER all hooks to follow React's Rules of Hooks
   if (isHidden) {
     return null;
   }
@@ -153,14 +140,12 @@ export default function ReelCard({
     const previousLiked = liked;
     const previousCount = likeCount;
 
-    // Optimistic update
     setLiked(!liked);
     setLikeCount(liked ? Math.max(0, likeCount - 1) : likeCount + 1);
 
     try {
       const response = await reelService.toggleLikeReel(reel._id);
       if (response.success) {
-        // Always use server response to sync state
         const serverIsLiked = response.data?.isLiked ?? !previousLiked;
         const serverLikeCount =
           response.data?.likes_count ??
@@ -172,8 +157,6 @@ export default function ReelCard({
         throw new Error(response.message || 'Failed to toggle like');
       }
     } catch (error: any) {
-      console.error('Error toggling like:', error.message || error);
-      // Revert on error
       setLiked(previousLiked);
       setLikeCount(previousCount);
     } finally {
@@ -188,7 +171,6 @@ export default function ReelCard({
     setIsSaving(true);
     const previousSaved = saved;
 
-    // Optimistic update
     setSaved(!saved);
 
     try {
@@ -204,8 +186,6 @@ export default function ReelCard({
         }
       }
     } catch (error: any) {
-      console.error('Error saving/unsaving reel:', error.message || error);
-      // Revert on error
       setSaved(previousSaved);
       showToast.error(error.message || 'Failed to save reel');
     } finally {
@@ -231,18 +211,13 @@ export default function ReelCard({
   };
 
   const handleDownloadReel = async () => {
-    // Check if it's own reel - always allow download of own content
     const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
 
     if (isOwnReel) {
-      // Allow downloading own reels
     } else {
-      // For other users' reels, check if download is explicitly allowed
-      // If allowDownloads is explicitly set to false, block download
       const allowDownloads = reel.user_id?.allowDownloads;
       const canDownload = reel.canDownload;
 
-      // Block if either flag is explicitly false
       if (allowDownloads === false || canDownload === false) {
         showToast.error('Download not allowed', 'The creator has disabled downloads for this reel');
         return;
@@ -255,7 +230,6 @@ export default function ReelCard({
     }
 
     try {
-      // Download the video file
       const response = await fetch(videoUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -270,7 +244,6 @@ export default function ReelCard({
 
       showToast.success('Downloaded', 'Reel downloaded successfully');
     } catch (error) {
-      console.error('Error downloading reel:', error);
       showToast.error('Download failed', 'Failed to download reel');
     }
   };
@@ -292,7 +265,6 @@ export default function ReelCard({
             throw new Error(response.message || 'Failed to delete reel');
           }
         } catch (error: any) {
-          console.error('Error deleting reel:', error);
           showToast.error('Delete failed', error.message || 'Failed to delete reel');
         }
       },
@@ -311,7 +283,6 @@ export default function ReelCard({
       ref={containerRef}
       className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto"
     >
-      {/* User Header - Above Video */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-3">
           <div onClick={handleOpenProfile} className="cursor-pointer hover:opacity-80 transition">
@@ -352,7 +323,6 @@ export default function ReelCard({
             </div>
           </div>
 
-          {/* Dropdown Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="p-2 hover:bg-muted rounded-full transition cursor-pointer ">
@@ -415,7 +385,6 @@ export default function ReelCard({
         </div>
       </div>
 
-      {/* Video Player */}
       <div className="relative aspect-[3/4] bg-black">
         {videoUrl ? (
           <>
@@ -433,7 +402,6 @@ export default function ReelCard({
               preload="metadata"
             />
 
-            {/* Play Button Overlay */}
             {!isPlaying && (
               <div
                 className="absolute inset-0 flex items-center justify-center cursor-pointer"
@@ -445,7 +413,6 @@ export default function ReelCard({
               </div>
             )}
 
-            {/* Pause Button (when playing) */}
             {isPlaying && (
               <div
                 className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 hover:opacity-100 transition"
@@ -457,7 +424,6 @@ export default function ReelCard({
               </div>
             )}
 
-            {/* Mute/Unmute Button */}
             <button
               className="absolute bottom-4 right-4 p-2 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition cursor-pointer"
               onClick={(e) => {
@@ -474,7 +440,6 @@ export default function ReelCard({
           </div>
         )}
 
-        {/* Duration Badge */}
         {reel.media?.duration && (
           <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
             {Math.floor(reel.media.duration / 60)}:
@@ -485,14 +450,11 @@ export default function ReelCard({
         )}
       </div>
 
-      {/* Content */}
       <div className="p-4">
-        {/* Caption */}
         {reel.caption && (
           <p className="text-sm text-foreground mb-3 line-clamp-2">{reel.caption}</p>
         )}
 
-        {/* Actions */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -530,7 +492,6 @@ export default function ReelCard({
             </button>
           </div>
 
-          {/* View count */}
           <div className="flex items-center gap-1 text-muted-foreground">
             <Eye size={16} />
             <span className="text-sm">{viewCount}</span>
@@ -538,7 +499,6 @@ export default function ReelCard({
         </div>
       </div>
 
-      {/* Share Modal */}
       <ShareModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
@@ -546,7 +506,6 @@ export default function ReelCard({
         contentId={reel._id}
       />
 
-      {/* Report Modal */}
       <ReportReelModal
         open={isReportModalOpen}
         onOpenChange={setIsReportModalOpen}
@@ -555,7 +514,6 @@ export default function ReelCard({
         onReported={() => setIsHidden(true)}
       />
 
-      {/* Confirm Dialog */}
       <ConfirmDialog {...dialogProps} />
     </div>
   );

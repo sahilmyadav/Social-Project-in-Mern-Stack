@@ -210,7 +210,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex h-screen bg-slate-950">
-      {/* Sidebar */}
       <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col overflow-y-auto">
         <div className="p-6 border-b border-slate-800">
           <div className="flex items-center gap-3 mb-2">
@@ -285,7 +284,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="p-8">
           {activeModule === "dashboard" && (
@@ -295,7 +293,6 @@ export default function AdminDashboard() {
                 <p className="text-slate-400 mt-2">Welcome back, {admin.name}. Here's your platform overview.</p>
               </div>
 
-              {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {stats.map((stat, i) => (
                   <Card
@@ -316,7 +313,6 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card className="p-6 border-slate-700 bg-slate-800/50">
                   <h3 className="text-lg font-bold text-white mb-4">Recent Reports</h3>
@@ -376,7 +372,6 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* User Management Module */}
           {activeModule.startsWith("users") && (
             <div className="space-y-6">
               <div>
@@ -456,7 +451,6 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Generic Module Content */}
           {!activeModule.startsWith("dashboard") && !activeModule.startsWith("users") && (
             <div className="space-y-6">
               <div>

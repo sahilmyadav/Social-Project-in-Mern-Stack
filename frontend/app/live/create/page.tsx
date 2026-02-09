@@ -119,7 +119,6 @@ export default function CreateLivePage() {
   const [creating, setCreating] = useState(false);
   const [user, setUser] = useState<any>(null);
 
-  // Check authentication on mount
   useEffect(() => {
     const userData = localStorage.getItem('user');
     if (!userData) {
@@ -142,13 +141,11 @@ export default function CreateLivePage() {
   const handleThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         toast.error('Please select an image file');
         return;
       }
 
-      // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         toast.error('Image must be less than 5MB');
         return;
@@ -156,7 +153,6 @@ export default function CreateLivePage() {
 
       setThumbnail(file);
 
-      // Create preview using FileReader
       const reader = new FileReader();
       reader.onloadend = () => {
         setThumbnailPreview(reader.result as string);
@@ -184,7 +180,6 @@ export default function CreateLivePage() {
    * It becomes 'live' only when the user clicks "Go Live" on broadcast page
    */
   const handleCreateLiveStream = async () => {
-    // Check authentication first
     const token = localStorage.getItem('accessToken');
     if (!token) {
       toast.error('Please log in to start a live stream');
@@ -192,7 +187,6 @@ export default function CreateLivePage() {
       return;
     }
 
-    // Validation
     if (!title.trim()) {
       toast.error('Please enter a title for your live stream');
       return;
@@ -200,49 +194,25 @@ export default function CreateLivePage() {
 
     setCreating(true);
     try {
-      console.log('📡 Creating live stream with:', {
-        title: title.trim(),
-        description: description.trim(),
-      });
-      console.log('📡 Auth token present:', !!token);
-
-      // Call the API to create the stream
       const response = await liveStreamService.createLiveStream({
         title: title.trim(),
         description: description.trim() || undefined,
         thumbnail: thumbnail || undefined,
       });
 
-      console.log('📡 Create stream response:', response);
-
       if (response.success && response.data) {
         toast.success('Live stream created! Setting up camera...');
 
-        // Navigate to the broadcast page where camera will be initialized
-        // The streamId is used to track this specific stream
         router.push(`/live/broadcast/${response.data._id}`);
       } else {
-        console.error('Create stream failed:', response);
         toast.error(response.message || 'Failed to create live stream');
       }
-    } catch (error: any) {
-      // Log all properties of the error for debugging
-      console.error('Error creating live stream - full error:', {
-        message: error?.message,
-        error: error?.error,
-        statusCode: error?.statusCode,
-        success: error?.success,
-        errors: error?.errors,
-        name: error?.name,
-        stack: error?.stack,
-      });
-
-      // Display appropriate error message
-      const errorMessage = error?.message || error?.error || 'Failed to create live stream';
+    } catch (error: unknown) {
+      const err = error as Record<string, any>;
+      const errorMessage = err?.message || err?.error || 'Failed to create live stream';
       toast.error(errorMessage);
 
-      // If it's an auth error, redirect to login
-      if (error?.statusCode === 401) {
+      if (err?.statusCode === 401) {
         router.push('/login');
       }
     } finally {
@@ -257,7 +227,6 @@ export default function CreateLivePage() {
     try {
       await authService.logout();
     } catch (err) {
-      console.error('Logout error:', err);
     } finally {
       localStorage.removeItem('user');
       localStorage.removeItem('accessToken');
@@ -271,15 +240,12 @@ export default function CreateLivePage() {
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Desktop Sidebar Navigation */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-3 pb-20 lg:pb-0">
           <div className="container mx-auto px-4 py-6 max-w-4xl">
-            {/* Header with Back Button */}
             <div className="flex items-center gap-4 mb-8">
               <Button
                 variant="ghost"
@@ -301,7 +267,6 @@ export default function CreateLivePage() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Main Form */}
               <div className="lg:col-span-2">
                 <Card className="bg-card border-border">
                   <CardHeader>
@@ -314,7 +279,6 @@ export default function CreateLivePage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    {/* Title Input */}
                     <div className="space-y-2">
                       <Label htmlFor="title" className="text-sm font-medium">
                         Title <span className="text-red-500">*</span>
@@ -333,7 +297,6 @@ export default function CreateLivePage() {
                       </p>
                     </div>
 
-                    {/* Description Input */}
                     <div className="space-y-2">
                       <Label htmlFor="description" className="text-sm font-medium">
                         Description
@@ -356,7 +319,6 @@ export default function CreateLivePage() {
                       </p>
                     </div>
 
-                    {/* Thumbnail Upload */}
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">
                         Cover Photo
@@ -366,7 +328,6 @@ export default function CreateLivePage() {
                       </Label>
 
                       {thumbnailPreview ? (
-                        /* Thumbnail Preview */
                         <div className="relative aspect-video rounded-lg overflow-hidden border border-border">
                           <img
                             src={thumbnailPreview}
@@ -399,7 +360,6 @@ export default function CreateLivePage() {
                           </div>
                         </div>
                       ) : (
-                        /* Upload Area */
                         <label
                           htmlFor="thumbnail"
                           className="flex flex-col items-center justify-center aspect-video rounded-lg border-2 border-dashed border-border hover:border-primary/50 cursor-pointer transition-colors bg-muted/50"
@@ -422,7 +382,6 @@ export default function CreateLivePage() {
                       )}
                     </div>
 
-                    {/* Action Buttons */}
                     <div className="flex gap-3 pt-4">
                       <Button
                         variant="outline"
@@ -454,7 +413,6 @@ export default function CreateLivePage() {
                 </Card>
               </div>
 
-              {/* Tips Sidebar */}
               <div className="lg:col-span-1">
                 <Card className="bg-card/50 border-border sticky top-6">
                   <CardHeader>
@@ -483,7 +441,6 @@ export default function CreateLivePage() {
                   </CardContent>
                 </Card>
 
-                {/* User Preview Card */}
                 <Card className="bg-card/50 border-border mt-4">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm text-muted-foreground">Streaming as</CardTitle>
@@ -516,7 +473,6 @@ export default function CreateLivePage() {
         </section>
       </div>
 
-      {/* Mobile Bottom Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   );

@@ -1,11 +1,10 @@
 import mongoose from 'mongoose';
-import { Comment } from '../models/comment.model.js';
 import { Followers } from '../models/followers.model.js';
-import { Like } from '../models/like.model.js';
 import { Post } from '../models/post.model.js';
 import { Reel } from '../models/reel.model.js';
 import { Story } from '../models/story.model.js';
 import { User } from '../models/user.model.js';
+import { getCommentCounts, getLikeCounts, getLikedIds } from '../services/enrichment.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
@@ -99,34 +98,24 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
 
   posts = await Post.aggregate(pipeline);
 
-  // STEP 4: Add isLiked status and calculate actual counts
-  const postsWithData = await Promise.all(
-    posts.map(async (post) => {
-      const [isLiked, commentsCount] = await Promise.all([
-        Like.exists({
-          target_id: post._id,
-          target_type: 'post',
-          user_id: userId,
-        }),
-        Comment.countDocuments({
-          target_id: post._id,
-          target_type: 'post',
-          is_deleted: false,
-        }),
-      ]);
+  // STEP 4: Add isLiked status and calculate actual counts (batch — no N+1)
+  const postIds = posts.map((p) => p._id);
+  const [likedSet, commentCountMap] = await Promise.all([
+    getLikedIds(postIds, 'post', userId),
+    getCommentCounts(postIds, 'post'),
+  ]);
 
-      return {
-        ...post,
-        isLiked: !!isLiked,
-        likes_count: post.likes_count || 0,
-        comments_count: commentsCount,
-        shares_count: post.shares_count || 0,
-        views_count: post.views_count || 0,
-        // Mark as suggested if NOT in validUserIds
-        isSuggested: !validUserIds.map((id) => id.toString()).includes(post.user_id._id.toString()),
-      };
-    })
-  );
+  const validUserIdStrings = validUserIds.map((id) => id.toString());
+
+  const postsWithData = posts.map((post) => ({
+    ...post,
+    isLiked: likedSet.has(post._id.toString()),
+    likes_count: post.likes_count || 0,
+    comments_count: commentCountMap.get(post._id.toString()) || 0,
+    shares_count: post.shares_count || 0,
+    views_count: post.views_count || 0,
+    isSuggested: !validUserIdStrings.includes(post.user_id._id.toString()),
+  }));
 
   return res
     .status(200)
@@ -199,28 +188,25 @@ export const getReelsFeed = asyncHandler(async (req, res) => {
 
   const reels = await Reel.aggregate(pipeline);
 
-  // Add like/comment counts and following status
-  const reelsWithData = await Promise.all(
-    reels.map(async (reel) => {
-      const [isLiked, likesCount, commentsCount] = await Promise.all([
-        Like.exists({ target_type: 'reel', target_id: reel._id, user_id: userId }),
-        Like.countDocuments({ target_type: 'reel', target_id: reel._id }),
-        Comment.countDocuments({ target_type: 'reel', target_id: reel._id }),
-      ]);
+  // Add like/comment counts and following status (batch — no N+1)
+  const reelIds = reels.map((r) => r._id);
+  const [reelLikedSet, reelLikeCounts, reelCommentCounts] = await Promise.all([
+    getLikedIds(reelIds, 'reel', userId),
+    getLikeCounts(reelIds, 'reel'),
+    getCommentCounts(reelIds, 'reel'),
+  ]);
 
-      // Check if user is following the reel creator
-      const isFollowing = followingIds.some((id) => id.toString() === reel.user_id._id.toString());
-
-      return {
-        ...reel,
-        isLiked: !!isLiked,
-        likes_count: likesCount,
-        comments_count: commentsCount,
-        isFollowing: isFollowing,
-        isSuggested: !isFollowing && reel.user_id._id.toString() !== userId.toString(),
-      };
-    })
-  );
+  const reelsWithData = reels.map((reel) => {
+    const isFollowing = followingIds.some((id) => id.toString() === reel.user_id._id.toString());
+    return {
+      ...reel,
+      isLiked: reelLikedSet.has(reel._id.toString()),
+      likes_count: reelLikeCounts.get(reel._id.toString()) || 0,
+      comments_count: reelCommentCounts.get(reel._id.toString()) || 0,
+      isFollowing,
+      isSuggested: !isFollowing && reel.user_id._id.toString() !== userId.toString(),
+    };
+  });
 
   return res
     .status(200)
@@ -361,19 +347,16 @@ export const getUserPosts = asyncHandler(async (req, res) => {
     .limit(parseInt(limit))
     .lean();
 
-  // Add isLiked status for each post
-  const postsWithLikeStatus = await Promise.all(
-    posts.map(async (post) => {
-      const isLiked = currentUserId
-        ? await Like.exists({ target_type: 'post', target_id: post._id, user_id: currentUserId })
-        : null;
+  // Add isLiked status for each post (batch — no N+1)
+  const userPostIds = posts.map((p) => p._id);
+  const userPostLikedSet = currentUserId
+    ? await getLikedIds(userPostIds, 'post', currentUserId)
+    : new Set();
 
-      return {
-        ...post,
-        isLiked: !!isLiked,
-      };
-    })
-  );
+  const postsWithLikeStatus = posts.map((post) => ({
+    ...post,
+    isLiked: userPostLikedSet.has(post._id.toString()),
+  }));
 
   const nextCursor =
     postsWithLikeStatus.length > 0 ? postsWithLikeStatus[postsWithLikeStatus.length - 1]._id : null;
