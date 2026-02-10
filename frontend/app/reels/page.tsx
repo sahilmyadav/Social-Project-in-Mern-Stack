@@ -35,6 +35,14 @@ interface Reel {
     firstName: string;
     lastName: string;
   };
+  music?: {
+    trackId?: string;
+    trackName?: string;
+    artistName?: string;
+    albumArt?: string;
+    previewUrl?: string;
+    startTime?: number;
+  };
   caption: string;
   tags: string[];
   likes_count: number;
@@ -60,6 +68,7 @@ export default function ReelsPage() {
   const [showShare, setShowShare] = useState(false);
   const [savedReels, setSavedReels] = useState<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const reelContainerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -129,6 +138,57 @@ export default function ReelsPage() {
       return () => container.removeEventListener('scroll', handleScroll);
     }
   }, [currentReelIndex, reels.length]);
+
+  // Sync music audio with current reel video
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (!video || !audio) return;
+
+    const currentReelData = reels[currentReelIndex];
+    if (!currentReelData?.music?.previewUrl) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      return;
+    }
+
+    audio.src = currentReelData.music.previewUrl;
+    audio.currentTime = currentReelData.music.startTime || 0;
+
+    let prevTime = 0;
+
+    const onPlay = () => audio.play().catch(() => {});
+    const onPause = () => audio.pause();
+    const onTimeUpdate = () => {
+      if (video.currentTime < prevTime - 1) {
+        audio.currentTime = currentReelData.music?.startTime || 0;
+      }
+      prevTime = video.currentTime;
+    };
+
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('timeupdate', onTimeUpdate);
+
+    if (!video.paused) {
+      audio.play().catch(() => {});
+    }
+
+    return () => {
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      audio.pause();
+    };
+  }, [currentReelIndex, reels]);
+
+  // Sync audio mute with video mute
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -329,7 +389,13 @@ export default function ReelsPage() {
                         playsInline
                         autoPlay
                         muted={isMuted}
+                        preload="auto"
                         onClick={togglePlayPause}
+                        onLoadedData={() => {
+                          if (videoRef.current && isPlaying) {
+                            videoRef.current.play().catch(() => {});
+                          }
+                        }}
                       />
                     )}
 
@@ -380,6 +446,15 @@ export default function ReelsPage() {
                       </div>
                       {reel.caption && (
                         <p className="text-white text-sm line-clamp-2">{reel.caption}</p>
+                      )}
+                      {reel.music?.trackName && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-sm animate-pulse">🎵</span>
+                          <p className="text-white text-xs truncate">
+                            {reel.music.trackName}
+                            {reel.music.artistName ? ` · ${reel.music.artistName}` : ''}
+                          </p>
+                        </div>
                       )}
                     </div>
 
@@ -452,6 +527,8 @@ export default function ReelsPage() {
               </div>
             ))}
           </div>
+
+          <audio ref={audioRef} loop preload="auto" />
 
           <div className="fixed right-4 lg:right-auto lg:left-1/2 lg:-translate-x-1/2 lg:ml-64 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-30">
             <button

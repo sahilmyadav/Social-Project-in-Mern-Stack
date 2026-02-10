@@ -3,18 +3,19 @@
 import { Button } from '@/components/ui/button';
 import { chatService, followService, notificationService } from '@/lib/api-services';
 import {
-    Bell,
-    Heart,
-    Home,
-    LogOut,
-    MessageCircle,
-    Plus,
-    Radio,
-    Search,
-    User,
-    Video,
+  Bell,
+  Heart,
+  Home,
+  LogOut,
+  MessageCircle,
+  Plus,
+  Radio,
+  Search,
+  User,
+  Video,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import AnimatedLogo from './animated-logo';
 
@@ -25,12 +26,13 @@ interface NavigationProps {
 }
 
 export default function Navigation({ user, onLogout, isMobile }: NavigationProps) {
+  const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [notificationApiAvailable, setNotificationApiAvailable] = useState(true);
 
   useEffect(() => {
-    if (notificationApiAvailable && user && !isMobile) {
+    if (notificationApiAvailable && user) {
       loadUnreadCount();
       loadChatUnreadCount();
 
@@ -78,8 +80,7 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
       if (response.success && response.data) {
         setChatUnreadCount(response.data.unreadCount || 0);
       }
-    } catch (error) {
-    }
+    } catch (error) {}
   };
 
   const mobileNavItems = [
@@ -87,17 +88,12 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
     { icon: Search, label: 'Explore', href: '/explore' },
     { icon: Radio, label: 'Live', href: '/live' },
     { icon: Plus, label: 'Create', href: '/create', isSpecial: true }, // Special styling for create
+    { icon: Video, label: 'Reels', href: '/reels' },
     {
       icon: MessageCircle,
       label: 'Chat',
       href: '/chat',
       badge: chatUnreadCount > 0 ? chatUnreadCount : undefined,
-    },
-    {
-      icon: Bell,
-      label: 'Notifications',
-      href: '/notifications',
-      badge: unreadCount > 0 ? unreadCount : undefined,
     },
     { icon: User, label: 'Profile', href: '/profile' },
   ];
@@ -127,28 +123,31 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
   if (isMobile) {
     return (
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 border-t border-border/50 bg-card/80 backdrop-blur-xl z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
-        <div className="flex items-center justify-around px-1 py-1.5 max-w-screen-sm mx-auto">
+        <div className="flex items-center justify-evenly px-2 sm:px-6 py-1.5 sm:py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] max-w-screen-sm mx-auto w-full">
           {mobileNavItems.map((item) => (
-            <Link key={item.label} href={item.href} className="flex-1 flex justify-center">
+            <Link
+              key={item.label}
+              href={item.href}
+              className="flex items-center justify-center min-w-0"
+            >
               <div className="relative group">
                 {item.isSpecial ? (
-                  <div className="relative -mt-6">
+                  <div className="relative -mt-4 sm:-mt-5">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/40 to-secondary/40 rounded-full blur-lg scale-110 opacity-70" />
-                    <div className="relative p-4 rounded-full bg-gradient-to-br from-primary via-purple-500 to-secondary text-white shadow-xl active:scale-90 transition-all duration-200 cursor-pointer border-4 border-card">
-                      <item.icon size={26} strokeWidth={2.5} />
+                    <div className="relative p-2.5 sm:p-3.5 rounded-full bg-gradient-to-br from-primary via-purple-500 to-secondary text-white shadow-xl active:scale-90 transition-all duration-200 cursor-pointer border-[3px] sm:border-4 border-card">
+                      <item.icon className="w-5 h-5 sm:w-6 sm:h-6" strokeWidth={2.5} />
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center py-2.5 px-3 rounded-2xl active:scale-90 active:bg-muted/60 transition-all duration-200 cursor-pointer">
+                  <div className="flex flex-col items-center py-1.5 sm:py-2 px-2 sm:px-3 rounded-2xl active:scale-90 active:bg-muted/60 transition-all duration-200 cursor-pointer">
                     <div className="relative">
                       <item.icon
-                        size={24}
-                        className="text-foreground/70 group-hover:text-foreground transition-colors"
+                        className="w-[20px] h-[20px] sm:w-[22px] sm:h-[22px] text-foreground/70 group-hover:text-foreground transition-colors"
                         strokeWidth={1.6}
                       />
 
                       {typeof item.badge === 'number' && item.badge > 0 && (
-                        <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 bg-gradient-to-r from-red-500 to-rose-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold shadow-md ring-2 ring-card">
+                        <span className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] px-0.5 sm:px-1 bg-gradient-to-r from-red-500 to-rose-500 text-white text-[9px] sm:text-[10px] rounded-full flex items-center justify-center font-bold shadow-md ring-2 ring-card">
                           {item.badge > 99 ? '99+' : item.badge}
                         </span>
                       )}
@@ -159,7 +158,6 @@ export default function Navigation({ user, onLogout, isMobile }: NavigationProps
             </Link>
           ))}
         </div>
-        <div className="h-safe-area-inset-bottom bg-card/80" />
       </nav>
     );
   }
