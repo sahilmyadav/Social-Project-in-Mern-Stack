@@ -5,15 +5,15 @@ import PostCard from '@/components/post-card';
 import ReelCard from '@/components/reel-card';
 import ReelComments from '@/components/reel-comments';
 import {
-    FeedSkeleton,
-    InfiniteScrollTrigger,
-    StoriesBarSkeleton,
-    SuggestionSkeleton,
+  FeedSkeleton,
+  InfiniteScrollTrigger,
+  StoriesBarSkeleton,
+  SuggestionSkeleton,
 } from '@/components/skeletons';
 import StoriesBar from '@/components/stories-bar';
 import { feedService, followService, reelService, searchService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
-import { Plus } from 'lucide-react';
+import { Bell, Plus } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -187,8 +187,7 @@ export default function HomePage() {
       if (response.success) {
         setSuggestions((prev) => prev.filter((u) => u._id !== userId));
       }
-    } catch (error) {
-    }
+    } catch (error) {}
   };
 
   useEffect(() => {
@@ -287,39 +286,53 @@ export default function HomePage() {
         </aside>
 
         <section className="lg:col-span-2 max-w-2xl mx-auto pb-20 lg:pb-0">
-          <div className="bg-card rounded-2xl border border-border p-4 mb-6 sticky top-0 z-10">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-xl overflow-hidden">
-                {(() => {
-                  const avatar = user?.profileImage || user?.profilePicture || user?.avatar;
-                  if (
-                    avatar &&
-                    avatar !== '👤' &&
-                    (avatar.startsWith('http') || avatar.startsWith('/'))
-                  ) {
+          <div className="bg-card/90 backdrop-blur-lg rounded-2xl border border-border/60 p-3 sm:p-4 mb-4 sticky top-0 z-10 shadow-sm">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <Link href="/profile" className="shrink-0">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg overflow-hidden ring-2 ring-primary/20 hover:ring-primary/40 transition-all">
+                  {(() => {
+                    const avatar = user?.profileImage || user?.profilePicture || user?.avatar;
+                    if (
+                      avatar &&
+                      avatar !== '👤' &&
+                      (avatar.startsWith('http') || avatar.startsWith('/'))
+                    ) {
+                      return (
+                        <img
+                          src={getMediaUrl(avatar)}
+                          alt="Profile"
+                          className="w-full h-full object-cover"
+                        />
+                      );
+                    }
                     return (
-                      <img
-                        src={getMediaUrl(avatar)}
-                        alt="Profile"
-                        className="w-full h-full object-cover"
-                      />
+                      <span className="text-white font-semibold">
+                        {user?.firstName?.[0] || '😊'}
+                      </span>
                     );
-                  }
-                  return <span>{user?.firstName?.[0] || '😊'}</span>;
-                })()}
+                  })()}
+                </div>
+              </Link>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="flex-1 bg-muted/60 rounded-full px-4 py-2.5 text-left text-sm text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
+              >
+                What&apos;s on your mind?
+              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="p-2.5 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition-all shadow-md shadow-primary/25 cursor-pointer"
+                >
+                  <Plus size={18} strokeWidth={2.5} />
+                </button>
+                <Link
+                  href="/notifications"
+                  className="relative p-2.5 rounded-full hover:bg-muted active:scale-95 transition-all lg:hidden cursor-pointer"
+                >
+                  <Bell size={18} className="text-foreground/60" strokeWidth={1.8} />
+                </Link>
               </div>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="flex-1 bg-muted rounded-full px-4 py-2 text-left text-muted-foreground hover:bg-muted/80 transition"
-              >
-                What's on your mind?
-              </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="p-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition"
-              >
-                <Plus size={20} />
-              </button>
             </div>
           </div>
 

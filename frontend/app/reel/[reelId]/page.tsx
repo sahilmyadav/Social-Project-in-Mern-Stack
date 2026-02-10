@@ -51,10 +51,61 @@ export default function ReelPage() {
 
   const [isPlaying, setIsPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = globalMuted;
+    }
+  }, [globalMuted]);
+
+  // Sync music audio with video playback
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (!video || !audio || !reel?.music?.previewUrl) {
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
+      return;
+    }
+
+    audio.src = reel.music.previewUrl;
+    audio.currentTime = reel.music.startTime || 0;
+
+    let prevTime = 0;
+
+    const onPlay = () => audio.play().catch(() => {});
+    const onPause = () => audio.pause();
+    const onTimeUpdate = () => {
+      if (video.currentTime < prevTime - 1) {
+        audio.currentTime = reel.music?.startTime || 0;
+      }
+      prevTime = video.currentTime;
+    };
+
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('timeupdate', onTimeUpdate);
+
+    if (!video.paused) {
+      audio.play().catch(() => {});
+    }
+
+    return () => {
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      audio.pause();
+    };
+  }, [reel?.music?.previewUrl, reel?.music?.startTime]);
+
+  // Sync music audio mute state
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = globalMuted;
     }
   }, [globalMuted]);
 
@@ -570,6 +621,16 @@ export default function ReelPage() {
                 onPause={() => setIsPlaying(false)}
                 onError={(e) => console.error('Video error:', e)}
               />
+
+              {reel?.music?.previewUrl && (
+                <audio
+                  ref={audioRef}
+                  src={reel.music.previewUrl}
+                  loop
+                  preload="auto"
+                  muted={globalMuted}
+                />
+              )}
             ) : (
               <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                 <p>Video not available</p>
@@ -619,6 +680,14 @@ export default function ReelPage() {
                 </div>
               </Link>
               {reel.caption && <p className="text-white text-sm line-clamp-2">{reel.caption}</p>}
+              {reel?.music?.trackName && (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-sm animate-pulse">🎵</span>
+                  <p className="text-white text-xs truncate">
+                    {reel.music.trackName}{reel.music.artistName ? ` · ${reel.music.artistName}` : ''}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="absolute right-2 bottom-6 flex flex-col items-center gap-3 z-10">

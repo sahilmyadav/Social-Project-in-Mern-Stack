@@ -4,10 +4,10 @@ import ReportReelModal from '@/components/report-reel-modal';
 import ShareModal from '@/components/share-modal';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import UserAvatar from '@/components/user-avatar';
 import { useVideoSafe } from '@/contexts/video-context';
@@ -15,16 +15,16 @@ import { reelService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast } from '@/lib/toast';
 import {
-    Bookmark,
-    Download,
-    Eye,
-    Heart,
-    MessageCircle,
-    MoreHorizontal,
-    Play,
-    Share2,
-    Volume2,
-    VolumeX,
+  Bookmark,
+  Download,
+  Eye,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Share2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -58,6 +58,7 @@ export default function ReelCard({
   const [isInView, setIsInView] = useState(false);
   const [userPaused, setUserPaused] = useState(false); // Track if user manually paused
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hasTrackedView = useRef(reel.isViewed || false);
   const { confirm, dialogProps } = useConfirmDialog();
@@ -124,6 +125,49 @@ export default function ReelCard({
     const timeoutId = setTimeout(trackView, 1500);
     return () => clearTimeout(timeoutId);
   }, [isInView, reel._id, onViewUpdate]);
+
+  // Sync music audio with video playback
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (!video || !audio || !reel.music?.previewUrl) return;
+
+    let prevTime = 0;
+
+    const onPlay = () => audio.play().catch(() => {});
+    const onPause = () => audio.pause();
+    const onTimeUpdate = () => {
+      // Detect loop: video time jumped backward significantly
+      if (video.currentTime < prevTime - 1) {
+        audio.currentTime = reel.music?.startTime || 0;
+      }
+      prevTime = video.currentTime;
+    };
+
+    audio.currentTime = reel.music?.startTime || 0;
+
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('timeupdate', onTimeUpdate);
+
+    if (!video.paused) {
+      audio.play().catch(() => {});
+    }
+
+    return () => {
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      audio.pause();
+    };
+  }, [reel.music?.previewUrl, reel.music?.startTime]);
+
+  // Sync music audio mute state
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = globalMuted;
+    }
+  }, [globalMuted]);
 
   if (isHidden) {
     return null;
@@ -399,7 +443,7 @@ export default function ReelCard({
               loop
               playsInline
               muted={globalMuted}
-              preload="metadata"
+              preload="auto"
             />
 
             {!isPlaying && (
@@ -433,6 +477,26 @@ export default function ReelCard({
             >
               {globalMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
             </button>
+
+            {reel.music?.previewUrl && (
+              <audio
+                ref={audioRef}
+                src={reel.music.previewUrl}
+                loop
+                preload="auto"
+                muted={globalMuted}
+              />
+            )}
+
+            {reel.music?.trackName && (
+              <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-sm rounded-full px-3 py-1.5 z-10 max-w-[60%]">
+                <span className="text-sm animate-pulse">🎵</span>
+                <p className="text-white text-xs truncate">
+                  {reel.music.trackName}
+                  {reel.music.artistName ? ` · ${reel.music.artistName}` : ''}
+                </p>
+              </div>
+            )}
           </>
         ) : (
           <div className="w-full h-full flex items-center justify-center">
