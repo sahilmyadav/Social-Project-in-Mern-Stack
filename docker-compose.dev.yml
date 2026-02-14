@@ -59,7 +59,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
-      - '6379:6379'
+      - '6380:6379' # Use 6380 on host to avoid conflict with host Redis
     volumes:
       - redis-data-dev:/data
     networks:

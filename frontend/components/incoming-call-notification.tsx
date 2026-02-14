@@ -1,6 +1,7 @@
 'use client';
 
 import { getMediaUrl } from '@/lib/media-utils';
+import { Ringtone } from '@/lib/ringtone';
 import { Phone, PhoneOff, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -24,10 +25,25 @@ export default function IncomingCallNotification({
   useEffect(() => {
     if (isVisible) {
       setIsAnimating(true);
+      Ringtone.play('incoming');
     } else {
       setIsAnimating(false);
+      Ringtone.stop();
     }
+    return () => {
+      Ringtone.stop();
+    };
   }, [isVisible]);
+
+  const handleAccept = () => {
+    Ringtone.stop();
+    onAccept();
+  };
+
+  const handleReject = () => {
+    Ringtone.stop();
+    onReject();
+  };
 
   if (!isVisible) return null;
 
@@ -73,7 +89,7 @@ export default function IncomingCallNotification({
 
           <div className="flex items-center justify-center gap-8">
             <button
-              onClick={onReject}
+              onClick={handleReject}
               className="group flex flex-col items-center gap-2 transition-transform hover:scale-110 active:scale-95"
               title="Reject call"
             >
@@ -86,7 +102,7 @@ export default function IncomingCallNotification({
             </button>
 
             <button
-              onClick={onAccept}
+              onClick={handleAccept}
               className="group flex flex-col items-center gap-2 transition-transform hover:scale-110 active:scale-95"
               title="Accept call"
             >

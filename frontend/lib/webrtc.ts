@@ -3,15 +3,27 @@ export const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // TURN relay fallback — replace credentials with your own Coturn/Twilio/Xirsys config
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    // Metered.ca TURN servers (free tier — reliable relay)
     {
-      urls: [
-        'turn:turn.clikkme.in:3478?transport=udp',
-        'turn:turn.clikkme.in:3478?transport=tcp',
-        'turns:turn.clikkme.in:5349?transport=tcp',
-      ],
-      username: process.env.NEXT_PUBLIC_TURN_USERNAME || 'clikkme',
-      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || 'clikkme_turn_secret',
+      urls: 'turn:global.relay.metered.ca:80',
+      username: 'e87fdf2eac32d93a7e5dd864',
+      credential: '7WSHpXE5IWvQqnJL',
+    },
+    {
+      urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+      username: 'e87fdf2eac32d93a7e5dd864',
+      credential: '7WSHpXE5IWvQqnJL',
+    },
+    {
+      urls: 'turn:global.relay.metered.ca:443',
+      username: 'e87fdf2eac32d93a7e5dd864',
+      credential: '7WSHpXE5IWvQqnJL',
+    },
+    {
+      urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+      username: 'e87fdf2eac32d93a7e5dd864',
+      credential: '7WSHpXE5IWvQqnJL',
     },
   ],
   iceCandidatePoolSize: 10,

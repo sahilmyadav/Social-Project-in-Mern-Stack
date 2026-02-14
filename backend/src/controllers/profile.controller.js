@@ -32,7 +32,21 @@ export const getCurrentUser = asyncHandler(async (req, res) => {
       Followers.countDocuments({ follower_id: user._id, status: 'accepted' }),
       Post.countDocuments({ user_id: user._id, is_deleted: false }),
       Reel.countDocuments({ user_id: user._id, is_deleted: false }),
-      Save.countDocuments({ user_id: user._id }),
+      // Count only saves whose target post/reel is not deleted
+      (async () => {
+        const saves = await Save.find({ user_id: user._id }).lean();
+        const postIds = saves.filter((s) => s.target_type === 'post').map((s) => s.target_id);
+        const reelIds = saves.filter((s) => s.target_type === 'reel').map((s) => s.target_id);
+        const [activePosts, activeReels] = await Promise.all([
+          postIds.length > 0
+            ? Post.countDocuments({ _id: { $in: postIds }, is_deleted: false })
+            : 0,
+          reelIds.length > 0
+            ? Reel.countDocuments({ _id: { $in: reelIds }, is_deleted: false })
+            : 0,
+        ]);
+        return activePosts + activeReels;
+      })(),
     ]);
 
   return res.status(200).json(

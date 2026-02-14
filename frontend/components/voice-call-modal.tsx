@@ -2,39 +2,42 @@
 
 import { useCallState } from '@/contexts/call-context';
 import { getMediaUrl } from '@/lib/media-utils';
+import { Ringtone } from '@/lib/ringtone';
 import {
-  emitAcceptCall,
-  emitAnswer,
-  emitEndCall,
-  emitIceCandidate,
-  emitOffer,
-  emitRejectCall,
-  offAnswer,
-  offCallAccepted,
-  offCallEnded,
-  offCallFailed,
-  offIceCandidate,
-  offOffer,
-  onAnswer,
-  onCallAccepted,
-  onCallEnded,
-  onCallFailed,
-  onIceCandidate,
-  onOffer,
+    emitAcceptCall,
+    emitAnswer,
+    emitEndCall,
+    emitIceCandidate,
+    emitOffer,
+    emitRejectCall,
+    offAnswer,
+    offCallAccepted,
+    offCallEnded,
+    offCallFailed,
+    offCallRejected,
+    offIceCandidate,
+    offOffer,
+    onAnswer,
+    onCallAccepted,
+    onCallEnded,
+    onCallFailed,
+    onCallRejected,
+    onIceCandidate,
+    onOffer,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-  AUDIO_CONSTRAINTS,
-  ICE_RECONNECT_TIMEOUT_MS,
-  RING_TIMEOUT_MS,
-  attemptIceRestart,
-  cleanupMediaStream,
-  cleanupPeerConnection,
-  formatCallDuration,
-  getCallQualityStats,
-  getIceServers,
-  isGroupCallSignal,
-  registerBeforeUnloadCleanup,
+    AUDIO_CONSTRAINTS,
+    ICE_RECONNECT_TIMEOUT_MS,
+    RING_TIMEOUT_MS,
+    attemptIceRestart,
+    cleanupMediaStream,
+    cleanupPeerConnection,
+    formatCallDuration,
+    getCallQualityStats,
+    getIceServers,
+    isGroupCallSignal,
+    registerBeforeUnloadCleanup,
 } from '@/lib/webrtc';
 import { Mic, MicOff, Phone, PhoneOff, User, Volume2, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -79,6 +82,8 @@ export default function VoiceCallModal({
   const iceCandidatesQueue = useRef<RTCIceCandidate[]>([]);
   const remoteDescriptionSet = useRef(false);
   const isEndingCall = useRef(false);
+  const endedByRemoteRef = useRef(false);
+  const hasAcquiredLockRef = useRef(false);
   const pendingOffer = useRef<any>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iceRestartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,6 +93,7 @@ export default function VoiceCallModal({
     answer?: (data: any) => void;
     iceCandidate?: (data: any) => void;
     callAccepted?: (data: any) => void;
+    callRejected?: (data: any) => void;
     callEnded?: (data: any) => void;
     callFailed?: (data: any) => void;
   }>({});
@@ -100,10 +106,20 @@ export default function VoiceCallModal({
         callId: threadId,
         isIncoming: isIncomingCall,
       });
+      console.log('[VoiceCall] ========== CALL STARTED ==========');
+      console.log('[VoiceCall] isIncomingCall:', isIncomingCall);
+      console.log('[VoiceCall] recipientId:', recipientId);
+      console.log('[VoiceCall] callerId:', callerId);
+      console.log('[VoiceCall] threadId:', threadId);
+      console.log('[VoiceCall] currentUserId:', currentUserId);
+      console.log('[VoiceCall] acquireCall result:', acquired);
       if (!acquired) {
+        console.log('[VoiceCall] BLOCKED - already in a call, closing');
+        hasAcquiredLockRef.current = false;
         onClose();
         return;
       }
+      hasAcquiredLockRef.current = true;
 
       setCallDuration(0);
       setCallStatus('ringing');
@@ -111,16 +127,22 @@ export default function VoiceCallModal({
       remoteDescriptionSet.current = false;
       iceCandidatesQueue.current = [];
       isEndingCall.current = false;
+      endedByRemoteRef.current = false;
 
       const handleCallEndedByRemote = () => {
+        console.log('[VoiceCall] Remote party ended the call');
+        endedByRemoteRef.current = true;
         endCall();
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
       onCallEnded(handleCallEndedByRemote);
 
       const handleCallFailedEvent = (data: any) => {
+        console.log('[VoiceCall] CALL FAILED event:', data?.reason);
         setCallFailedReason(data.reason || 'Call failed');
         setCallStatus('ended');
+        releaseCall();
+        hasAcquiredLockRef.current = false;
         setTimeout(() => {
           onClose();
         }, 2000);
@@ -129,7 +151,20 @@ export default function VoiceCallModal({
       onCallFailed(handleCallFailedEvent);
 
       if (!isIncomingCall) {
+        // Handle rejection — callee clicked Reject
+        const handleCallRejectedEvent = () => {
+          console.log('[VoiceCall] Call REJECTED by recipient');
+          setCallFailedReason('Call declined');
+          setCallStatus('ended');
+          releaseCall();
+          hasAcquiredLockRef.current = false;
+          setTimeout(() => onClose(), 2000);
+        };
+        handlersRef.current.callRejected = handleCallRejectedEvent;
+        onCallRejected(handleCallRejectedEvent);
+
         const handleCallAccepted = async (data: any) => {
+          console.log('[VoiceCall] CALL ACCEPTED by recipient:', data);
           setCallStatus('connecting');
 
           try {
@@ -233,6 +268,9 @@ export default function VoiceCallModal({
         if (handlersRef.current.callAccepted) {
           offCallAccepted(handlersRef.current.callAccepted);
         }
+        if (handlersRef.current.callRejected) {
+          offCallRejected(handlersRef.current.callRejected);
+        }
         if (handlersRef.current.callEnded) {
           offCallEnded(handlersRef.current.callEnded);
         }
@@ -256,6 +294,7 @@ export default function VoiceCallModal({
       setCallStatus('ended');
       setCallFailedReason('No answer');
       releaseCall();
+      hasAcquiredLockRef.current = false;
       setTimeout(() => onClose(), 2000);
     }, RING_TIMEOUT_MS);
     return () => {
@@ -265,6 +304,18 @@ export default function VoiceCallModal({
       }
     };
   }, [isOpen, callStatus, onClose]);
+
+  // Outgoing ringtone: play ringback tone while waiting for recipient to answer
+  useEffect(() => {
+    if (isOpen && callStatus === 'ringing' && !isIncomingCall) {
+      Ringtone.play('outgoing');
+    } else {
+      Ringtone.stop();
+    }
+    return () => {
+      Ringtone.stop();
+    };
+  }, [isOpen, callStatus, isIncomingCall]);
 
   useEffect(() => {
     if (callStatus !== 'active') return;
@@ -305,15 +356,24 @@ export default function VoiceCallModal({
     return () => {
       cleanupPeerConnection(peerConnectionRef.current);
       cleanupMediaStream(localStreamRef.current);
+      // Only release lock on unmount if THIS instance acquired it
+      if (hasAcquiredLockRef.current) {
+        releaseCall();
+        hasAcquiredLockRef.current = false;
+      }
     };
   }, []);
 
   const createPeerConnection = async () => {
     try {
-      const peerConnection = new RTCPeerConnection(getIceServers());
+      const iceConfig = getIceServers();
+      console.log('[VoiceCall] Creating PeerConnection with ICE servers:', JSON.stringify(iceConfig.iceServers?.map(s => typeof s === 'string' ? s : (s as any).urls)));
+      const peerConnection = new RTCPeerConnection(iceConfig);
       peerConnectionRef.current = peerConnection;
 
+      console.log('[VoiceCall] Requesting microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
+      console.log('[VoiceCall] Microphone acquired, tracks:', stream.getTracks().length);
       localStreamRef.current = stream;
 
       stream.getTracks().forEach((track) => {
@@ -332,11 +392,13 @@ export default function VoiceCallModal({
 
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log('[VoiceCall] ICE candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
           emitIceCandidate(recipientId || callerId || '', event.candidate);
         }
       };
 
       peerConnection.oniceconnectionstatechange = () => {
+        console.log('[VoiceCall] ICE connection state:', peerConnection.iceConnectionState);
         if (peerConnection.iceConnectionState === 'connected') {
           setCallStatus('active');
           if (iceRestartTimeoutRef.current) {
@@ -359,6 +421,7 @@ export default function VoiceCallModal({
       };
 
       peerConnection.onconnectionstatechange = () => {
+        console.log('[VoiceCall] Connection state:', peerConnection.connectionState);
         if (peerConnection.connectionState === 'failed') {
           endCall();
         }
@@ -373,6 +436,7 @@ export default function VoiceCallModal({
   };
 
   const handleAcceptCall = async () => {
+    console.log('[VoiceCall] Accepting incoming call from:', callerId);
     setCallStatus('connecting');
 
     try {
@@ -469,10 +533,12 @@ export default function VoiceCallModal({
       const peerConnection = await createPeerConnection();
 
       if (callerId && threadId) {
+        console.log('[VoiceCall] Emitting acceptCall to server, callerId:', callerId, 'threadId:', threadId);
         emitAcceptCall(callerId, threadId);
       }
 
       if (pendingOffer.current) {
+        console.log('[VoiceCall] Processing pending offer');
         await processOffer(pendingOffer.current, peerConnection);
         pendingOffer.current = null;
       } else {
@@ -512,6 +578,10 @@ export default function VoiceCallModal({
       offCallAccepted(handlersRef.current.callAccepted);
       handlersRef.current.callAccepted = undefined;
     }
+    if (handlersRef.current.callRejected) {
+      offCallRejected(handlersRef.current.callRejected);
+      handlersRef.current.callRejected = undefined;
+    }
     if (handlersRef.current.callEnded) {
       offCallEnded(handlersRef.current.callEnded);
       handlersRef.current.callEnded = undefined;
@@ -540,12 +610,13 @@ export default function VoiceCallModal({
     remoteDescriptionSet.current = false;
     iceCandidatesQueue.current = [];
 
-    if (recipientId || callerId) {
+    if (!endedByRemoteRef.current && (recipientId || callerId)) {
       emitEndCall(recipientId || callerId || '', threadId);
     }
 
     setCallStatus('ended');
     releaseCall();
+    hasAcquiredLockRef.current = false;
     onCallEnd?.();
 
     setTimeout(() => {

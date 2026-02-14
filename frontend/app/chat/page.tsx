@@ -11,10 +11,10 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -26,71 +26,71 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { authService, chatService, groupService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-  disconnectSocket,
-  emitInitiateCall,
-  emitInitiateGroupCall,
-  emitJoinGroup,
-  emitMessageDelivered,
-  emitStopTyping,
-  emitTyping,
-  emitUserOffline,
-  emitUserOnline,
-  getSocket,
-  initSocket,
-  joinThread,
-  offCallEnded,
-  offCallFailed,
-  offCallRejected,
-  offGroupMessage,
-  offGroupMessageNotification,
-  offIncomingCall,
-  offMessageStatus,
-  offNewMessage,
-  offNewThread,
-  offStopTyping,
-  offTyping,
-  offUserOffline,
-  offUserOnline,
-  onCallEnded,
-  onCallFailed,
-  onCallRejected,
-  onGroupMessage,
-  onGroupMessageNotification,
-  onIncomingCall,
-  onMessageStatus,
-  onNewMessage,
-  onNewThread,
-  onStopTyping,
-  onTyping,
-  onUserOffline,
-  onUserOnline,
+    disconnectSocket,
+    emitInitiateCall,
+    emitInitiateGroupCall,
+    emitJoinGroup,
+    emitMessageDelivered,
+    emitStopTyping,
+    emitTyping,
+    emitUserOffline,
+    emitUserOnline,
+    getSocket,
+    initSocket,
+    joinThread,
+    offCallEnded,
+    offCallFailed,
+    offCallRejected,
+    offGroupMessage,
+    offGroupMessageNotification,
+    offIncomingCall,
+    offMessageStatus,
+    offNewMessage,
+    offNewThread,
+    offStopTyping,
+    offTyping,
+    offUserOffline,
+    offUserOnline,
+    onCallEnded,
+    onCallFailed,
+    onCallRejected,
+    onGroupMessage,
+    onGroupMessageNotification,
+    onIncomingCall,
+    onMessageStatus,
+    onNewMessage,
+    onNewThread,
+    onStopTyping,
+    onTyping,
+    onUserOffline,
+    onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import { formatCallDuration } from '@/lib/webrtc';
 import {
-  Ban,
-  Camera,
-  CornerUpLeft,
-  Edit2,
-  FileText,
-  Flag,
-  Forward,
-  Image as ImageIcon,
-  LogOut,
-  MapPin,
-  Mic,
-  MoreHorizontal,
-  Navigation2,
-  Phone,
-  Plus,
-  Reply,
-  Send,
-  Trash2,
-  User,
-  UserPlus,
-  Users,
-  Video,
-  X,
+    Ban,
+    Camera,
+    CornerUpLeft,
+    Edit2,
+    FileText,
+    Flag,
+    Forward,
+    Image as ImageIcon,
+    LogOut,
+    MapPin,
+    Mic,
+    MoreHorizontal,
+    Navigation2,
+    Phone,
+    Plus,
+    Reply,
+    Send,
+    Trash2,
+    User,
+    UserPlus,
+    Users,
+    Video,
+    X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -177,6 +177,8 @@ function ChatPageContent() {
   const [isVideoCallOpen, setIsVideoCallOpen] = useState(false);
   const [isGroupVoiceCallOpen, setIsGroupVoiceCallOpen] = useState(false);
   const [isGroupVideoCallOpen, setIsGroupVideoCallOpen] = useState(false);
+  // Debounce guard: prevent double-tap on mobile from firing duplicate initiateCall
+  const callInitiatingRef = useRef(false);
   const [incomingCall, setIncomingCall] = useState<{
     callerId: string;
     callerName: string;
@@ -754,12 +756,7 @@ function ChatPageContent() {
           return;
         }
 
-        // Busy signal — reject if already in a call
-        if (isInCall) {
-          const socket = getSocket();
-          if (socket) socket.emit('callBusy', { callerId, threadId });
-          return;
-        }
+        // GlobalCallHandler handles busy signal & call UI — only update chat UI here
 
         const currentConversations = conversationsRef.current;
         const conversation = currentConversations.find(
@@ -785,20 +782,8 @@ function ChatPageContent() {
             : undefined,
         });
 
-        // Open modals — the modals themselves handle accept/reject via hasUserAccepted gate
-        if (isGroupCall) {
-          if (callType === 'video') {
-            setIsGroupVideoCallOpen(true);
-          } else {
-            setIsGroupVoiceCallOpen(true);
-          }
-        } else {
-          if (callType === 'video') {
-            setIsVideoCallOpen(true);
-          } else {
-            setIsVoiceCallOpen(true);
-          }
-        }
+        // Don't open modals here — GlobalCallHandler handles
+        // incoming-call notification + accept/reject UI globally.
 
         if (
           threadId === selectedThreadIdRef.current ||
@@ -821,9 +806,10 @@ function ChatPageContent() {
         }
 
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+          const notifIcon = (callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/')) ? callerAvatar : undefined;
           new Notification('Incoming Call', {
             body: `${callerName} is calling...`,
-            icon: callerAvatar,
+            icon: notifIcon,
             tag: 'incoming-call',
           });
         }
@@ -834,8 +820,12 @@ function ChatPageContent() {
 
       const handleCallRejected = (data: any) => {
         setIncomingCall(null);
+        // Close chat page's own call modals (the button is disabled while any is open)
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        // NOTE: Don't call releaseCall() — the call modal manages its own lock.
 
         if (
           data.threadId === selectedThreadIdRef.current ||
@@ -863,8 +853,12 @@ function ChatPageContent() {
         const duration = data.duration || 0;
 
         setIncomingCall(null);
+        // Close chat page's own call modals (the button is disabled while any is open)
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        // NOTE: Don't call releaseCall() — the call modal manages its own lock.
 
         if (
           data.threadId === selectedThreadIdRef.current ||
@@ -892,8 +886,12 @@ function ChatPageContent() {
 
       const handleCallFailed = (data: any) => {
         setIncomingCall(null);
+        // Close chat page's own call modals (the button is disabled while any is open)
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        // NOTE: Don't call releaseCall() — the call modal manages its own lock.
 
         showToast.error('Call Failed', data.reason || 'Unable to connect the call');
 
@@ -1118,9 +1116,15 @@ function ChatPageContent() {
             });
           });
 
+          // FIX: Must also set online=false when user is NOT in the list.
+          // Previously this only set online=true, leaving stale "Active now" status.
           setSelectedConversation((prev) => {
-            if (prev && data.users.includes(prev.participantId)) {
-              return { ...prev, online: true };
+            if (!prev) return prev;
+            const isOnline =
+              data.users.includes(prev.participantId) ||
+              data.users.includes(prev.participantId?.toString());
+            if (prev.online !== isOnline) {
+              return { ...prev, online: isOnline };
             }
             return prev;
           });
@@ -2199,7 +2203,23 @@ function ChatPageContent() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
+                  disabled={isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen}
+                  onClick={async () => {
+                    // Debounce: prevent double-tap on mobile
+                    if (callInitiatingRef.current) return;
+                    callInitiatingRef.current = true;
+                    setTimeout(() => { callInitiatingRef.current = false; }, 2000);
+
+                    // Force microphone permission BEFORE initiating the call
+                    try {
+                      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                      stream.getTracks().forEach((t) => t.stop()); // Release immediately
+                    } catch {
+                      callInitiatingRef.current = false;
+                      alert('Microphone access is required to make a voice call. Please allow microphone permission and try again.');
+                      return;
+                    }
+
                     if (selectedConversation?.isGroup && selectedConversation?.id) {
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
@@ -2244,14 +2264,30 @@ function ChatPageContent() {
                     } else {
                     }
                   }}
-                  className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                  className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
                   title="Start voice call"
                 >
                   <Phone size={20} className="text-primary" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
+                  disabled={isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen}
+                  onClick={async () => {
+                    // Debounce: prevent double-tap on mobile
+                    if (callInitiatingRef.current) return;
+                    callInitiatingRef.current = true;
+                    setTimeout(() => { callInitiatingRef.current = false; }, 2000);
+
+                    // Force microphone + camera permission BEFORE initiating the call
+                    try {
+                      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+                      stream.getTracks().forEach((t) => t.stop()); // Release immediately
+                    } catch {
+                      callInitiatingRef.current = false;
+                      alert('Microphone and camera access are required to make a video call. Please allow permissions and try again.');
+                      return;
+                    }
+
                     if (selectedConversation?.isGroup && selectedConversation?.id) {
                       const callMessage: Message = {
                         id: `call-initiated-${Date.now()}`,
@@ -2296,7 +2332,7 @@ function ChatPageContent() {
                     } else {
                     }
                   }}
-                  className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                  className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
                   title="Start video call"
                 >
                   <Video size={20} className="text-primary" />

@@ -22,14 +22,23 @@ app.use(
     threshold: 1024,
     filter: (req, res) => {
       if (req.headers['x-no-compression']) return false;
+      // Never compress video files — they're already compressed and this wastes CPU + adds latency
+      const url = req.url || '';
+      if (/\.(mp4|webm|mov|avi|mkv|m4v)$/i.test(url)) return false;
+      const contentType = res.getHeader('Content-Type');
+      if (typeof contentType === 'string' && contentType.startsWith('video/')) return false;
       return compression.filter(req, res);
     },
   })
 );
 
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
+  : true;
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || true,
+    origin: corsOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -74,6 +83,10 @@ const uploadsPath = path.join(__dirname, '../uploads');
 // Video streaming with range request support (progressive loading like Instagram)
 app.get('/uploads/:folder/:filename', (req, res, next) => {
   const { folder, filename } = req.params;
+  // Sanitize folder/filename to prevent path traversal
+  if (folder.includes('..') || filename.includes('..')) {
+    return res.status(400).json({ error: 'Invalid path' });
+  }
   const filePath = path.join(uploadsPath, folder, filename);
   const ext = path.extname(filePath).toLowerCase();
 
@@ -82,12 +95,14 @@ app.get('/uploads/:folder/:filename', (req, res, next) => {
     return next();
   }
 
-  // Check if file exists
-  if (!fs.existsSync(filePath)) {
+  // Check if file exists and get stats in one call
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
     return res.status(404).json({ error: 'File not found' });
   }
 
-  const stat = fs.statSync(filePath);
   const fileSize = stat.size;
   const range = req.headers.range;
 
@@ -105,11 +120,32 @@ app.get('/uploads/:folder/:filename', (req, res, next) => {
     // Parse range header
     const parts = range.replace(/bytes=/, '').split('-');
     const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+    // Validate start position
+    if (isNaN(start) || start < 0 || start >= fileSize) {
+      res.writeHead(416, { 'Content-Range': `bytes */${fileSize}` });
+      return res.end();
+    }
+
+    // For initial request (start=0), send a larger first chunk (2MB) for fast playback start
+    // For subsequent requests, respect the requested range or send 1MB chunks
+    const INITIAL_CHUNK = 2 * 1024 * 1024; // 2MB — enough for moov atom + first frames
+    const STREAM_CHUNK = 1024 * 1024;       // 1MB for ongoing streaming
+    const maxChunk = start === 0 ? INITIAL_CHUNK : STREAM_CHUNK;
+    const end = parts[1] ? Math.min(parseInt(parts[1], 10), fileSize - 1) : Math.min(start + maxChunk, fileSize - 1);
     const chunkSize = end - start + 1;
 
     // Create read stream for the requested range
     const file = fs.createReadStream(filePath, { start, end });
+
+    // Handle stream errors gracefully
+    file.on('error', (err) => {
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Stream error' });
+      } else {
+        res.end();
+      }
+    });
 
     res.writeHead(206, {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
@@ -122,6 +158,16 @@ app.get('/uploads/:folder/:filename', (req, res, next) => {
     file.pipe(res);
   } else {
     // No range requested, send full file with accept-ranges header
+    const file = fs.createReadStream(filePath);
+
+    file.on('error', (err) => {
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Stream error' });
+      } else {
+        res.end();
+      }
+    });
+
     res.writeHead(200, {
       'Content-Length': fileSize,
       'Content-Type': contentType,
@@ -129,7 +175,7 @@ app.get('/uploads/:folder/:filename', (req, res, next) => {
       'Cache-Control': 'public, max-age=604800, immutable',
     });
 
-    fs.createReadStream(filePath).pipe(res);
+    file.pipe(res);
   }
 });
 app.use(

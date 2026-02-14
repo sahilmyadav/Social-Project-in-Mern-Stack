@@ -1,9 +1,9 @@
 import cluster from 'cluster';
 import dotenv from 'dotenv';
 import os from 'os';
-import logger from './src/utils/logger.js';
+import logger from './utils/logger.js';
 
-dotenv.config({ path: '../.env' });
+dotenv.config({ path: '../../.env' });
 
 const numCPUs = os.cpus().length;
 const WORKERS = process.env.CLUSTER_WORKERS || numCPUs;

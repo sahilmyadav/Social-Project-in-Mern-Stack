@@ -601,36 +601,38 @@ export default function ReelPage() {
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="relative bg-black rounded-xl overflow-hidden aspect-[9/16] max-h-[80vh]">
             {videoUrl ? (
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                className="w-full h-full object-contain"
-                loop
-                playsInline
-                autoPlay
-                muted={globalMuted}
-                onClick={togglePlayPause}
-                preload="auto"
-                poster={thumbnailUrl}
-                onCanPlay={() => {
-                  if (videoRef.current && isPlaying) {
-                    videoRef.current.play().catch((e) => console.log('Autoplay prevented:', e));
-                  }
-                }}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onError={(e) => console.error('Video error:', e)}
-              />
-
-              {reel?.music?.previewUrl && (
-                <audio
-                  ref={audioRef}
-                  src={reel.music.previewUrl}
+              <>
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  className="w-full h-full object-contain"
                   loop
-                  preload="auto"
+                  playsInline
+                  autoPlay
                   muted={globalMuted}
+                  onClick={togglePlayPause}
+                  preload="auto"
+                  poster={thumbnailUrl}
+                  onCanPlay={() => {
+                    if (videoRef.current && isPlaying) {
+                      videoRef.current.play().catch((e) => console.log('Autoplay prevented:', e));
+                    }
+                  }}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onError={(e) => console.error('Video error:', e)}
                 />
-              )}
+
+                {reel?.music?.previewUrl && (
+                  <audio
+                    ref={audioRef}
+                    src={reel.music.previewUrl}
+                    loop
+                    preload="auto"
+                    muted={globalMuted}
+                  />
+                )}
+              </>
             ) : (
               <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                 <p>Video not available</p>

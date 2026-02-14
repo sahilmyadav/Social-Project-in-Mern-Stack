@@ -125,6 +125,7 @@ import {
     onViewerLeft,
 } from '@/lib/socket';
 import { cn } from '@/lib/utils';
+import { ICE_SERVERS, cleanupMediaStream, cleanupPeerConnection } from '@/lib/webrtc';
 import { LiveComment, LiveViewer } from '@/types/live';
 import {
     CameraOff,
@@ -149,7 +150,6 @@ import {
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ICE_SERVERS, cleanupPeerConnection, cleanupMediaStream } from '@/lib/webrtc';
 
 /**
  * ============================================================================
@@ -314,29 +314,56 @@ export default function BroadcastPage() {
    */
   const initializeMedia = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          facingMode: facingMode,
-          frameRate: { ideal: 30 },
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 44100,
-        },
-      });
+      let stream: MediaStream;
+
+      // Try HD constraints first, fall back to basic if device doesn't support
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            facingMode: { ideal: facingMode }, // Use 'ideal' — not exact, works on all mobile
+            frameRate: { ideal: 30 },
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch {
+        // Fallback: minimal constraints for older/budget mobile devices
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facingMode } },
+            audio: true,
+          });
+        } catch {
+          // Last resort: any camera + any mic
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+        }
+      }
 
       setLocalStream(stream);
       localStreamRef.current = stream; // Keep ref in sync
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.muted = true; // Required for autoplay on mobile
+        // Multiple play strategies for mobile compatibility
         try {
           await videoRef.current.play();
-        } catch (playError) {
+        } catch {
+          // Some mobile browsers need a tiny delay after setting srcObject
+          await new Promise((r) => setTimeout(r, 100));
+          try {
+            await videoRef.current!.play();
+          } catch {
+            // Will auto-play via the autoPlay attribute eventually
+          }
         }
       }
 
@@ -345,13 +372,15 @@ export default function BroadcastPage() {
     } catch (error: any) {
 
       let errorMessage = 'Failed to access camera/microphone';
-      if (error.name === 'NotAllowedError') {
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
         errorMessage =
-          'Camera/microphone access denied. Please allow access in your browser settings.';
+          'Camera/microphone access denied. Please allow access in your browser settings and reload.';
       } else if (error.name === 'NotFoundError') {
-        errorMessage = 'No camera or microphone found.';
-      } else if (error.name === 'NotReadableError') {
-        errorMessage = 'Camera is in use by another application.';
+        errorMessage = 'No camera or microphone found on this device.';
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        errorMessage = 'Camera is in use by another application. Close other apps and retry.';
+      } else if (error.name === 'OverconstrainedError') {
+        errorMessage = 'Camera does not support the requested settings. Trying basic mode...';
       }
 
       toast.error(errorMessage);
@@ -789,27 +818,11 @@ export default function BroadcastPage() {
   }, [handleViewerJoined, handleViewerLeft, handleAnswer, handleIceCandidate, handleNewComment]);
 
   useEffect(() => {
+    // Fetch stream details and initialize camera in parallel for faster load
     fetchStreamDetails();
-
-    const requestMediaPermissions = async () => {
-      try {
-        if (navigator.permissions) {
-          const cameraPermission = await navigator.permissions.query({
-            name: 'camera' as PermissionName,
-          });
-          const micPermission = await navigator.permissions.query({
-            name: 'microphone' as PermissionName,
-          });
-
-        }
-
-        await initializeMedia();
-      } catch (error) {
-        initializeMedia();
-      }
-    };
-
-    requestMediaPermissions();
+    // Skip permissions.query — it fails on many mobile browsers (Safari, Samsung Internet)
+    // and adds unnecessary latency. getUserMedia will prompt permissions directly.
+    initializeMedia();
 
     return () => {
       cleanupMediaStream(localStreamRef.current);
@@ -820,7 +833,9 @@ export default function BroadcastPage() {
   useEffect(() => {
     if (localStream && videoRef.current) {
       videoRef.current.srcObject = localStream;
-      videoRef.current.play().catch((err) => {
+      videoRef.current.muted = true; // Ensure muted for autoplay policy
+      videoRef.current.play().catch(() => {
+        // Autoplay blocked — user interaction will trigger via controls
       });
     }
   }, [localStream]);
@@ -852,11 +867,13 @@ export default function BroadcastPage() {
               </div>
             ) : (
               <>
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <video
                   ref={videoRef}
                   autoPlay
                   muted
                   playsInline
+                  webkit-playsinline="true"
                   className={cn('w-full h-full object-cover', !isCameraOn && 'hidden')}
                   style={{ transform: 'scaleX(-1)' }} // Mirror for selfie view
                 />
@@ -932,8 +949,83 @@ export default function BroadcastPage() {
             )}
           </div>
 
-          <div className="bg-card border-t border-border p-4">
-            <div className="flex items-center justify-between max-w-2xl mx-auto">
+          <div className="bg-card border-t border-border p-3 sm:p-4">
+            {/* Mobile: 2 rows for controls */}
+            <div className="flex flex-col gap-3 lg:hidden max-w-sm mx-auto">
+              {/* Row 1: Media controls */}
+              <div className="flex items-center justify-center gap-3">
+                <Button
+                  variant={isCameraOn ? 'default' : 'destructive'}
+                  size="icon"
+                  onClick={toggleCamera}
+                  disabled={!localStream}
+                  className="h-11 w-11 rounded-full"
+                >
+                  {isCameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant={isMicOn ? 'default' : 'destructive'}
+                  size="icon"
+                  onClick={toggleMic}
+                  disabled={!localStream}
+                  className="h-11 w-11 rounded-full"
+                >
+                  {isMicOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={flipCamera}
+                  disabled={!localStream}
+                  className="h-11 w-11 rounded-full border-border"
+                >
+                  <FlipHorizontal className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-11 w-11 rounded-full border-border"
+                  onClick={() => setShowComments(!showComments)}
+                >
+                  <MessageCircle className={cn('h-4 w-4', showComments && 'text-primary')} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-11 w-11 rounded-full border-border"
+                  onClick={shareStream}
+                >
+                  <Share2 className="h-4 w-4" />
+                </Button>
+              </div>
+              {/* Row 2: Go Live / End Stream (full width) */}
+              <div className="flex justify-center">
+                {!isLive ? (
+                  <Button
+                    onClick={startLiveStream}
+                    disabled={loading || !localStream}
+                    size="lg"
+                    className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 gap-2 w-full max-w-xs"
+                  >
+                    <Radio className="h-5 w-5" />
+                    Go Live
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => setShowEndConfirm(true)}
+                    variant="destructive"
+                    size="lg"
+                    className="gap-2 w-full max-w-xs"
+                  >
+                    <X className="h-5 w-5" />
+                    End Stream
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Desktop: single row */}
+            <div className="hidden lg:flex items-center justify-between max-w-2xl mx-auto">
               <div className="flex items-center gap-3">
                 <Button
                   variant={isCameraOn ? 'default' : 'destructive'}

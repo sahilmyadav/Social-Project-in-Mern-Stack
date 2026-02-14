@@ -2,13 +2,14 @@
 
 import { getAccessToken, isTokenExpiring, redirectToLogin, refreshAccessToken } from '@/lib/auth';
 import {
-  disconnectSocket,
-  emitUserOffline,
-  emitUserOnline,
-  getSocket,
-  initSocket,
-  isSocketConnected,
-  reconnectSocket,
+    disconnectSocket,
+    emitUserOffline,
+    emitUserOnline,
+    getSocket,
+    initSocket,
+    isCallActive,
+    isSocketConnected,
+    reconnectSocket,
 } from '@/lib/socket';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -81,13 +82,32 @@ export default function GlobalSocketHandler() {
       }
     }
 
+    // Don't interfere during active calls
+    if (isCallActive()) return;
+
+    const socket = getSocket();
+
     if (!isSocketConnected()) {
+      // If the socket exists and Socket.IO is auto-reconnecting, don't interfere
+      // reconnectSocket() kills the socket and creates a new one, which disrupts
+      // the built-in reconnection and causes rapid disconnect/reconnect loops.
+      if (socket && (socket as any).io?.reconnecting) {
+        return;
+      }
+
       reconnectAttempts.current += 1;
 
       if (reconnectAttempts.current <= 5) {
         const freshToken = localStorage.getItem('accessToken');
         if (freshToken) {
-          await reconnectSocket();
+          // Only force reconnect if socket is null/destroyed
+          if (!socket) {
+            await reconnectSocket();
+          } else {
+            // Socket exists but disconnected — let it auto-reconnect
+            // or force a manual connect() without destroying it
+            socket.connect();
+          }
           const user = JSON.parse(userData);
 
           setTimeout(() => {
@@ -168,19 +188,24 @@ export default function GlobalSocketHandler() {
       socket?.once('connect', () => emitUserOnline(user._id));
     }
 
-    socket?.on('connect', () => {
+    // ── Named handler functions so cleanup removes ONLY these, not all listeners ──
+    // CRITICAL: socket.off('event') without a callback removes ALL listeners for
+    // that event, which kills handlers registered by other components (e.g.
+    // GlobalCallHandler's incomingCall listener). Always pass the exact function ref.
+
+    const handleConnect = () => {
       emitUserOnline(user._id);
       reconnectAttempts.current = 0;
       socket?.emit('getOnlineUsers');
-    });
+    };
 
-    socket?.on('disconnect', (reason) => {
+    const handleDisconnect = (reason: string) => {
       if (reason !== 'io client disconnect') {
         setTimeout(() => performHealthCheck(), 2000);
       }
-    });
+    };
 
-    socket?.on('newMessage', (data) => {
+    const handleNewMessage = (data: any) => {
       const isOnChatPage = pathname?.startsWith('/chat');
       if (!isOnChatPage) {
         const senderName = data.sender?.firstName
@@ -199,9 +224,9 @@ export default function GlobalSocketHandler() {
           onClick: () => router.push(`/chat?thread=${data.threadId}`),
         });
       }
-    });
+    };
 
-    socket?.on('incomingCall', (data) => {
+    const handleIncomingCallNotif = (data: any) => {
       const callerName = data.callerInfo?.name || 'Someone';
       const callType = data.callType || 'voice';
       showBrowserNotification(
@@ -212,9 +237,9 @@ export default function GlobalSocketHandler() {
           requireInteraction: true,
         }
       );
-    });
+    };
 
-    socket?.on('liveStreamStarted', (data) => {
+    const handleLiveStreamStarted = (data: any) => {
       const { streamId, title, streamerName, streamerUsername } = data;
       const displayName = streamerName || streamerUsername || 'Someone you follow';
       toast.message(`${displayName} is now Live!`, {
@@ -227,9 +252,9 @@ export default function GlobalSocketHandler() {
         tag: `live-${streamId}`,
         onClick: () => router.push(`/live/watch/${streamId}`),
       });
-    });
+    };
 
-    socket?.on('newNotification', (data) => {
+    const handleNewNotification = (data: any) => {
       const notification = data.notification;
       if (!notification) return;
 
@@ -256,7 +281,14 @@ export default function GlobalSocketHandler() {
         tag: `notification-${notification._id}`,
         onClick: () => router.push('/notifications'),
       });
-    });
+    };
+
+    socket?.on('connect', handleConnect);
+    socket?.on('disconnect', handleDisconnect);
+    socket?.on('newMessage', handleNewMessage);
+    socket?.on('incomingCall', handleIncomingCallNotif);
+    socket?.on('liveStreamStarted', handleLiveStreamStarted);
+    socket?.on('newNotification', handleNewNotification);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -284,12 +316,14 @@ export default function GlobalSocketHandler() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       if (healthCheckInterval.current) clearInterval(healthCheckInterval.current);
       if (onlineStatusInterval.current) clearInterval(onlineStatusInterval.current);
-      socket?.off('liveStreamStarted');
-      socket?.off('newMessage');
-      socket?.off('incomingCall');
-      socket?.off('newNotification');
-      socket?.off('connect');
-      socket?.off('disconnect');
+      // IMPORTANT: Pass the exact handler ref so we only remove OUR listener,
+      // not every listener registered by other components (e.g. GlobalCallHandler).
+      socket?.off('liveStreamStarted', handleLiveStreamStarted);
+      socket?.off('newMessage', handleNewMessage);
+      socket?.off('incomingCall', handleIncomingCallNotif);
+      socket?.off('newNotification', handleNewNotification);
+      socket?.off('connect', handleConnect);
+      socket?.off('disconnect', handleDisconnect);
       const currentToken = localStorage.getItem('accessToken');
       if (!currentToken) {
         emitUserOffline(user._id);

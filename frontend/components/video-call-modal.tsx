@@ -3,44 +3,47 @@
 import { Button } from '@/components/ui/button';
 import { useCallState } from '@/contexts/call-context';
 import { getMediaUrl } from '@/lib/media-utils';
+import { Ringtone } from '@/lib/ringtone';
 import {
-  emitAcceptCall,
-  emitAnswer,
-  emitEndCall,
-  emitIceCandidate,
-  emitOffer,
-  emitRejectCall,
-  offAnswer,
-  offCallAccepted,
-  offCallEnded,
-  offCallFailed,
-  offIceCandidate,
-  offOffer,
-  onAnswer,
-  onCallAccepted,
-  onCallEnded,
-  onCallFailed,
-  onIceCandidate,
-  onOffer,
+    emitAcceptCall,
+    emitAnswer,
+    emitEndCall,
+    emitIceCandidate,
+    emitOffer,
+    emitRejectCall,
+    offAnswer,
+    offCallAccepted,
+    offCallEnded,
+    offCallFailed,
+    offCallRejected,
+    offIceCandidate,
+    offOffer,
+    onAnswer,
+    onCallAccepted,
+    onCallEnded,
+    onCallFailed,
+    onCallRejected,
+    onIceCandidate,
+    onOffer,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-  AUDIO_CONSTRAINTS,
-  BITRATE_LIMITS,
-  ICE_RECONNECT_TIMEOUT_MS,
-  RING_TIMEOUT_MS,
-  VIDEO_CONSTRAINTS_1to1,
-  adaptVideoQuality,
-  applyAudioBitrateCap,
-  applyBitrateCap,
-  attemptIceRestart,
-  cleanupMediaStream,
-  cleanupPeerConnection,
-  formatCallDuration,
-  getCallQualityStats,
-  getIceServers,
-  isGroupCallSignal,
-  registerBeforeUnloadCleanup,
+    AUDIO_CONSTRAINTS,
+    BITRATE_LIMITS,
+    ICE_RECONNECT_TIMEOUT_MS,
+    RING_TIMEOUT_MS,
+    VIDEO_CONSTRAINTS_1to1,
+    adaptVideoQuality,
+    applyAudioBitrateCap,
+    applyBitrateCap,
+    attemptIceRestart,
+    cleanupMediaStream,
+    cleanupPeerConnection,
+    formatCallDuration,
+    getCallQualityStats,
+    getIceServers,
+    isGroupCallSignal,
+    registerBeforeUnloadCleanup,
 } from '@/lib/webrtc';
 import { Mic, MicOff, PhoneOff, User, Video, VideoOff, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -92,6 +95,8 @@ export default function VideoCallModal({
   const iceCandidatesQueue = useRef<RTCIceCandidate[]>([]);
   const remoteDescriptionSet = useRef(false);
   const isEndingCall = useRef(false);
+  const endedByRemoteRef = useRef(false);
+  const hasAcquiredLockRef = useRef(false);
   const pendingOffer = useRef<any>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iceRestartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,27 +106,33 @@ export default function VideoCallModal({
     answer?: (data: any) => void;
     iceCandidate?: (data: any) => void;
     callAccepted?: (data: any) => void;
+    callRejected?: (data: any) => void;
     callEnded?: (data: any) => void;
     callFailed?: (data: any) => void;
   }>({});
 
   const initializePeerConnection = () => {
-    const pc = new RTCPeerConnection(getIceServers());
+    const iceConfig = getIceServers();
+    console.log('[VideoCall] Creating PeerConnection with ICE servers:', JSON.stringify(iceConfig.iceServers?.map(s => typeof s === 'string' ? s : (s as any).urls)));
+    const pc = new RTCPeerConnection(iceConfig);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log('[VideoCall] ICE candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
         const targetId = incomingFlag ? callerId || recipientId : recipientId;
         emitIceCandidate(targetId, event.candidate);
       }
     };
 
     pc.ontrack = (event) => {
+      console.log('[VideoCall] Remote track received:', event.track.kind);
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
 
     pc.oniceconnectionstatechange = () => {
+      console.log('[VideoCall] ICE connection state:', pc.iceConnectionState);
       if (pc.iceConnectionState === 'connected') {
         setCallStatus('active');
         // Apply bitrate caps once connected
@@ -172,8 +183,14 @@ export default function VideoCallModal({
   };
 
   const startCall = async () => {
+    console.log('[VideoCall] ========== VIDEO CALL STARTED ==========');
+    console.log('[VideoCall] recipientId:', recipientId);
+    console.log('[VideoCall] callerId:', callerId);
+    console.log('[VideoCall] threadId:', threadId);
+    console.log('[VideoCall] isIncoming:', incomingFlag);
     const stream = await getLocalStream();
     if (!stream) return;
+    console.log('[VideoCall] Local stream acquired, tracks:', stream.getTracks().map(t => t.kind));
 
     const pc = initializePeerConnection();
     peerConnectionRef.current = pc;
@@ -186,6 +203,7 @@ export default function VideoCallModal({
   };
 
   const handleAcceptCall = async () => {
+    console.log('[VideoCall] Accepting incoming video call from:', callerId);
     setCallStatus('connecting');
 
     try {
@@ -346,6 +364,10 @@ export default function VideoCallModal({
       offCallAccepted(handlersRef.current.callAccepted);
       handlersRef.current.callAccepted = undefined;
     }
+    if (handlersRef.current.callRejected) {
+      offCallRejected(handlersRef.current.callRejected);
+      handlersRef.current.callRejected = undefined;
+    }
     if (handlersRef.current.callEnded) {
       offCallEnded(handlersRef.current.callEnded);
       handlersRef.current.callEnded = undefined;
@@ -379,12 +401,13 @@ export default function VideoCallModal({
     remoteDescriptionSet.current = false;
     iceCandidatesQueue.current = [];
 
-    if (recipientId || callerId) {
+    if (!endedByRemoteRef.current && (recipientId || callerId)) {
       emitEndCall(recipientId || callerId || '', threadId);
     }
 
     setCallStatus('ended');
     releaseCall();
+    hasAcquiredLockRef.current = false;
 
     onCallEnd?.();
 
@@ -408,10 +431,15 @@ export default function VideoCallModal({
         callId: threadId,
         isIncoming: incomingFlag,
       });
+      console.log('[VideoCall] ========== VIDEO CALL MODAL OPENED ==========');
+      console.log('[VideoCall] isIncoming:', incomingFlag, 'acquired:', acquired, 'recipientId:', recipientId, 'callerId:', callerId, 'threadId:', threadId);
       if (!acquired) {
+        console.log('[VideoCall] BLOCKED - already in a call');
+        hasAcquiredLockRef.current = false;
         onClose();
         return;
       }
+      hasAcquiredLockRef.current = true;
 
       setCallDuration(0);
       setCallStatus(incomingFlag ? 'ringing' : 'connecting');
@@ -419,16 +447,22 @@ export default function VideoCallModal({
       remoteDescriptionSet.current = false;
       iceCandidatesQueue.current = [];
       isEndingCall.current = false;
+      endedByRemoteRef.current = false;
 
       const handleCallEndedByRemote = () => {
+        console.log('[VideoCall] Remote party ended the call');
+        endedByRemoteRef.current = true;
         handleEndCall();
       };
       handlersRef.current.callEnded = handleCallEndedByRemote;
       onCallEnded(handleCallEndedByRemote);
 
       const handleCallFailedEvent = (data: any) => {
+        console.log('[VideoCall] CALL FAILED:', data?.reason);
         setCallFailedReason(data.reason || 'Call failed');
         setCallStatus('ended');
+        releaseCall();
+        hasAcquiredLockRef.current = false;
         setTimeout(() => {
           onClose();
         }, 2000);
@@ -437,12 +471,31 @@ export default function VideoCallModal({
       onCallFailed(handleCallFailedEvent);
 
       if (!incomingFlag) {
-        startCall();
+        // CRITICAL: Store the promise so handleCallAccepted can wait for it.
+        // startCall() is async (getUserMedia can take time, especially on first
+        // permission prompt). If the callee accepts before getUserMedia resolves,
+        // peerConnectionRef.current is still null and the offer is never sent.
+        const startCallPromise = startCall();
+
+        // Handle rejection — callee clicked Reject
+        const handleCallRejectedEvent = () => {
+          console.log('[VideoCall] Call REJECTED by recipient');
+          setCallFailedReason('Call declined');
+          setCallStatus('ended');
+          releaseCall();
+          hasAcquiredLockRef.current = false;
+          setTimeout(() => onClose(), 2000);
+        };
+        handlersRef.current.callRejected = handleCallRejectedEvent;
+        onCallRejected(handleCallRejectedEvent);
 
         const handleCallAccepted = async (data: any) => {
+          console.log('[VideoCall] CALL ACCEPTED by recipient:', data);
           setCallStatus('connecting');
 
           try {
+            // Wait for startCall to finish (getUserMedia + PC creation)
+            await startCallPromise;
             const pc = peerConnectionRef.current;
             if (!pc) return;
 
@@ -540,6 +593,9 @@ export default function VideoCallModal({
         if (handlersRef.current.callAccepted) {
           offCallAccepted(handlersRef.current.callAccepted);
         }
+        if (handlersRef.current.callRejected) {
+          offCallRejected(handlersRef.current.callRejected);
+        }
         if (handlersRef.current.callEnded) {
           offCallEnded(handlersRef.current.callEnded);
         }
@@ -563,6 +619,7 @@ export default function VideoCallModal({
       setCallStatus('ended');
       setCallFailedReason('No answer');
       releaseCall();
+      hasAcquiredLockRef.current = false;
       setTimeout(() => onClose(), 2000);
     }, RING_TIMEOUT_MS);
     return () => {
@@ -572,6 +629,18 @@ export default function VideoCallModal({
       }
     };
   }, [isOpen, callStatus, onClose]);
+
+  // Outgoing ringtone: play ringback tone while waiting for recipient to answer
+  useEffect(() => {
+    if (isOpen && callStatus === 'ringing' && !incomingFlag) {
+      Ringtone.play('outgoing');
+    } else {
+      Ringtone.stop();
+    }
+    return () => {
+      Ringtone.stop();
+    };
+  }, [isOpen, callStatus, incomingFlag]);
 
   useEffect(() => {
     if (callStatus === 'active') {
@@ -620,6 +689,18 @@ export default function VideoCallModal({
     }, 5000);
     return () => clearInterval(interval);
   }, [callStatus]);
+
+  // Final unmount cleanup — only release lock if THIS instance acquired it
+  useEffect(() => {
+    return () => {
+      cleanupPeerConnection(peerConnectionRef.current);
+      cleanupMediaStream(localStreamRef.current);
+      if (hasAcquiredLockRef.current) {
+        releaseCall();
+        hasAcquiredLockRef.current = false;
+      }
+    };
+  }, []);
 
   if (!isOpen) return null;
 

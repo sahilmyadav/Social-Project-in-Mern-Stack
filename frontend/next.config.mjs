@@ -7,7 +7,25 @@ const nextConfig = {
   // Performance optimizations
   compress: true,
   poweredByHeader: false,
-  reactStrictMode: true,
+  reactStrictMode: false, // Disable in production — prevents double renders
+
+  // Experimental performance features
+  experimental: {
+    // Optimize package imports — tree-shake heavy libraries
+    optimizePackageImports: [
+      'lucide-react',
+      'date-fns',
+      'recharts',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-popover',
+      '@radix-ui/react-select',
+      '@radix-ui/react-tabs',
+      '@radix-ui/react-toast',
+      '@radix-ui/react-tooltip',
+      'sonner',
+    ],
+  },
 
   images: {
     // Disable optimization in development to allow localhost images

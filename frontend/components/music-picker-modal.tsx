@@ -76,18 +76,24 @@ export default function MusicPickerModal({
       if (data.success && data.data?.results && Array.isArray(data.data.results)) {
         const formattedTracks: Track[] = data.data.results
           .filter((item: any) => item.downloadUrl && item.downloadUrl.length > 0)
-          .map((item: any) => ({
-            trackId: item.id,
-            title: item.name,
-            artist: item.artists?.primary?.[0]?.name || 'Unknown Artist',
-            album: item.album?.name || item.name,
-            previewUrl:
+          .map((item: any) => {
+            const downloadUrl =
               item.downloadUrl?.[3]?.url ||
               item.downloadUrl?.[2]?.url ||
-              item.downloadUrl?.[0]?.url,
-            artworkUrl: item.image?.[2]?.url || item.image?.[1]?.url || item.image?.[0]?.url,
-            duration: item.duration || 180,
-          }));
+              item.downloadUrl?.[1]?.url ||
+              item.downloadUrl?.[0]?.url ||
+              (typeof item.downloadUrl?.[0] === 'string' ? item.downloadUrl[0] : '');
+            return {
+              trackId: item.id,
+              title: item.name,
+              artist: item.artists?.primary?.[0]?.name || 'Unknown Artist',
+              album: item.album?.name || item.name,
+              previewUrl: downloadUrl,
+              artworkUrl: item.image?.[2]?.url || item.image?.[1]?.url || item.image?.[0]?.url,
+              duration: item.duration || 180,
+            };
+          })
+          .filter((track: Track) => track.previewUrl);
         setTracks(formattedTracks);
       } else {
         setTracks([]);
@@ -162,7 +168,7 @@ export default function MusicPickerModal({
   };
 
   const handleConfirmSelection = () => {
-    if (!selectedTrack) return;
+    if (!selectedTrack || !selectedTrack.previewUrl) return;
 
     onSelectMusic({
       trackId: selectedTrack.trackId,

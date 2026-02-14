@@ -1,9 +1,13 @@
+import { execFile } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { fileURLToPath } from 'url';
+import { promisify } from 'util';
 import logger from './logger.js';
+
+const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -98,6 +102,70 @@ const compressImage = async (inputPath, outputPath, contentType) => {
   }
 };
 
+/**
+ * Compress and optimize video for fast mobile streaming (like Instagram).
+ * - Re-encodes to H.264 at ~2.5 Mbps (from raw 10-18 Mbps phone camera)
+ * - Scales to 720p max width (phones don't need 1080p for reels)
+ * - Moves moov atom to front (faststart) for instant playback
+ * - AAC audio at 128k
+ *
+ * A 30s reel goes from ~40MB → ~5-8MB, loading in 1-2s instead of 30s+.
+ * If ffmpeg is not available, the original file is kept as-is.
+ */
+const compressVideo = async (filePath) => {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext !== '.mp4' && ext !== '.mov' && ext !== '.webm') return false;
+
+  const tempOutput = filePath + '.compressed.mp4';
+  const startTime = Date.now();
+
+  try {
+    // Get original file size for logging
+    const originalSize = (await fs.promises.stat(filePath)).size;
+
+    await execFileAsync('ffmpeg', [
+      '-i', filePath,
+      '-c:v', 'libx264',          // H.264 — universal browser support
+      '-preset', 'fast',           // Fast encoding (good balance of speed vs compression)
+      '-crf', '28',                // Constant quality (28 = good quality, small file)
+      '-maxrate', '2500k',         // Cap bitrate at 2.5 Mbps (Instagram-level)
+      '-bufsize', '5000k',         // Buffer size for rate control
+      '-vf', 'scale=720:-2',       // Scale to 720p width, auto height (even number)
+      '-c:a', 'aac',               // AAC audio
+      '-b:a', '128k',              // 128kbps audio
+      '-ac', '2',                  // Stereo
+      '-movflags', '+faststart',   // Moov atom at front for instant playback
+      '-pix_fmt', 'yuv420p',       // Maximum compatibility
+      '-y',                        // Overwrite output
+      tempOutput,
+    ], { timeout: 300000 }); // 5 minute timeout for longer videos
+
+    // Verify output is valid
+    const newStats = await fs.promises.stat(tempOutput);
+    if (newStats.size > 0) {
+      await fs.promises.rename(tempOutput, filePath);
+      const savedMB = ((originalSize - newStats.size) / 1024 / 1024).toFixed(1);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      logger.info(`[Storage] Video compressed: ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(newStats.size / 1024 / 1024).toFixed(1)}MB (saved ${savedMB}MB) in ${elapsed}s`, { file: path.basename(filePath) });
+      return true;
+    } else {
+      await fs.promises.unlink(tempOutput).catch(() => {});
+      logger.warn('[Storage] Video compression produced empty file, keeping original');
+      return false;
+    }
+  } catch (error) {
+    // Clean up temp file
+    try { await fs.promises.unlink(tempOutput).catch(() => {}); } catch (_) {}
+
+    if (error.code === 'ENOENT') {
+      logger.warn('[Storage] ffmpeg not found — video compression skipped. Install ffmpeg for smaller, faster-loading videos.');
+    } else {
+      logger.warn('[Storage] Video compression failed (using original):', { error: error.message });
+    }
+    return false;
+  }
+};
+
 const getFileType = (mimetype) => {
   if (mimetype.startsWith('image/')) return 'image';
   if (mimetype.startsWith('video/')) return 'video';
@@ -184,7 +252,7 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
 
     ensureDirectoryExists(targetDir);
 
-    // Compress images, copy videos directly
+    // Compress images, process videos with faststart
     if (isImage) {
       const compressed = await compressImage(tempFilePath, targetPath, contentType);
       if (!compressed) {
@@ -194,6 +262,12 @@ const saveFileLocally = async (fileOrPath, userId, contentType = 'post') => {
       }
     } else {
       await fs.promises.copyFile(tempFilePath, targetPath);
+
+      // For video files (reels, stories), compress + optimize for fast streaming
+      // This re-encodes to H.264 ~2.5Mbps with faststart (like Instagram)
+      if (isVideo && (contentType === 'reel' || contentType === 'story')) {
+        await compressVideo(targetPath);
+      }
     }
 
     try {
@@ -384,19 +458,19 @@ const removeFile = async (publicId) => {
 };
 
 export {
-  AVATARS_DIR,
-  deleteLocalFile,
-  deleteMultipleFiles,
-  generateUniqueFileName,
-  getFileType,
-  getStorageStats,
-  POSTS_DIR,
-  REELS_DIR,
-  removeFile,
-  saveFileLocally,
-  saveMultipleFilesLocally,
-  STORIES_DIR,
-  uploadFile,
-  UPLOADS_DIR,
-  validateFile,
+    AVATARS_DIR,
+    deleteLocalFile,
+    deleteMultipleFiles,
+    generateUniqueFileName,
+    getFileType,
+    getStorageStats,
+    POSTS_DIR,
+    REELS_DIR,
+    removeFile,
+    saveFileLocally,
+    saveMultipleFilesLocally,
+    STORIES_DIR,
+    uploadFile,
+    UPLOADS_DIR,
+    validateFile
 };

@@ -138,13 +138,26 @@ export default function StoryViewer({
       return;
     }
 
-    const audio = new Audio(currentStory.music.previewUrl);
+    const musicUrl = currentStory.music.previewUrl;
+    if (!musicUrl) {
+      return;
+    }
+
+    const audio = new Audio(musicUrl);
     let checkPlayback: NodeJS.Timeout | null = null;
 
     const startTime =
       typeof currentStory.music.startTime === 'number' && isFinite(currentStory.music.startTime)
         ? currentStory.music.startTime
         : 0;
+
+    audio.addEventListener('error', () => {
+      // Music URL may have expired (Saavn CDN links are temporary)
+      console.warn('Story music failed to load - URL may have expired');
+      if (musicAudioRef.current === audio) {
+        musicAudioRef.current = null;
+      }
+    });
 
     audio.addEventListener('loadedmetadata', () => {
       audio.currentTime = startTime;

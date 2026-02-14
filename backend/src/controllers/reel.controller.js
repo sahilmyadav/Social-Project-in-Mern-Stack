@@ -7,14 +7,14 @@ import { ReelView } from '../models/reelView.model.js';
 import { Save } from '../models/save.model.js';
 import { User } from '../models/user.model.js';
 import {
-  addComment as addCommentService,
-  parseMusicData,
-  parseTagIds,
-  reportContent,
-  saveContent,
-  sendTagNotifications,
-  toggleLike,
-  unsaveContent,
+    addComment as addCommentService,
+    parseMusicData,
+    parseTagIds,
+    reportContent,
+    saveContent,
+    sendTagNotifications,
+    toggleLike,
+    unsaveContent,
 } from '../services/content.service.js';
 import { getLikedIds } from '../services/enrichment.service.js';
 import { notifyNewReel } from '../services/notification.service.js';
@@ -386,29 +386,32 @@ export const getUserSavedReels = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   // Find all saved reels for the user
-  const savedReels = await Save.find({
+  const savedReelEntries = await Save.find({
     user_id: userId,
     target_type: 'reel',
   })
-    .populate({
-      path: 'target_id',
-      populate: {
-        path: 'user_id',
-        select:
-          'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified',
-      },
-    })
-    .sort({ createdAt: -1 })
+    .sort({ created_at: -1 })
     .skip(skip)
-    .limit(parseInt(limit));
+    .limit(parseInt(limit))
+    .lean();
 
-  // Filter out deleted reels and map to reel objects with canDownload flag
-  const reels = savedReels
-    .filter((save) => save.target_id && !save.target_id.is_deleted)
-    .map((save) => ({
-      ...save.target_id.toObject(),
-      canDownload: save.target_id.user_id?.allowDownloads !== false,
-    }));
+  const reelIds = savedReelEntries.map((s) => s.target_id);
+
+  // Fetch actual reel documents with user population
+  const reelDocs = reelIds.length > 0
+    ? await Reel.find({ _id: { $in: reelIds }, is_deleted: false })
+        .populate(
+          'user_id',
+          'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
+        )
+        .lean()
+    : [];
+
+  // Map reels with canDownload flag
+  const reels = reelDocs.map((reel) => ({
+    ...reel,
+    canDownload: reel.user_id?.allowDownloads !== false,
+  }));
 
   const totalSavedReels = await Save.countDocuments({
     user_id: userId,

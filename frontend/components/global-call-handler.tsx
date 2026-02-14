@@ -35,13 +35,23 @@ interface IncomingCall {
 
 export default function GlobalCallHandler() {
   const { user } = useAuth();
-  const { isInCall } = useCallState();
+  const { isInCall, releaseCall } = useCallState();
+  const isInCallRef = useRef(isInCall);
+  isInCallRef.current = isInCall;
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false);
   const [isVideoCallOpen, setIsVideoCallOpen] = useState(false);
   const [isGroupVoiceCallOpen, setIsGroupVoiceCallOpen] = useState(false);
   const [isGroupVideoCallOpen, setIsGroupVideoCallOpen] = useState(false);
   const listenersAttached = useRef(false);
+
+  // Track whether any call modal is currently open (via ref for non-stale reads in callbacks)
+  const isAnyModalOpenRef = useRef(false);
+
+  // Keep the ref in sync with modal open states (avoids stale closure in callbacks)
+  const isAnyCallModalOpen =
+    isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen;
+  isAnyModalOpenRef.current = isAnyCallModalOpen;
 
   const currentUserId = user?._id || '';
   const currentUserName = user?.firstName
@@ -55,7 +65,9 @@ export default function GlobalCallHandler() {
     setIsVideoCallOpen(false);
     setIsGroupVoiceCallOpen(false);
     setIsGroupVideoCallOpen(false);
-  }, []);
+    // Release the global call lock so user can make a new call
+    releaseCall();
+  }, [releaseCall]);
 
   const handleIncomingCall = useCallback(
     (data: unknown) => {
@@ -64,8 +76,17 @@ export default function GlobalCallHandler() {
       const groupInfo = d.groupInfo as Record<string, string> | undefined;
       const isGroupCall = !!d.isGroupCall;
 
-      // Busy signal — reject if already in a call
-      if (isInCall) {
+      console.log('[CallHandler] ====== INCOMING CALL ======');
+      console.log('[CallHandler] callerId:', d.callerId);
+      console.log('[CallHandler] callType:', d.callType);
+      console.log('[CallHandler] threadId:', d.threadId);
+      console.log('[CallHandler] callerName:', callerInfo?.name || d.name);
+      console.log('[CallHandler] isGroupCall:', isGroupCall);
+      console.log('[CallHandler] isInCall:', isInCall);
+
+      // Busy signal — reject if already in a call (use ref for latest value)
+      if (isInCallRef.current) {
+        console.log('[CallHandler] BUSY - rejecting call, already in a call');
         const socket = getSocket();
         if (socket) {
           socket.emit('callBusy', {
@@ -94,36 +115,80 @@ export default function GlobalCallHandler() {
 
       setIncomingCall(callData);
     },
-    [isInCall]
+    [] // eslint-disable-line react-hooks/exhaustive-deps
+    // isInCall read via ref — callback identity stays stable
   );
 
   const handleCallRejected = useCallback(() => {
+    // Only handle at the global level if no modal is open.
+    // If a modal IS open, the modal's own handler takes care of cleanup.
+    if (isAnyModalOpenRef.current) return;
     resetCallState();
   }, [resetCallState]);
+
   const handleCallEnded = useCallback(() => {
+    // When a modal is active the modal manages its own callEnded handler
+    // (shows "Call ended", cleans up PC, then closes after 1.5s).
+    // Resetting here would yank the modal out from under it.
+    if (isAnyModalOpenRef.current) return;
     resetCallState();
   }, [resetCallState]);
+
   const handleCallFailed = useCallback(
     (data: unknown) => {
+      // When a modal is active, let the modal display the failure reason.
+      if (isAnyModalOpenRef.current) return;
       const d = data as Record<string, string>;
+      console.log('[CallHandler] CALL FAILED:', d.reason);
       showToast.error('Call Failed', d.reason || 'Unable to connect the call');
+      // Do NOT emit endCall here — the server already cleaned up when it sent
+      // callFailed. Emitting endCall would kill any EXISTING active call
+      // (e.g. if this callFailed was for a duplicate initiateCall attempt).
       resetCallState();
     },
     [resetCallState]
   );
 
+  // Store handler refs so we can properly remove them
+  const handlersMapRef = useRef<{
+    incomingCall?: (data: unknown) => void;
+    callRejected?: () => void;
+    callEnded?: () => void;
+    callFailed?: (data: unknown) => void;
+  }>({});
+
   const attachListeners = useCallback(
     (socket: ReturnType<typeof getSocket>) => {
-      if (!socket || listenersAttached.current) return;
-      socket.off('incomingCall', handleIncomingCall);
-      socket.off('callRejected', handleCallRejected);
-      socket.off('callEnded', handleCallEnded);
-      socket.off('callFailed', handleCallFailed);
+      if (!socket) return;
+
+      // Always remove OLD handlers first (using stored refs)
+      if (handlersMapRef.current.incomingCall) {
+        socket.off('incomingCall', handlersMapRef.current.incomingCall);
+      }
+      if (handlersMapRef.current.callRejected) {
+        socket.off('callRejected', handlersMapRef.current.callRejected);
+      }
+      if (handlersMapRef.current.callEnded) {
+        socket.off('callEnded', handlersMapRef.current.callEnded);
+      }
+      if (handlersMapRef.current.callFailed) {
+        socket.off('callFailed', handlersMapRef.current.callFailed);
+      }
+
+      // Store new handler refs and attach
+      handlersMapRef.current = {
+        incomingCall: handleIncomingCall,
+        callRejected: handleCallRejected,
+        callEnded: handleCallEnded,
+        callFailed: handleCallFailed,
+      };
+
       socket.on('incomingCall', handleIncomingCall);
       socket.on('callRejected', handleCallRejected);
       socket.on('callEnded', handleCallEnded);
       socket.on('callFailed', handleCallFailed);
       listenersAttached.current = true;
+      console.log('[CallHandler] Listeners attached, socket connected:', socket.connected);
     },
     [handleIncomingCall, handleCallRejected, handleCallEnded, handleCallFailed]
   );
@@ -131,31 +196,57 @@ export default function GlobalCallHandler() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const token = getAccessToken();
-    if (!token) return;
+    if (!token) {
+      console.log('[CallHandler] No token, skipping socket init');
+      return;
+    }
 
+    console.log('[CallHandler] Initializing socket for call handling');
     const socket = initSocket(token);
-    if (!socket) return;
+    if (!socket) {
+      console.log('[CallHandler] Socket init returned null');
+      return;
+    }
 
-    if (socket.connected) attachListeners(socket);
+    if (socket.connected) {
+      console.log('[CallHandler] Socket already connected, attaching listeners');
+      attachListeners(socket);
+    }
 
     const onConnect = () => {
+      console.log('[CallHandler] Socket connected event, re-attaching listeners');
       listenersAttached.current = false;
       attachListeners(socket);
     };
     socket.on('connect', onConnect);
 
     const existingSocket = getSocket();
-    if (existingSocket?.connected) attachListeners(existingSocket);
+    if (existingSocket?.connected && existingSocket !== socket) {
+      console.log('[CallHandler] Existing socket found, attaching listeners');
+      attachListeners(existingSocket);
+    }
 
     return () => {
       socket.off('connect', onConnect);
-      socket.off('incomingCall', handleIncomingCall);
-      socket.off('callRejected', handleCallRejected);
-      socket.off('callEnded', handleCallEnded);
-      socket.off('callFailed', handleCallFailed);
+      // Remove using stored refs
+      if (handlersMapRef.current.incomingCall) {
+        socket.off('incomingCall', handlersMapRef.current.incomingCall);
+      }
+      if (handlersMapRef.current.callRejected) {
+        socket.off('callRejected', handlersMapRef.current.callRejected);
+      }
+      if (handlersMapRef.current.callEnded) {
+        socket.off('callEnded', handlersMapRef.current.callEnded);
+      }
+      if (handlersMapRef.current.callFailed) {
+        socket.off('callFailed', handlersMapRef.current.callFailed);
+      }
+      handlersMapRef.current = {};
       listenersAttached.current = false;
     };
-  }, [attachListeners, handleIncomingCall, handleCallRejected, handleCallEnded, handleCallFailed]);
+    // Only re-run when attachListeners changes (handler refs update internally)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachListeners]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -192,12 +283,12 @@ export default function GlobalCallHandler() {
 
   const handleCallEnd = () => {
     setIncomingCall(null);
+    setIsVoiceCallOpen(false);
+    setIsVideoCallOpen(false);
     setIsGroupVoiceCallOpen(false);
     setIsGroupVideoCallOpen(false);
+    releaseCall();
   };
-
-  const isAnyCallModalOpen =
-    isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen;
 
   return (
     <>
@@ -262,6 +353,7 @@ export default function GlobalCallHandler() {
           callId={incomingCall.threadId}
           callerId={incomingCall.callerId}
           threadId={incomingCall.threadId}
+          onCallEnd={handleCallEnd}
         />
       )}
 

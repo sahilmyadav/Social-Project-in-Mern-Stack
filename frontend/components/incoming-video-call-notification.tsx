@@ -1,7 +1,9 @@
 'use client';
 
 import { getMediaUrl } from '@/lib/media-utils';
+import { Ringtone } from '@/lib/ringtone';
 import { User, Video, X } from 'lucide-react';
+import { useEffect } from 'react';
 
 interface IncomingVideoCallNotificationProps {
   callerName: string;
@@ -16,6 +18,22 @@ export default function IncomingVideoCallNotification({
   onAccept,
   onReject,
 }: IncomingVideoCallNotificationProps) {
+  useEffect(() => {
+    Ringtone.play('incoming');
+    return () => {
+      Ringtone.stop();
+    };
+  }, []);
+
+  const handleAccept = () => {
+    Ringtone.stop();
+    onAccept();
+  };
+
+  const handleReject = () => {
+    Ringtone.stop();
+    onReject();
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
       <div className="bg-gradient-to-b from-gray-900 to-black rounded-3xl p-8 shadow-2xl border border-white/10 max-w-sm w-full mx-4">
@@ -49,13 +67,13 @@ export default function IncomingVideoCallNotification({
 
         <div className="flex items-center justify-center gap-6">
           <button
-            onClick={onReject}
+            onClick={handleReject}
             className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-red-500/50 active:scale-95"
           >
             <X className="w-6 h-6 text-white" />
           </button>
           <button
-            onClick={onAccept}
+            onClick={handleAccept}
             className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-green-500/50 active:scale-95"
           >
             <Video className="w-6 h-6 text-white" />

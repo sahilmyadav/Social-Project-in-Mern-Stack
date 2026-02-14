@@ -1,9 +1,10 @@
-# Social App - Docker Compose
+# Social App - Docker Compose (Production)
 # Domain: clikkme.in
+# VPS: 12 cores / 46GB RAM / 1.6TB disk — FULL UTILIZATION MODE
 # Usage: sudo docker compose down && sudo docker compose up -d --build
 
 services:
-  # Backend API
+  # Backend API — Cluster mode, 10 workers, access to ALL 12 cores
   backend:
     build: ./backend
     container_name: social-backend
@@ -13,8 +14,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - REDIS_URL=redis://172.17.0.1:6379
-      - MONGO_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-changeme}@mongo:27017/${DB_NAME:-social_media_app}?authSource=admin
+      - REDIS_URL=redis://host.docker.internal:6379
+      - MONGO_URL=mongodb://mongo:27017/${DB_NAME:-social_media_app}
+      - ENABLE_CLUSTER=true
+      - CLUSTER_WORKERS=10
+      - UV_THREADPOOL_SIZE=24
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     ports:
@@ -22,11 +26,27 @@ services:
     volumes:
       - ./backend/uploads:/app/uploads
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - social-network
+    deploy:
+      resources:
+        limits:
+          cpus: '12'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 4G
+    command: ["node", "src/cluster.js"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-  # Frontend Next.js
+  # Frontend Next.js — access to ALL cores for SSR
   frontend:
     build:
       context: ./frontend
@@ -44,19 +64,52 @@ services:
       - backend
     networks:
       - social-network
+    deploy:
+      resources:
+        limits:
+          cpus: '12'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  # MongoDB
+  # MongoDB — 12GB WiredTiger cache, access to ALL cores
   mongo:
     image: mongo:7
     container_name: social-mongo
     restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set MONGO_INITDB_ROOT_PASSWORD in .env}
+    command: >
+      mongod
+      --wiredTigerCacheSizeGB 12
+      --wiredTigerCollectionBlockCompressor zstd
+      --wiredTigerJournalCompressor zstd
+      --setParameter diagnosticDataCollectionEnabled=false
     volumes:
       - mongo-data:/data/db
+    ports:
+      - '27017:27017'
     networks:
       - social-network
+    deploy:
+      resources:
+        limits:
+          cpus: '12'
+          memory: 18G
+        reservations:
+          cpus: '2'
+          memory: 6G
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
 networks:
   social-network:

@@ -1,11 +1,16 @@
-# Frontend Dockerfile for Next.js
+# Frontend Dockerfile for Next.js — optimized for production VPS
 FROM node:20-alpine AS base
 
 # Install dependencies
 FROM base AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml* package-lock.json* ./
+# Use npm ci (or pnpm if lockfile present)
+RUN if [ -f pnpm-lock.yaml ]; then \
+      corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile; \
+    else \
+      npm ci; \
+    fi
 
 # Build stage
 FROM base AS builder
@@ -26,6 +31,8 @@ ENV NEXT_PUBLIC_SOCKET_URL=$NEXT_PUBLIC_SOCKET_URL
 ENV NEXT_PUBLIC_ENCRYPTION_KEY=$NEXT_PUBLIC_ENCRYPTION_KEY
 ENV NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=$NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
 ENV NEXT_TELEMETRY_DISABLED=1
+# Give builder enough memory for large builds
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 RUN npm run build
 
@@ -34,6 +41,8 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Allow Next.js server to use up to 2GB
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs

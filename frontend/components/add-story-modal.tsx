@@ -6,17 +6,17 @@ import { storyService } from '@/lib/api-services';
 import { BG_COLORS, FILTERS, FILTER_STYLES, TEXT_COLORS } from '@/lib/media-filters';
 import '@/styles/filters.css';
 import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
-  Bold,
-  Image as ImageIcon,
-  Italic,
-  Music,
-  Type,
-  Upload,
-  Video,
-  X,
+    AlignCenter,
+    AlignLeft,
+    AlignRight,
+    Bold,
+    Image as ImageIcon,
+    Italic,
+    Music,
+    Type,
+    Upload,
+    Video,
+    X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -304,13 +304,39 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
         formData.append('music', JSON.stringify(musicData));
       }
 
-      const response = await storyService.uploadStory(formData);
+      let response;
+      try {
+        response = await storyService.uploadStory(formData);
+      } catch (firstErr: any) {
+        // Retry once on network errors
+        if (firstErr?.statusCode === 0 || firstErr?.error === 'Network error') {
+          console.warn('Story upload failed, retrying...', firstErr?.message);
+          try {
+            response = await storyService.uploadStory(formData);
+          } catch (retryErr: any) {
+            // If retry with music also fails, try without music as last resort
+            if (selectedMusic && (retryErr?.statusCode === 0 || retryErr?.error === 'Network error')) {
+              console.warn('Retry with music failed, attempting without music...');
+              formData.delete('music');
+              try {
+                response = await storyService.uploadStory(formData);
+              } catch (fallbackErr) {
+                throw retryErr; // throw the retry error, not the fallback
+              }
+            } else {
+              throw retryErr;
+            }
+          }
+        } else {
+          throw firstErr;
+        }
+      }
 
-      if (response.success) {
+      if (response?.success) {
         onSuccess?.();
         handleClose();
       } else {
-        setError(response.message || 'Failed to upload story');
+        setError(response?.message || 'Failed to upload story');
       }
     } catch (err: any) {
       let errorMessage = 'Failed to upload story. Please try again.';
@@ -322,7 +348,7 @@ export default function AddStoryModal({ isOpen, onClose, onSuccess }: AddStoryMo
       } else if (err?.statusCode === 401) {
         errorMessage = 'Session expired. Please log in again.';
       } else if (err?.statusCode === 0 || err?.error === 'Network error') {
-        errorMessage = err?.message || 'Unable to connect to server. Please try again.';
+        errorMessage = 'Unable to connect to server. Please check your connection and try again.';
       } else if (err?.message) {
         errorMessage = err.message;
       } else if (err?.response?.data?.message) {

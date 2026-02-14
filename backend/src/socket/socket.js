@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import { CallLog } from '../models/callLog.model.js';
 import { ChatMessage } from '../models/chatMessage.model.js';
 import { ChatThread } from '../models/chatThread.model.js';
+import { GroupCall } from '../models/groupCall.model.js';
 import { GroupChat } from '../models/groupChat.model.js';
 import { User } from '../models/user.model.js';
 import logger from '../utils/logger.js';
@@ -24,8 +25,93 @@ const onlineUsers = new Map();
 // Track disconnect timeouts for grace period
 const disconnectTimeouts = new Map();
 
-// Grace period before marking user offline (5 seconds)
-const DISCONNECT_GRACE_PERIOD = 5000;
+// Grace period before marking user offline (10 seconds — mobile reconnects can take a few seconds)
+const DISCONNECT_GRACE_PERIOD = 10000;
+
+// ── Call ringing timeouts ──
+// If recipient doesn't answer/reject within this period, auto-fail the call
+const callRingingTimeouts = new Map(); // `${callerId}:${recipientId}` -> timeoutId
+const CALL_RINGING_TIMEOUT = 30000; // 30 seconds
+
+function setCallRingingTimeout(callerId, recipientId, io, socket) {
+  const key = `${callerId}:${recipientId}`;
+  // Clear any existing timeout for this call
+  if (callRingingTimeouts.has(key)) {
+    clearTimeout(callRingingTimeouts.get(key));
+  }
+  const timeoutId = setTimeout(async () => {
+    callRingingTimeouts.delete(key);
+
+    // ── Guard 1: Check Redis accepted flag ──
+    // acceptCall on ANY worker sets this key. In cluster mode the local
+    // clearCallRingingTimeout() only clears the timeout on the same worker,
+    // so this Redis check is the primary cross-worker safety net.
+    if (redisClient?.isOpen) {
+      try {
+        const accepted = await redisClient.exists(`call_accepted:${callerId}:${recipientId}`);
+        if (accepted) {
+          logger.info(`[Call] Ringing timeout skipped (Redis flag): ${callerId} -> ${recipientId}`);
+          await redisClient.del(`call_accepted:${callerId}:${recipientId}`);
+          return;
+        }
+      } catch (e) {
+        logger.warn(`[Call] Redis check failed in ringing timeout: ${e.message}`);
+      }
+    }
+
+    // ── Guard 2: Check call log in DB ──
+    // If the call was already answered (status='answered'), the timeout must
+    // NOT kill it.  This covers the case where Redis is unavailable or the
+    // accepted flag was missed.
+    try {
+      const answeredLog = await CallLog.findOne({
+        callerId,
+        receiverId: recipientId,
+        status: 'answered',
+      }).sort({ createdAt: -1 }).lean();
+
+      if (answeredLog) {
+        logger.info(`[Call] Ringing timeout skipped (DB answered): ${callerId} -> ${recipientId}`);
+        return;
+      }
+    } catch (e) {
+      logger.warn(`[Call] DB check failed in ringing timeout: ${e.message}`);
+    }
+
+    // Neither Redis nor DB indicate the call was accepted — safe to fail
+    const currentPeer = await getActiveCallPeer(callerId);
+    if (currentPeer === recipientId) {
+      await removeActiveCallPeer(callerId);
+      await removeActiveCallPeer(recipientId);
+      // Use io.to() instead of socket.emit() — the caller's socket may have
+      // reconnected on a different worker since the timeout was set
+      io.to(callerId).emit('callFailed', { recipientId, reason: 'No answer' });
+      // Notify recipient to stop ringing
+      io.to(recipientId).emit('callEnded', {
+        userId: callerId,
+        threadId: `${callerId}:${recipientId}`,
+        reason: 'No answer - timeout',
+        endedAt: new Date(),
+      });
+      logger.info(`[Call] Ringing timeout: ${callerId} -> ${recipientId} (no answer after ${CALL_RINGING_TIMEOUT / 1000}s)`);
+    }
+  }, CALL_RINGING_TIMEOUT);
+  callRingingTimeouts.set(key, timeoutId);
+}
+
+function clearCallRingingTimeout(callerId, recipientId) {
+  const key = `${callerId}:${recipientId}`;
+  if (callRingingTimeouts.has(key)) {
+    clearTimeout(callRingingTimeouts.get(key));
+    callRingingTimeouts.delete(key);
+  }
+  // Also check reverse key
+  const reverseKey = `${recipientId}:${callerId}`;
+  if (callRingingTimeouts.has(reverseKey)) {
+    clearTimeout(callRingingTimeouts.get(reverseKey));
+    callRingingTimeouts.delete(reverseKey);
+  }
+}
 
 // ── User info cache (avoids DB queries on hot signaling paths) ──
 const userInfoCache = new Map(); // userId -> { name, avatar, cachedAt }
@@ -167,7 +253,8 @@ async function setActiveCallPeer(userId, peerId) {
   global.activeCallPeers.set(userId, peerId);
   if (redisClient?.isOpen) {
     try {
-      await redisClient.set(`callpeer:${userId}`, peerId, { EX: 3600 });
+      // Short TTL during ringing — refreshed to longer TTL when call is accepted
+      await redisClient.set(`callpeer:${userId}`, peerId, { EX: 120 });
     } catch (e) {
       /* ignore */
     }
@@ -221,7 +308,7 @@ async function initializeRedisAdapter(io) {
   }
 
   try {
-    // Create Redis clients for pub/sub
+    // Create Redis clients for pub/sub (adapter)
     redisPubClient = createClient({ url: redisUrl });
     redisSubClient = redisPubClient.duplicate();
 
@@ -235,14 +322,48 @@ async function initializeRedisAdapter(io) {
 
     // Connect both clients
     await Promise.all([redisPubClient.connect(), redisSubClient.connect()]);
+    logger.info('Socket.IO Redis adapter: pub/sub clients connected');
 
     // Attach Redis adapter to Socket.IO
     io.adapter(createAdapter(redisPubClient, redisSubClient));
+    logger.info('Socket.IO Redis adapter attached successfully');
 
     // Also create a regular Redis client for storing online users
     redisClient = createClient({ url: redisUrl });
     redisClient.on('error', (err) => logger.error('Redis Client Error', { error: err.message }));
     await redisClient.connect();
+    logger.info('Redis data client connected for online user tracking');
+
+    // ── Flush stale online/call keys from previous server lifecycle ──
+    // When the backend restarts (deploy, crash, etc.), old socket IDs remain
+    // in Redis online:* SETs making every user appear online permanently.
+    // Flush them so only actually-connected sockets are tracked.
+    try {
+      let cursor = '0';
+      let flushed = 0;
+      do {
+        const result = await redisClient.scan(cursor, { MATCH: 'online:*', COUNT: 200 });
+        cursor = String(result.cursor);
+        for (const key of result.keys) {
+          await redisClient.del(key);
+          flushed++;
+        }
+      } while (cursor !== '0');
+      // Also flush stale call peer keys
+      cursor = '0';
+      do {
+        const result = await redisClient.scan(cursor, { MATCH: 'callpeer:*', COUNT: 200 });
+        cursor = String(result.cursor);
+        for (const key of result.keys) {
+          await redisClient.del(key);
+        }
+      } while (cursor !== '0');
+      if (flushed > 0) {
+        logger.info(`[Redis] Flushed ${flushed} stale online:* keys from previous lifecycle`);
+      }
+    } catch (e) {
+      logger.warn(`[Redis] Failed to flush stale keys: ${e.message}`);
+    }
   } catch (error) {
     logger.error('Failed to initialize Redis adapter', { error: error.message });
     logger.warn('Socket.IO will work but only within this worker process');
@@ -250,9 +371,13 @@ async function initializeRedisAdapter(io) {
 }
 
 export const initializeSocket = async (server) => {
+  const corsOrigin = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
+    : '*';
+
   io = new Server(server, {
     cors: {
-      origin: process.env.CORS_ORIGIN || '*',
+      origin: corsOrigin,
       credentials: true,
     },
     pingInterval: 25000,
@@ -283,10 +408,13 @@ export const initializeSocket = async (server) => {
   io.on('connection', async (socket) => {
     const userId = socket.userId.toString(); // Ensure string format
 
+    logger.info(`[Socket] User connected: ${userId}, socketId: ${socket.id}, transport: ${socket.conn?.transport?.name || 'unknown'}`);
+
     // Cancel any pending disconnect timeout for this user (they reconnected!)
     if (disconnectTimeouts.has(userId)) {
       clearTimeout(disconnectTimeouts.get(userId));
       disconnectTimeouts.delete(userId);
+      logger.info(`[Socket] Cancelled pending disconnect timeout for user: ${userId}`);
     }
 
     // Add user to online map (Redis + local)
@@ -294,6 +422,7 @@ export const initializeSocket = async (server) => {
 
     // Join user's personal room (ensure string format for consistency)
     socket.join(userId);
+    logger.info(`[Socket] User ${userId} joined personal room`);
 
     // Broadcast to all users that this user is online
     io.emit('userOnline', {
@@ -302,14 +431,15 @@ export const initializeSocket = async (server) => {
     });
 
     // Send current online users list to the newly connected user (cluster-safe)
-    const onlineList = await getOnlineUsers();
+    // Uses validated list that cross-checks Redis with actual socket connections
+    const onlineList = await getValidatedOnlineUsers();
     socket.emit('onlineUsersList', {
       users: onlineList,
     });
 
     // Get online users request (cluster-safe)
     socket.on('getOnlineUsers', async () => {
-      const onlineUsersList = await getOnlineUsers();
+      const onlineUsersList = await getValidatedOnlineUsers();
       socket.emit('onlineUsersList', { users: onlineUsersList });
     });
 
@@ -444,14 +574,43 @@ export const initializeSocket = async (server) => {
       try {
         const recipientIdStr = recipientId?.toString();
 
+        logger.info(`[Call] initiateCall: caller=${userId}, recipient=${recipientIdStr}, callType=${callType}, threadId=${threadId}`);
+
         // Server-side busy check: reject if CALLER is already in a call
         if (!global.activeCallPeers) global.activeCallPeers = new Map();
-        if (await isInActiveCall(userId)) {
-          socket.emit('callFailed', {
-            recipientId: recipientIdStr,
-            reason: 'You are already in a call',
-          });
-          return;
+        const existingPeer = await getActiveCallPeer(userId);
+        if (existingPeer) {
+          // If the existing call peer is the SAME recipient, the caller is retrying
+          // — clean up the stale call and allow the new attempt
+          if (existingPeer === recipientIdStr) {
+            logger.info(`[Call] Retrying call to same recipient ${recipientIdStr} — cleaning stale callpeer`);
+            clearCallRingingTimeout(userId, recipientIdStr);
+            await removeActiveCallPeer(userId);
+            await removeActiveCallPeer(recipientIdStr);
+          } else {
+            // Verify the existing peer is actually connected (not a stale key)
+            // Use Redis SET instead of allSockets() for cross-worker reliability
+            let peerConnected = false;
+            if (redisClient?.isOpen) {
+              const peerCount = await redisClient.sCard(`online:${existingPeer}`);
+              peerConnected = peerCount > 0;
+            } else {
+              peerConnected = onlineUsers.has(existingPeer);
+            }
+            if (!peerConnected) {
+              logger.warn(`[Call] Cleaning stale callpeer for caller ${userId} (peer ${existingPeer} is offline)`);
+              clearCallRingingTimeout(userId, existingPeer);
+              await removeActiveCallPeer(userId);
+              await removeActiveCallPeer(existingPeer);
+            } else {
+              logger.info(`[Call] BLOCKED: caller ${userId} already in a call with ${existingPeer}`);
+              socket.emit('callFailed', {
+                recipientId: recipientIdStr,
+                reason: 'You are already in a call',
+              });
+              return;
+            }
+          }
         }
 
         // Validate: check block status
@@ -491,24 +650,58 @@ export const initializeSocket = async (server) => {
           }
         }
 
-        // Check if recipient is connected
-        const recipientSockets = await io.in(recipientIdStr).allSockets();
-        if (recipientSockets.size === 0) {
+        // Check if recipient is connected — trust Redis SET as the source of truth.
+        // In cluster mode, io.in().allSockets() is unreliable across workers,
+        // so we rely on Redis which is properly maintained by connect/disconnect handlers.
+        let isRecipientOnline = false;
+        if (redisClient?.isOpen) {
+          const count = await redisClient.sCard(`online:${recipientIdStr}`);
+          isRecipientOnline = count > 0;
+        } else {
+          isRecipientOnline = onlineUsers.has(recipientIdStr);
+        }
+
+        logger.info(`[Call] Recipient ${recipientIdStr} status: redisOnline=${isRecipientOnline}`);
+
+        if (!isRecipientOnline) {
+          logger.info(`[Call] FAILED: recipient ${recipientIdStr} is offline`);
           socket.emit('callFailed', { recipientId: recipientIdStr, reason: 'User is offline' });
           return;
         }
 
         // Server-side busy check: if recipient is already in a 1:1 call
         if (await isInActiveCall(recipientIdStr)) {
-          socket.emit('callFailed', {
-            recipientId: recipientIdStr,
-            reason: 'User is busy on another call',
-          });
-          return;
+          // Verify the supposed peer is actually connected — use Redis SET instead
+          // of allSockets() which is unreliable across cluster workers
+          const supposedPeer = await getActiveCallPeer(recipientIdStr);
+          let peerActuallyConnected = false;
+          if (supposedPeer) {
+            if (redisClient?.isOpen) {
+              const peerCount = await redisClient.sCard(`online:${supposedPeer}`);
+              peerActuallyConnected = peerCount > 0;
+            } else {
+              peerActuallyConnected = onlineUsers.has(supposedPeer);
+            }
+          }
+
+          if (peerActuallyConnected) {
+            logger.info(`[Call] FAILED: recipient ${recipientIdStr} is busy (peer ${supposedPeer} has active sockets)`);
+            socket.emit('callFailed', {
+              recipientId: recipientIdStr,
+              reason: 'User is busy on another call',
+            });
+            return;
+          } else {
+            // Stale entry — clean it up and proceed
+            logger.warn(`[Call] Cleaning stale callpeer for ${recipientIdStr} (peer ${supposedPeer} has 0 sockets)`);
+            await removeActiveCallPeer(recipientIdStr);
+            if (supposedPeer) await removeActiveCallPeer(supposedPeer);
+          }
         }
 
         // Track active 1:1 call peer (for disconnect cleanup)
         await setActiveCallPeer(userId, recipientIdStr);
+        logger.info(`[Call] Set active call peer: ${userId} <-> ${recipientIdStr}`);
 
         // Create call log entry
         try {
@@ -532,19 +725,28 @@ export const initializeSocket = async (server) => {
           callerName = caller.username;
         }
 
+        logger.info(`[Call] Emitting incomingCall to ${recipientIdStr} from ${userId} (${callerName}), callType: ${callType}`);
+
         io.to(recipientIdStr).emit('incomingCall', {
           callerId: userId,
           threadId: threadId,
           callType: callType,
           callerInfo: {
-            avatar: caller?.profilePicture || caller?.avatar || '👤',
+            avatar: caller?.profilePicture || caller?.avatar || '',
             name: callerName,
           },
           timestamp: new Date(),
           name: callerName,
         });
+
+        logger.info(`[Call] incomingCall emitted successfully to ${recipientIdStr}`);
+
+        // Start ringing timeout — auto-fail if recipient doesn't answer within 30s
+        setCallRingingTimeout(userId, recipientIdStr, io, socket);
       } catch (error) {
-        logger.error('Error initiating call', { error: error.message });
+        logger.error('[Call] Error initiating call', { error: error.message, stack: error.stack });
+        // Clean up callpeer keys set earlier in this handler
+        await removeActiveCallPeer(userId).catch(() => {});
         socket.emit('callFailed', { recipientId, reason: 'Internal server error' });
       }
     });
@@ -587,9 +789,16 @@ export const initializeSocket = async (server) => {
         let onlineMembersCount = 0;
 
         for (const memberId of memberIds) {
-          const memberSockets = await io.in(memberId).allSockets();
+          // Check if member is online via Redis SET (cross-worker reliable)
+          let memberOnline = false;
+          if (redisClient?.isOpen) {
+            const mCount = await redisClient.sCard(`online:${memberId}`);
+            memberOnline = mCount > 0;
+          } else {
+            memberOnline = onlineUsers.has(memberId);
+          }
 
-          if (memberSockets.size > 0) {
+          if (memberOnline) {
             onlineMembersCount++;
 
             io.to(memberId).emit('incomingCall', {
@@ -603,7 +812,7 @@ export const initializeSocket = async (server) => {
                 groupAvatar: group.avatar,
               },
               callerInfo: {
-                avatar: callerUser?.profilePicture || callerUser?.avatar || '👤',
+                avatar: callerUser?.profilePicture || callerUser?.avatar || '',
                 name: callerName,
               },
               timestamp: new Date(),
@@ -893,8 +1102,29 @@ export const initializeSocket = async (server) => {
     socket.on('acceptCall', async ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
 
+      logger.info(`[Call] acceptCall: ${userId} accepted call from ${callerIdStr}, threadId: ${threadId}`);
+
+      // Cancel ringing timeout
+      clearCallRingingTimeout(callerIdStr, userId);
+
       // Track the reverse peer mapping
       await setActiveCallPeer(userId, callerIdStr);
+
+      // Extend TTL for both peers now that call is connected (1 hour)
+      if (redisClient?.isOpen) {
+        await redisClient.expire(`callpeer:${callerIdStr}`, 3600).catch(() => {});
+        await redisClient.expire(`callpeer:${userId}`, 3600).catch(() => {});
+      }
+
+      // Mark call as accepted in Redis — so ringing timeout on other workers
+      // can detect that the call was already accepted and skip cleanup
+      if (redisClient?.isOpen) {
+        try {
+          await redisClient.set(`call_accepted:${callerIdStr}:${userId}`, '1', { EX: 60 });
+        } catch (e) {
+          // Non-critical — timeout will still check callpeer
+        }
+      }
 
       // Update call log to 'answered'
       try {
@@ -916,6 +1146,11 @@ export const initializeSocket = async (server) => {
     // Reject call - User B rejects the incoming call
     socket.on('rejectCall', async ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
+
+      logger.info(`[Call] rejectCall: ${userId} rejected call from ${callerIdStr}, threadId: ${threadId}`);
+
+      // Cancel ringing timeout
+      clearCallRingingTimeout(callerIdStr, userId);
 
       // Clean up peer tracking
       await removeActiveCallPeer(userId);
@@ -939,8 +1174,11 @@ export const initializeSocket = async (server) => {
     });
 
     // Busy signal - recipient is already in a call
-    socket.on('callBusy', ({ callerId, threadId }) => {
+    socket.on('callBusy', async ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
+      // Clean up callpeer keys since the call can't proceed
+      await removeActiveCallPeer(callerIdStr).catch(() => {});
+      await removeActiveCallPeer(userId).catch(() => {});
       io.to(callerIdStr).emit('callFailed', {
         recipientId: userId,
         threadId: threadId,
@@ -951,6 +1189,18 @@ export const initializeSocket = async (server) => {
     // End call - Either party ends the active call
     socket.on('endCall', async ({ recipientId, threadId }) => {
       const recipientIdStr = recipientId?.toString();
+
+      logger.info(`[Call] endCall: ${userId} -> ${recipientIdStr}, threadId: ${threadId}`);
+
+      // Cancel ringing timeout in both directions (caller or recipient may end the call)
+      clearCallRingingTimeout(userId, recipientIdStr);
+      clearCallRingingTimeout(recipientIdStr, userId);
+
+      // Clean up call_accepted flag
+      if (redisClient?.isOpen) {
+        await redisClient.del(`call_accepted:${userId}:${recipientIdStr}`).catch(() => {});
+        await redisClient.del(`call_accepted:${recipientIdStr}:${userId}`).catch(() => {});
+      }
 
       // Clean up peer tracking
       await removeActiveCallPeer(userId);
@@ -990,7 +1240,7 @@ export const initializeSocket = async (server) => {
 
     // WebRTC offer - Send WebRTC offer for peer connection
     socket.on('offer', async ({ recipientId, offer, callType }) => {
-      // if (!checkRateLimit(userId, 'offer', 5, 3000)) return; // Rate limit disabled
+      logger.info(`[Call] Offer: ${userId} -> ${recipientId}, callType: ${callType}`);
       const userInfo = await getCachedUserInfo(socket.userId);
       io.to(recipientId).emit('offer', {
         callerId: socket.userId,
@@ -1008,7 +1258,7 @@ export const initializeSocket = async (server) => {
 
     // WebRTC answer - Send WebRTC answer back to caller
     socket.on('answer', async ({ recipientId, answer, callType }) => {
-      // if (!checkRateLimit(userId, 'answer', 5, 3000)) return; // Rate limit disabled
+      logger.info(`[Call] Answer: ${userId} -> ${recipientId}, callType: ${callType}`);
       const userInfo = await getCachedUserInfo(socket.userId);
       io.to(recipientId).emit('answer', {
         recipientId: socket.userId,
@@ -1026,7 +1276,7 @@ export const initializeSocket = async (server) => {
 
     // ICE candidate exchange for WebRTC connection
     socket.on('iceCandidate', ({ recipientId, candidate, callType }) => {
-      // if (!checkRateLimit(userId, 'iceCandidate', 50, 5000)) return; // Rate limit disabled
+      logger.info(`[Call] ICE candidate: ${userId} -> ${recipientId}`);
       io.to(recipientId).emit('iceCandidate', {
         senderId: socket.userId,
         candidate: candidate,
@@ -1036,102 +1286,186 @@ export const initializeSocket = async (server) => {
 
     // User disconnect (tab close, internet loss, logout, etc.)
     socket.on('disconnect', async (reason) => {
-      // Check if user has other active sockets (multiple tabs/devices)
-      const userSockets = await io.in(userId).allSockets();
+      logger.info(`[Socket] User disconnected: ${userId}, reason: ${reason}, socketId: ${socket.id}`);
 
-      if (userSockets.size > 0) {
+      // Remove THIS specific socket from the user's Redis SET
+      const remainingSockets = await removeOnlineSocket(userId, socket.id);
+      logger.info(`[Socket] User ${userId} remaining sockets (Redis): ${remainingSockets}`);
+
+      if (remainingSockets > 0) {
+        // User has other active sockets across workers — don't clean up anything
         return;
       }
 
-      // ── Call cleanup on disconnect ──
-      // 1:1 call cleanup — notify the other party
-      const peerId = await getActiveCallPeer(userId);
-      if (peerId) {
-        await removeActiveCallPeer(userId);
-        // Also clean the reverse mapping if it points back to us
-        const reversePeer = await getActiveCallPeer(peerId);
-        if (reversePeer === userId) {
-          await removeActiveCallPeer(peerId);
-        }
-        io.to(peerId).emit('callEnded', {
-          userId: userId,
-          reason: 'User disconnected',
-          endedAt: new Date(),
-        });
+      // No sockets remaining. Use grace period to handle brief disconnections
+      // (network hiccup, page refresh, mobile reconnect). ALL cleanup (call +
+      // offline status) is deferred so the user can reconnect within the window.
+
+      // Cancel any previous pending timeout (idempotent if none exists)
+      if (disconnectTimeouts.has(userId)) {
+        clearTimeout(disconnectTimeouts.get(userId));
       }
-
-      // Group call cleanup — remove from any active group calls (Redis + local)
-      try {
-        const userGroups = await getUserGroupCalls(userId);
-        for (const groupId of userGroups) {
-          await removeGroupCallParticipant(groupId, userId);
-
-          // Update GroupCall MongoDB record
-          try {
-            const gcRecord = await GroupCall.findOne({
-              groupId,
-              status: { $in: ['initiating', 'ringing', 'ongoing'] },
-            });
-            if (gcRecord) {
-              const participant = gcRecord.participants.find(
-                (p) => p.user.toString() === userId && p.status === 'joined'
-              );
-              if (participant) {
-                participant.status = 'left';
-                participant.leftAt = new Date();
-                if (participant.joinedAt) {
-                  participant.duration = Math.floor(
-                    (Date.now() - participant.joinedAt.getTime()) / 1000
-                  );
-                }
-              }
-              const remaining = await getGroupCallSize(groupId);
-              if (remaining === 0) {
-                gcRecord.status = 'ended';
-                gcRecord.endedAt = new Date();
-                gcRecord.endReason = 'completed';
-                if (gcRecord.startedAt) {
-                  gcRecord.duration = Math.floor(
-                    (Date.now() - gcRecord.startedAt.getTime()) / 1000
-                  );
-                }
-              }
-              await gcRecord.save();
-            }
-          } catch (dbErr) {
-            logger.error('Error updating GroupCall on disconnect', { error: dbErr.message });
-          }
-
-          io.to(`group-call:${groupId}`).emit('groupCallParticipantLeft', { userId });
-        }
-      } catch (e) {
-        logger.error('Error cleaning up group calls on disconnect', { error: e.message });
-      }
-
-      // Use grace period to handle brief disconnections (network hiccup, page refresh)
 
       const timeoutId = setTimeout(async () => {
-        // Double-check user hasn't reconnected during grace period
-        const currentSockets = await io.in(userId).allSockets();
-        if (currentSockets.size > 0) {
-          disconnectTimeouts.delete(userId);
+        disconnectTimeouts.delete(userId);
+
+        // Double-check user hasn't reconnected during grace period (Redis is authoritative)
+        let reconnected = false;
+        if (redisClient?.isOpen) {
+          const count = await redisClient.sCard(`online:${userId}`);
+          reconnected = count > 0;
+        }
+        if (reconnected) {
+          logger.info(`[Socket] User ${userId} reconnected during grace period — skipping cleanup`);
           return;
         }
 
-        // Remove user from online map (Redis + local)
-        await removeOnlineUser(userId);
+        logger.info(`[Socket] Grace period expired for ${userId} — running full cleanup`);
 
-        // Broadcast to all users that this user is offline
+        // ── 1:1 call cleanup ──
+        const peerId = await getActiveCallPeer(userId);
+        if (peerId) {
+          clearCallRingingTimeout(userId, peerId);
+          await removeActiveCallPeer(userId);
+          const reversePeer = await getActiveCallPeer(peerId);
+          if (reversePeer === userId) {
+            await removeActiveCallPeer(peerId);
+          }
+          io.to(peerId).emit('callEnded', {
+            userId: userId,
+            reason: 'User disconnected',
+            endedAt: new Date(),
+          });
+          logger.info(`[Socket] Call cleanup: notified peer ${peerId} that ${userId} disconnected`);
+        }
+
+        // ── Group call cleanup ──
+        try {
+          const userGroups = await getUserGroupCalls(userId);
+          for (const groupId of userGroups) {
+            await removeGroupCallParticipant(groupId, userId);
+
+            try {
+              const gcRecord = await GroupCall.findOne({
+                groupId,
+                status: { $in: ['initiating', 'ringing', 'ongoing'] },
+              });
+              if (gcRecord) {
+                const participant = gcRecord.participants.find(
+                  (p) => p.user.toString() === userId && p.status === 'joined'
+                );
+                if (participant) {
+                  participant.status = 'left';
+                  participant.leftAt = new Date();
+                  if (participant.joinedAt) {
+                    participant.duration = Math.floor(
+                      (Date.now() - participant.joinedAt.getTime()) / 1000
+                    );
+                  }
+                }
+                const remaining = await getGroupCallSize(groupId);
+                if (remaining === 0) {
+                  gcRecord.status = 'ended';
+                  gcRecord.endedAt = new Date();
+                  gcRecord.endReason = 'completed';
+                  if (gcRecord.startedAt) {
+                    gcRecord.duration = Math.floor(
+                      (Date.now() - gcRecord.startedAt.getTime()) / 1000
+                    );
+                  }
+                }
+                await gcRecord.save();
+              }
+            } catch (dbErr) {
+              logger.error('Error updating GroupCall on disconnect', { error: dbErr.message });
+            }
+
+            io.to(`group-call:${groupId}`).emit('groupCallParticipantLeft', { userId });
+          }
+        } catch (e) {
+          logger.error('Error cleaning up group calls on disconnect', { error: e.message });
+        }
+
+        // ── Offline status ──
+        await removeOnlineUser(userId);
         io.emit('userOffline', {
           userId: userId.toString(),
         });
-
-        disconnectTimeouts.delete(userId);
       }, DISCONNECT_GRACE_PERIOD);
 
       disconnectTimeouts.set(userId, timeoutId);
     });
   });
+
+  // ── Periodic stale-entry cleanup (every 60s) ──
+  // Each worker cleans up stale socket IDs that belong to it.
+  // A socket ID is stale if it's in a Redis SET but no longer connected locally.
+  // We only remove socket IDs we can confirm are NOT connected on THIS worker.
+  // The 1-hour TTL on online:* keys is the final safety net for orphaned entries.
+  setInterval(async () => {
+    if (!redisClient?.isOpen) return;
+    try {
+      // Collect all socket IDs currently connected on THIS worker
+      const localSocketIds = new Set();
+      for (const [id] of io.sockets.sockets) {
+        localSocketIds.add(id);
+      }
+
+      const users = await getOnlineUsers();
+      let cleanedSockets = 0;
+      let cleanedUsers = 0;
+      for (const userId of users) {
+        try {
+          const socketIds = await redisClient.sMembers(`online:${userId}`);
+          for (const socketId of socketIds) {
+            // Only remove a socket ID if THIS worker's io.sockets knows about it
+            // (or knew about it) AND it's no longer connected.
+            // If the socket ID is unknown to this worker, it belongs to another
+            // worker and we must NOT touch it.
+            if (!localSocketIds.has(socketId) && onlineUsers.get(userId) !== socketId) {
+              continue; // Not our socket — skip
+            }
+            // It's (or was) our socket and it's gone — remove from Redis SET
+            if (!localSocketIds.has(socketId)) {
+              await redisClient.sRem(`online:${userId}`, socketId).catch(() => {});
+              cleanedSockets++;
+            }
+          }
+          // If the SET is now empty, clean up the key entirely
+          const remaining = await redisClient.sCard(`online:${userId}`);
+          if (remaining === 0) {
+            await redisClient.del(`online:${userId}`).catch(() => {});
+            onlineUsers.delete(userId);
+            cleanedUsers++;
+            // Notify clients this user is offline
+            io.emit('userOffline', { userId: userId.toString() });
+          }
+        } catch {
+          // Skip this user on error
+        }
+      }
+      if (cleanedSockets > 0 || cleanedUsers > 0) {
+        logger.info(`[Cleanup] Removed ${cleanedSockets} stale socket IDs, ${cleanedUsers} fully offline users (worker pid:${process.pid})`);
+      }
+    } catch (e) {
+      // Non-critical — will retry next interval
+    }
+  }, 60_000);
+
+  // ── Heartbeat: refresh TTL for locally connected users (every 10 min) ──
+  // Prevents the 1-hour safety TTL from expiring while users are still connected.
+  setInterval(async () => {
+    if (!redisClient?.isOpen) return;
+    try {
+      for (const [, socket] of io.sockets.sockets) {
+        if (socket.userId) {
+          await redisClient.expire(`online:${socket.userId}`, 3600).catch(() => {});
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+  }, 10 * 60_000);
 
   return io;
 };
@@ -1147,8 +1481,8 @@ export const getIO = () => {
 export const isUserOnline = async (userId) => {
   if (redisClient && redisClient.isOpen) {
     try {
-      const exists = await redisClient.exists(`online:${userId}`);
-      return exists === 1;
+      const count = await redisClient.sCard(`online:${userId}`);
+      return count > 0;
     } catch (error) {
       logger.error('Error checking online status from Redis', { error: error.message });
     }
@@ -1162,14 +1496,14 @@ export const getOnlineUsers = async () => {
   if (redisClient && redisClient.isOpen) {
     try {
       const users = [];
-      let cursor = 0;
+      let cursor = '0';
       do {
         const result = await redisClient.scan(cursor, { MATCH: 'online:*', COUNT: 200 });
-        cursor = result.cursor;
+        cursor = String(result.cursor);
         for (const key of result.keys) {
           users.push(key.replace('online:', ''));
         }
-      } while (cursor !== 0);
+      } while (cursor !== '0');
       return users;
     } catch (error) {
       logger.error('Error getting online users from Redis', { error: error.message });
@@ -1179,17 +1513,50 @@ export const getOnlineUsers = async () => {
   return Array.from(onlineUsers.keys());
 };
 
+/**
+ * Get online users — trusts Redis SETs as the source of truth.
+ * Socket IDs are added on connect and removed on disconnect, so the Redis
+ * SETs accurately reflect who is online. The previous approach of cross-checking
+ * with io.in(userId).allSockets() was unreliable in cluster mode and caused
+ * false-offline issues by deleting valid Redis entries.
+ */
+async function getValidatedOnlineUsers() {
+  if (!io) return getOnlineUsers();
+
+  const rawUsers = await getOnlineUsers();
+  if (!redisClient?.isOpen) return rawUsers;
+
+  // Only filter out users whose Redis SET is completely empty (0 socket IDs).
+  // This catches keys that exist but have no members (edge case after sRem).
+  const validatedUsers = [];
+  for (const userId of rawUsers) {
+    try {
+      const count = await redisClient.sCard(`online:${userId}`);
+      if (count > 0) {
+        validatedUsers.push(userId);
+      } else {
+        // SET exists but is empty (all sockets removed) — clean up the key
+        await redisClient.del(`online:${userId}`).catch(() => {});
+        onlineUsers.delete(userId);
+      }
+    } catch {
+      validatedUsers.push(userId);
+    }
+  }
+  return validatedUsers;
+}
+
 // Get online users count (cluster-safe) — uses SCAN instead of blocking KEYS
 export const getOnlineUsersCount = async () => {
   if (redisClient && redisClient.isOpen) {
     try {
       let count = 0;
-      let cursor = 0;
+      let cursor = '0';
       do {
         const result = await redisClient.scan(cursor, { MATCH: 'online:*', COUNT: 200 });
-        cursor = result.cursor;
+        cursor = String(result.cursor);
         count += result.keys.length;
-      } while (cursor !== 0);
+      } while (cursor !== '0');
       return count;
     } catch (error) {
       logger.error('Error getting online users count from Redis', { error: error.message });
@@ -1205,19 +1572,41 @@ async function addOnlineUser(userId, socketId) {
   // Add to local Map
   onlineUsers.set(userIdStr, socketId);
 
-  // Add to Redis for cross-worker tracking
+  // Add to Redis SET for cross-worker tracking (supports multiple sockets per user)
   if (redisClient && redisClient.isOpen) {
     try {
-      await redisClient.set(`online:${userId}`, socketId, {
-        EX: 3600, // Expire after 1 hour (safety cleanup)
-      });
+      await redisClient.sAdd(`online:${userId}`, socketId);
+      await redisClient.expire(`online:${userId}`, 3600); // Expire after 1 hour (safety cleanup)
     } catch (error) {
       logger.error('Error adding online user to Redis', { error: error.message });
     }
   }
 }
 
-// Remove user from online list (cluster-safe)
+// Remove a specific socket from user's online set (cluster-safe)
+async function removeOnlineSocket(userId, socketId) {
+  // Note: local Map just stores last socketId, we always remove it
+  // The definitive count is in Redis SET
+  if (redisClient && redisClient.isOpen) {
+    try {
+      await redisClient.sRem(`online:${userId}`, socketId);
+      const remaining = await redisClient.sCard(`online:${userId}`);
+      if (remaining === 0) {
+        // No sockets left — remove from local map too
+        onlineUsers.delete(userId.toString());
+        return 0;
+      }
+      return remaining;
+    } catch (error) {
+      logger.error('Error removing online socket from Redis', { error: error.message });
+    }
+  }
+  // Fallback: remove from local map
+  onlineUsers.delete(userId.toString());
+  return 0;
+}
+
+// Remove user from online list entirely (cluster-safe)
 async function removeOnlineUser(userId) {
   // Remove from local Map
   onlineUsers.delete(userId.toString());

@@ -1,5 +1,6 @@
 'use client';
 
+import { setCallActive } from '@/lib/socket';
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 
 export type ActiveCallType = 'voice' | 'video' | 'group-voice' | 'group-video' | null;
@@ -77,6 +78,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     ): boolean => {
       if (lockRef.current) return false;
       lockRef.current = true;
+      setCallActive(true); // Prevent socket reconnection during calls
       setCallState({
         activeCallType: type,
         callStatus: 'ringing',
@@ -97,6 +99,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const releaseCall = useCallback(() => {
     lockRef.current = false;
+    setCallActive(false); // Allow socket reconnection again
     setCallState(defaultState);
   }, []);
 
