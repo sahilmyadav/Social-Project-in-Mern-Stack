@@ -7,7 +7,9 @@ let isConnecting = false;
 
 // Call-active guard: prevents socket reconnection from killing active calls
 let _callActive = false;
-export const setCallActive = (active: boolean) => { _callActive = active; };
+export const setCallActive = (active: boolean) => {
+  _callActive = active;
+};
 export const isCallActive = () => _callActive;
 
 // Use Map (not WeakMap) so inline/arrow callbacks from React don't get GC'd,
@@ -49,19 +51,24 @@ export const initSocket = (token: string) => {
 
   socket = io(API_CONFIG.SOCKET_URL, {
     auth: { token },
-    transports: ['websocket'],
+    transports: ['polling', 'websocket'],
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     reconnectionAttempts: 20,
-    timeout: 20000,
+    timeout: 30000,
     forceNew: false,
   });
 
   socket.on('connect', () => {
     isConnecting = false;
     authReconnectAttempts = 0; // Reset on successful connection
-    console.log('[Socket] Connected! id:', socket?.id, 'transport:', socket?.io?.engine?.transport?.name);
+    console.log(
+      '[Socket] Connected! id:',
+      socket?.id,
+      'transport:',
+      socket?.io?.engine?.transport?.name
+    );
   });
 
   socket.on('disconnect', (reason) => {
@@ -84,7 +91,9 @@ export const initSocket = (token: string) => {
         socket = null;
         return;
       }
-      console.log(`[Socket] Auth failed, refreshing token (attempt ${authReconnectAttempts}/${MAX_AUTH_RECONNECT_ATTEMPTS})...`);
+      console.log(
+        `[Socket] Auth failed, refreshing token (attempt ${authReconnectAttempts}/${MAX_AUTH_RECONNECT_ATTEMPTS})...`
+      );
       const newToken = await refreshAccessToken();
       if (newToken) {
         setTimeout(() => {
@@ -221,7 +230,9 @@ export const emitInitiateCall = (
   threadId: string,
   callType: 'voice' | 'video' = 'voice'
 ) => {
-  console.log(`[Socket] Emitting initiateCall: recipientId=${recipientId}, threadId=${threadId}, callType=${callType}, connected=${socket?.connected}`);
+  console.log(
+    `[Socket] Emitting initiateCall: recipientId=${recipientId}, threadId=${threadId}, callType=${callType}, connected=${socket?.connected}`
+  );
   emit('initiateCall', { recipientId, threadId, callType });
 };
 
@@ -244,15 +255,27 @@ export const emitEndCall = (recipientId: string, threadId: string) => {
   emit('endCall', { recipientId, threadId });
 };
 
-export const emitOffer = (recipientId: string, offer: RTCSessionDescriptionInit, callType?: string) => {
+export const emitOffer = (
+  recipientId: string,
+  offer: RTCSessionDescriptionInit,
+  callType?: string
+) => {
   emit('offer', { recipientId, offer, callType });
 };
 
-export const emitAnswer = (callerId: string, answer: RTCSessionDescriptionInit, callType?: string) => {
+export const emitAnswer = (
+  callerId: string,
+  answer: RTCSessionDescriptionInit,
+  callType?: string
+) => {
   emit('answer', { recipientId: callerId, answer, callType });
 };
 
-export const emitIceCandidate = (recipientId: string, candidate: RTCIceCandidate, callType?: string) => {
+export const emitIceCandidate = (
+  recipientId: string,
+  candidate: RTCIceCandidate,
+  callType?: string
+) => {
   emit('iceCandidate', {
     recipientId,
     callType,

@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
+  Check,
   Edit2,
   FileText,
   Forward,
@@ -89,6 +90,10 @@ interface ChatMessageBubbleProps {
   onEditStart: (messageId: string, content: string) => void;
   onDeleteForMe: (messageId: string) => void;
   onDeleteForEveryone: (messageId: string) => void;
+  isSelecting?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (messageId: string) => void;
+  onLongPress?: (messageId: string) => void;
 }
 
 const ChatMessageBubble = React.memo(function ChatMessageBubble({
@@ -105,7 +110,32 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   onEditStart,
   onDeleteForMe,
   onDeleteForEveryone,
+  isSelecting = false,
+  isSelected = false,
+  onToggleSelect,
+  onLongPress,
 }: ChatMessageBubbleProps) {
+  const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleTouchStart = React.useCallback(() => {
+    if (isSelecting) return; // Already in selection mode, use tap instead
+    longPressTimerRef.current = setTimeout(() => {
+      onLongPress?.(message.id.toString());
+    }, 500);
+  }, [isSelecting, message.id, onLongPress]);
+
+  const handleTouchEnd = React.useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handleClick = React.useCallback(() => {
+    if (isSelecting && onToggleSelect) {
+      onToggleSelect(message.id.toString());
+    }
+  }, [isSelecting, onToggleSelect, message.id]);
   if ((message as any).isSystemMessage) {
     return (
       <div className="flex justify-center my-2">
@@ -119,9 +149,28 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
   const messageIdStr = message.id.toString();
 
   return (
-    <div className={`flex ${message.isSent ? 'justify-end' : 'justify-start'}`}>
-      <div className="flex items-start gap-2 group max-w-xs">
-        {message.isSent && (
+    <div
+      className={`flex ${message.isSent ? 'justify-end' : 'justify-start'} ${isSelecting ? 'cursor-pointer' : ''} ${isSelected ? 'bg-primary/10 rounded-lg' : ''}`}
+      onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchEnd}
+    >
+      {isSelecting && (
+        <div className="flex items-center mr-2 flex-shrink-0 self-center">
+          <div
+            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+              isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/40 bg-background'
+            }`}
+          >
+            {isSelected && <Check size={12} className="text-primary-foreground" />}
+          </div>
+        </div>
+      )}
+      <div
+        className={`flex items-start gap-2 group max-w-xs ${isSelecting ? 'pointer-events-none' : ''}`}
+      >
+        {message.isSent && !isSelecting && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="opacity-50 lg:opacity-0 lg:group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
@@ -151,6 +200,10 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
               >
                 <Trash2 size={14} className="mr-2" />
                 Delete for everyone
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onLongPress?.(messageIdStr)}>
+                <Check size={14} className="mr-2" />
+                Select
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -369,14 +422,12 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
 
             <p className={`text-xs mt-1 ${message.isSent ? 'opacity-70' : 'opacity-60'}`}>
               {message.timestamp}
-              {message.isEdited && !message.isDeleted && (
-                <span className="ml-1">(edited)</span>
-              )}
+              {message.isEdited && !message.isDeleted && <span className="ml-1">(edited)</span>}
             </p>
           </div>
         )}
 
-        {!message.isSent && (
+        {!message.isSent && !isSelecting && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="opacity-50 lg:opacity-0 lg:group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
@@ -395,6 +446,10 @@ const ChatMessageBubble = React.memo(function ChatMessageBubble({
               <DropdownMenuItem onClick={() => onDeleteForMe(messageIdStr)}>
                 <Trash2 size={14} className="mr-2" />
                 Delete for me
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onLongPress?.(messageIdStr)}>
+                <Check size={14} className="mr-2" />
+                Select
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

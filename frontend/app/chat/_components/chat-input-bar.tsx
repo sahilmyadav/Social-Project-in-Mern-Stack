@@ -144,7 +144,7 @@ const ChatInputBar = React.memo(function ChatInputBar({
         </div>
       )}
 
-      <div className="p-4 border-t border-border flex items-end gap-2 mb-24 lg:mb-4 bg-background relative z-10 w-full">
+      <div className="p-2 lg:p-4 border-t border-border flex items-end gap-2 mb-0 bg-background relative z-10 w-full">
         <input
           type="file"
           ref={fileInputRef}

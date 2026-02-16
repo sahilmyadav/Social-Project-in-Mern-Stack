@@ -70,6 +70,9 @@ import {
   Flag,
   LogOut,
   MoreHorizontal,
+  Check,
+  CheckSquare,
+  Forward,
   Phone,
   Send,
   Trash2,
@@ -187,6 +190,7 @@ function ChatPageContent() {
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -196,6 +200,37 @@ function ChatPageContent() {
   const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
   const [messageToForward, setMessageToForward] = useState<Message | null>(null);
   const [forwardSearchQuery, setForwardSearchQuery] = useState('');
+
+  // Multi-select state
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
+
+  const toggleMessageSelect = useCallback((messageId: string) => {
+    setSelectedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }, []);
+
+  const enterSelectionMode = useCallback((messageId: string) => {
+    setIsSelecting(true);
+    setSelectedMessageIds(new Set([messageId]));
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setIsSelecting(false);
+    setSelectedMessageIds(new Set());
+  }, []);
+
+  const selectAllMessages = useCallback(() => {
+    const allIds = new Set(messages.filter((m) => !m.isSystemMessage).map((m) => m.id.toString()));
+    setSelectedMessageIds(allIds);
+  }, [messages]);
 
   const handleOpenProfile = (userId: string) => {
     router.push(`/profile/${userId}`);
@@ -812,7 +847,10 @@ function ChatPageContent() {
         }
 
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
-          const notifIcon = (callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/')) ? callerAvatar : undefined;
+          const notifIcon =
+            callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/')
+              ? callerAvatar
+              : undefined;
           new Notification('Incoming Call', {
             body: `${callerName} is calling...`,
             icon: notifIcon,
@@ -1218,7 +1256,7 @@ function ChatPageContent() {
 
       router.replace('/chat', { scroll: false });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, user]);
 
   // Track previous message count to determine if we should auto-scroll
@@ -1226,7 +1264,10 @@ function ChatPageContent() {
   const prevThreadIdRef = useRef<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, []);
 
   // Reset typing indicator when switching conversations
@@ -1694,6 +1735,126 @@ function ChatPageContent() {
     }
   };
 
+  // Bulk delete selected messages
+  const handleBulkDelete = (deleteFor: 'me' | 'everyone') => {
+    if (selectedMessageIds.size === 0) return;
+
+    const idsToDelete = new Set(selectedMessageIds);
+
+    confirm({
+      title: `Delete ${idsToDelete.size} message${idsToDelete.size > 1 ? 's' : ''}?`,
+      message:
+        deleteFor === 'everyone'
+          ? 'These messages will be deleted for everyone in this chat.'
+          : 'These messages will be deleted for you only.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const messageId of idsToDelete) {
+          try {
+            let response;
+            if (activeTab === 'groups' && selectedThreadId) {
+              response = await groupService.deleteMessage(
+                selectedThreadId,
+                messageId,
+                deleteFor === 'everyone'
+              );
+            } else {
+              response = await chatService.deleteMessage(messageId, deleteFor);
+            }
+            if (response.success) {
+              successCount++;
+            } else {
+              failCount++;
+            }
+          } catch {
+            failCount++;
+          }
+        }
+
+        // Remove deleted messages from state
+        setMessages((prev) => prev.filter((msg) => !idsToDelete.has(msg.id.toString())));
+
+        if (successCount > 0) {
+          showToast.success(`${successCount} message${successCount > 1 ? 's' : ''} deleted`);
+        }
+        if (failCount > 0) {
+          showToast.error(`Failed to delete ${failCount} message${failCount > 1 ? 's' : ''}`);
+        }
+
+        exitSelectionMode();
+      },
+    });
+  };
+
+  // Bulk forward selected messages
+  const handleBulkForward = () => {
+    if (selectedMessageIds.size === 0) return;
+    setIsForwardModalOpen(true);
+  };
+
+  const handleBulkForwardToConversation = async (targetConversation: Conversation) => {
+    if (selectedMessageIds.size === 0) return;
+
+    try {
+      let targetThreadId: string | undefined = targetConversation.threadId;
+
+      if (!targetThreadId) {
+        const threadResponse = await chatService.getThread(targetConversation.participantId);
+        if (threadResponse.success && threadResponse.data?.thread?._id) {
+          targetThreadId = threadResponse.data.thread._id;
+        } else {
+          showToast.error('Failed to get conversation thread');
+          return;
+        }
+      }
+
+      if (!targetThreadId) {
+        showToast.error('Failed to get conversation thread');
+        return;
+      }
+
+      // Forward messages in order
+      const selectedMsgs = messages.filter((m) => selectedMessageIds.has(m.id.toString()));
+      let successCount = 0;
+
+      for (const msg of selectedMsgs) {
+        try {
+          const payload: any = { text: msg.content, isForwarded: true };
+          if (msg.location) {
+            payload.messageType = 'location';
+            payload.location = msg.location;
+          }
+
+          let response: any;
+          if (targetConversation.isGroup) {
+            response = await groupService.sendGroupMessage(targetThreadId, payload);
+          } else {
+            response = await chatService.sendMessage(targetThreadId, payload);
+          }
+
+          if (response.success) successCount++;
+        } catch {
+          // Continue with remaining messages
+        }
+      }
+
+      if (successCount > 0) {
+        showToast.success(
+          `${successCount} message${successCount > 1 ? 's' : ''} forwarded to ${targetConversation.name}`
+        );
+      }
+
+      setIsForwardModalOpen(false);
+      exitSelectionMode();
+    } catch (error) {
+      showToast.error('Failed to forward messages');
+    }
+  };
+
   const handleGetThread = async (userId: string) => {
     try {
       const response = await chatService.getThread(userId);
@@ -1803,7 +1964,7 @@ function ChatPageContent() {
         }));
 
         // Track hasMore from API response
-        const hasMore = response.data.hasMore ?? (messagesList.length >= 50);
+        const hasMore = response.data.hasMore ?? messagesList.length >= 50;
         setHasMoreMessages(hasMore);
 
         if (cursor) {
@@ -1831,49 +1992,37 @@ function ChatPageContent() {
     }
   };
 
-  const uniqueConversations = useMemo(
-    () => {
-      const seen = new Set<string>();
-      return conversations.filter((conv) => {
-        if (seen.has(conv.id)) return false;
-        seen.add(conv.id);
-        return true;
-      });
-    },
-    [conversations]
-  );
+  const uniqueConversations = useMemo(() => {
+    const seen = new Set<string>();
+    return conversations.filter((conv) => {
+      if (seen.has(conv.id)) return false;
+      seen.add(conv.id);
+      return true;
+    });
+  }, [conversations]);
 
-  const filteredConversations = useMemo(
-    () => {
-      const query = searchQuery.toLowerCase();
-      return query
-        ? uniqueConversations.filter((conv) => conv.name.toLowerCase().includes(query))
-        : uniqueConversations;
-    },
-    [uniqueConversations, searchQuery]
-  );
+  const filteredConversations = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return query
+      ? uniqueConversations.filter((conv) => conv.name.toLowerCase().includes(query))
+      : uniqueConversations;
+  }, [uniqueConversations, searchQuery]);
 
-  const uniqueGroups = useMemo(
-    () => {
-      const seen = new Set<string>();
-      return groups.filter((group) => {
-        if (seen.has(group.id)) return false;
-        seen.add(group.id);
-        return true;
-      });
-    },
-    [groups]
-  );
+  const uniqueGroups = useMemo(() => {
+    const seen = new Set<string>();
+    return groups.filter((group) => {
+      if (seen.has(group.id)) return false;
+      seen.add(group.id);
+      return true;
+    });
+  }, [groups]);
 
-  const filteredGroups = useMemo(
-    () => {
-      const query = searchQuery.toLowerCase();
-      return query
-        ? uniqueGroups.filter((group) => group.name.toLowerCase().includes(query))
-        : uniqueGroups;
-    },
-    [uniqueGroups, searchQuery]
-  );
+  const filteredGroups = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return query
+      ? uniqueGroups.filter((group) => group.name.toLowerCase().includes(query))
+      : uniqueGroups;
+  }, [uniqueGroups, searchQuery]);
 
   const displayList = activeTab === 'messages' ? filteredConversations : filteredGroups;
 
@@ -1882,17 +2031,17 @@ function ChatPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 h-[100dvh]">
+    <main className="h-[100dvh] bg-background overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 lg:gap-4 h-full pb-14 lg:pb-0">
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
         <section
-          className={`lg:col-span-1 border-r border-border flex flex-col h-[100dvh] overflow-hidden ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
+          className={`lg:col-span-1 border-r border-border flex flex-col h-full overflow-hidden ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
         >
-          <div className="p-4 border-b border-border">
-            <h1 className="text-2xl font-bold mb-4 text-foreground">Chats</h1>
+          <div className="p-2.5 lg:p-4 border-b border-border">
+            <h1 className="text-2xl font-bold mb-3 lg:mb-4 text-foreground">Chats</h1>
 
             <div className="flex gap-2 mb-4">
               <Button
@@ -2006,6 +2155,7 @@ function ChatPageContent() {
                 <button
                   onClick={() => {
                     setSelectedConversation(conversation);
+                    exitSelectionMode();
                     if (conversation.threadId) {
                       setSelectedThreadId(conversation.threadId);
                       joinThread(conversation.threadId);
@@ -2244,249 +2394,330 @@ function ChatPageContent() {
         </section>
 
         {selectedConversation ? (
-          <section className="lg:col-span-2 flex flex-col h-[100dvh] overflow-hidden">
-            <div className="p-4 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    setSelectedConversation(null);
-                    setSelectedThreadId(null);
-                    setMessages([]);
-                  }}
-                  className="lg:hidden p-2 hover:bg-muted rounded-full transition cursor-pointer"
-                  title="Back to conversations"
-                >
-                  <X size={20} className="text-foreground" />
-                </button>
-
-                <div
-                  onClick={() =>
-                    selectedConversation.isGroup
-                      ? setIsGroupInfoOpen(true)
-                      : handleOpenProfile(selectedConversation.participantId)
-                  }
-                  className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${
-                    selectedConversation.isGroup ? 'text-2xl' : ''
-                  } overflow-hidden cursor-pointer hover:opacity-80 transition`}
-                >
-                  {selectedConversation.avatar?.startsWith('http') ||
-                  selectedConversation.avatar?.startsWith('/') ? (
-                    <img
-                      src={getMediaUrl(selectedConversation.avatar)}
-                      alt={selectedConversation.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : selectedConversation.isGroup ? (
-                    <Users className="w-6 h-6 text-white" />
-                  ) : (
-                    <User className="w-6 h-6 text-white" />
-                  )}
+          <section className="lg:col-span-2 flex flex-col h-full overflow-hidden">
+            {isSelecting ? (
+              /* ─── Selection Mode Toolbar ─── */
+              <div className="p-2.5 lg:p-4 border-b border-border flex items-center justify-between bg-primary/5">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={exitSelectionMode}
+                    className="p-2 hover:bg-muted rounded-full transition cursor-pointer"
+                    title="Cancel selection"
+                  >
+                    <X size={20} className="text-foreground" />
+                  </button>
+                  <span className="font-semibold text-foreground">
+                    {selectedMessageIds.size} selected
+                  </span>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p
-                      onClick={() =>
-                        selectedConversation.isGroup
-                          ? setIsGroupInfoOpen(true)
-                          : handleOpenProfile(selectedConversation.participantId)
-                      }
-                      className="font-semibold text-foreground cursor-pointer hover:text-primary transition"
-                    >
-                      {selectedConversation.name}
-                    </p>
-                    {selectedConversation.isGroup && (
-                      <span className="text-xs text-muted-foreground">
-                        ({selectedConversation.memberCount} members)
-                      </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={selectAllMessages}
+                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                    title="Select all"
+                  >
+                    <CheckSquare size={20} className="text-primary" />
+                  </button>
+                  <button
+                    onClick={handleBulkForward}
+                    disabled={selectedMessageIds.size === 0}
+                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer disabled:opacity-40"
+                    title="Forward selected"
+                  >
+                    <Forward size={20} className="text-primary" />
+                  </button>
+                  <button
+                    onClick={() => handleBulkDelete('me')}
+                    disabled={selectedMessageIds.size === 0}
+                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer disabled:opacity-40"
+                    title="Delete for me"
+                  >
+                    <Trash2 size={20} className="text-muted-foreground" />
+                  </button>
+                  {/* Show "Delete for everyone" only if ALL selected messages were sent by current user */}
+                  {Array.from(selectedMessageIds).every((id) => {
+                    const msg = messages.find((m) => m.id.toString() === id);
+                    return msg?.isSent;
+                  }) &&
+                    selectedMessageIds.size > 0 && (
+                      <button
+                        onClick={() => handleBulkDelete('everyone')}
+                        className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                        title="Delete for everyone"
+                      >
+                        <Trash2 size={20} className="text-destructive" />
+                      </button>
+                    )}
+                </div>
+              </div>
+            ) : (
+              <div className="p-2.5 lg:p-4 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setSelectedConversation(null);
+                      setSelectedThreadId(null);
+                      setMessages([]);
+                    }}
+                    className="lg:hidden p-2 hover:bg-muted rounded-full transition cursor-pointer"
+                    title="Back to conversations"
+                  >
+                    <X size={20} className="text-foreground" />
+                  </button>
+
+                  <div
+                    onClick={() =>
+                      selectedConversation.isGroup
+                        ? setIsGroupInfoOpen(true)
+                        : handleOpenProfile(selectedConversation.participantId)
+                    }
+                    className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${
+                      selectedConversation.isGroup ? 'text-2xl' : ''
+                    } overflow-hidden cursor-pointer hover:opacity-80 transition`}
+                  >
+                    {selectedConversation.avatar?.startsWith('http') ||
+                    selectedConversation.avatar?.startsWith('/') ? (
+                      <img
+                        src={getMediaUrl(selectedConversation.avatar)}
+                        alt={selectedConversation.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : selectedConversation.isGroup ? (
+                      <Users className="w-6 h-6 text-white" />
+                    ) : (
+                      <User className="w-6 h-6 text-white" />
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedConversation.isGroup
-                      ? `${selectedConversation.memberCount} members`
-                      : selectedConversation.online
-                        ? 'Active now'
-                        : 'Offline'}
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p
+                        onClick={() =>
+                          selectedConversation.isGroup
+                            ? setIsGroupInfoOpen(true)
+                            : handleOpenProfile(selectedConversation.participantId)
+                        }
+                        className="font-semibold text-foreground cursor-pointer hover:text-primary transition"
+                      >
+                        {selectedConversation.name}
+                      </p>
+                      {selectedConversation.isGroup && (
+                        <span className="text-xs text-muted-foreground">
+                          ({selectedConversation.memberCount} members)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedConversation.isGroup
+                        ? `${selectedConversation.memberCount} members`
+                        : selectedConversation.online
+                          ? 'Active now'
+                          : 'Offline'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={
+                      isVoiceCallOpen ||
+                      isVideoCallOpen ||
+                      isGroupVoiceCallOpen ||
+                      isGroupVideoCallOpen
+                    }
+                    onClick={async () => {
+                      // Debounce: prevent double-tap on mobile
+                      if (callInitiatingRef.current) return;
+                      callInitiatingRef.current = true;
+                      setTimeout(() => {
+                        callInitiatingRef.current = false;
+                      }, 2000);
+
+                      // Force microphone permission BEFORE initiating the call
+                      try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        stream.getTracks().forEach((t) => t.stop()); // Release immediately
+                      } catch {
+                        callInitiatingRef.current = false;
+                        alert(
+                          'Microphone access is required to make a voice call. Please allow microphone permission and try again.'
+                        );
+                        return;
+                      }
+
+                      if (selectedConversation?.isGroup && selectedConversation?.id) {
+                        const callMessage: Message = {
+                          id: `call-initiated-${Date.now()}`,
+                          sender: 'System',
+                          content: 'Starting group voice call',
+                          timestamp: new Date().toISOString(),
+                          isSent: true,
+                          type: 'system',
+                          senderId: 'system',
+                          senderName: 'System',
+                          status: 'sent' as const,
+                          isSystemMessage: true,
+                          systemMessageType: 'call-initiated',
+                        };
+                        setMessages((prev) => [...prev, callMessage]);
+                        emitInitiateGroupCall(selectedConversation.id, 'voice');
+                        setIsGroupVoiceCallOpen(true);
+                      } else if (
+                        selectedConversation?.participantId &&
+                        selectedConversation?.threadId
+                      ) {
+                        const callMessage: Message = {
+                          id: `call-initiated-${Date.now()}`,
+                          sender: 'System',
+                          content: 'Outgoing voice call',
+                          timestamp: new Date().toISOString(),
+                          isSent: true,
+                          type: 'system',
+                          senderId: 'system',
+                          senderName: 'System',
+                          status: 'sent' as const,
+                          isSystemMessage: true,
+                          systemMessageType: 'call-initiated',
+                        };
+                        setMessages((prev) => [...prev, callMessage]);
+                        emitInitiateCall(
+                          selectedConversation.participantId,
+                          selectedConversation.threadId,
+                          'voice'
+                        );
+                        setIsVoiceCallOpen(true);
+                      } else {
+                      }
+                    }}
+                    className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
+                    title="Start voice call"
+                  >
+                    <Phone size={20} className="text-primary" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      isVoiceCallOpen ||
+                      isVideoCallOpen ||
+                      isGroupVoiceCallOpen ||
+                      isGroupVideoCallOpen
+                    }
+                    onClick={async () => {
+                      // Debounce: prevent double-tap on mobile
+                      if (callInitiatingRef.current) return;
+                      callInitiatingRef.current = true;
+                      setTimeout(() => {
+                        callInitiatingRef.current = false;
+                      }, 2000);
+
+                      // Force microphone + camera permission BEFORE initiating the call
+                      try {
+                        const stream = await navigator.mediaDevices.getUserMedia({
+                          audio: true,
+                          video: true,
+                        });
+                        stream.getTracks().forEach((t) => t.stop()); // Release immediately
+                      } catch {
+                        callInitiatingRef.current = false;
+                        alert(
+                          'Microphone and camera access are required to make a video call. Please allow permissions and try again.'
+                        );
+                        return;
+                      }
+
+                      if (selectedConversation?.isGroup && selectedConversation?.id) {
+                        const callMessage: Message = {
+                          id: `call-initiated-${Date.now()}`,
+                          sender: 'System',
+                          content: 'Starting group video call',
+                          timestamp: new Date().toISOString(),
+                          isSent: true,
+                          type: 'system',
+                          senderId: 'system',
+                          senderName: 'System',
+                          status: 'sent' as const,
+                          isSystemMessage: true,
+                          systemMessageType: 'call-initiated',
+                        };
+                        setMessages((prev) => [...prev, callMessage]);
+                        emitInitiateGroupCall(selectedConversation.id, 'video');
+                        setIsGroupVideoCallOpen(true);
+                      } else if (
+                        selectedConversation?.participantId &&
+                        selectedConversation?.threadId
+                      ) {
+                        const callMessage: Message = {
+                          id: `call-initiated-${Date.now()}`,
+                          sender: 'System',
+                          content: 'Outgoing video call',
+                          timestamp: new Date().toISOString(),
+                          isSent: true,
+                          type: 'system',
+                          senderId: 'system',
+                          senderName: 'System',
+                          status: 'sent' as const,
+                          isSystemMessage: true,
+                          systemMessageType: 'call-initiated',
+                        };
+                        setMessages((prev) => [...prev, callMessage]);
+                        emitInitiateCall(
+                          selectedConversation.participantId,
+                          selectedConversation.threadId,
+                          'video'
+                        );
+                        setIsVideoCallOpen(true);
+                      } else {
+                      }
+                    }}
+                    className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
+                    title="Start video call"
+                  >
+                    <Video size={20} className="text-primary" />
+                  </button>
+
+                  {!selectedConversation.isGroup && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                          title="More options"
+                        >
+                          <MoreHorizontal size={20} className="text-muted-foreground" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => handleOpenProfile(selectedConversation.participantId)}
+                          className="cursor-pointer"
+                        >
+                          <User size={16} className="mr-2" />
+                          View Profile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={handleReportUser}
+                          className="text-orange-500 cursor-pointer"
+                        >
+                          <Flag size={16} className="mr-2" />
+                          Report User
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={handleBlockUser}
+                          className="text-destructive cursor-pointer"
+                        >
+                          <Ban size={16} className="mr-2" />
+                          Block User
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
+            )}
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen}
-                  onClick={async () => {
-                    // Debounce: prevent double-tap on mobile
-                    if (callInitiatingRef.current) return;
-                    callInitiatingRef.current = true;
-                    setTimeout(() => { callInitiatingRef.current = false; }, 2000);
-
-                    // Force microphone permission BEFORE initiating the call
-                    try {
-                      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                      stream.getTracks().forEach((t) => t.stop()); // Release immediately
-                    } catch {
-                      callInitiatingRef.current = false;
-                      alert('Microphone access is required to make a voice call. Please allow microphone permission and try again.');
-                      return;
-                    }
-
-                    if (selectedConversation?.isGroup && selectedConversation?.id) {
-                      const callMessage: Message = {
-                        id: `call-initiated-${Date.now()}`,
-                        sender: 'System',
-                        content: 'Starting group voice call',
-                        timestamp: new Date().toISOString(),
-                        isSent: true,
-                        type: 'system',
-                        senderId: 'system',
-                        senderName: 'System',
-                        status: 'sent' as const,
-                        isSystemMessage: true,
-                        systemMessageType: 'call-initiated',
-                      };
-                      setMessages((prev) => [...prev, callMessage]);
-                      emitInitiateGroupCall(selectedConversation.id, 'voice');
-                      setIsGroupVoiceCallOpen(true);
-                    } else if (
-                      selectedConversation?.participantId &&
-                      selectedConversation?.threadId
-                    ) {
-                      const callMessage: Message = {
-                        id: `call-initiated-${Date.now()}`,
-                        sender: 'System',
-                        content: 'Outgoing voice call',
-                        timestamp: new Date().toISOString(),
-                        isSent: true,
-                        type: 'system',
-                        senderId: 'system',
-                        senderName: 'System',
-                        status: 'sent' as const,
-                        isSystemMessage: true,
-                        systemMessageType: 'call-initiated',
-                      };
-                      setMessages((prev) => [...prev, callMessage]);
-                      emitInitiateCall(
-                        selectedConversation.participantId,
-                        selectedConversation.threadId,
-                        'voice'
-                      );
-                      setIsVoiceCallOpen(true);
-                    } else {
-                    }
-                  }}
-                  className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
-                  title="Start voice call"
-                >
-                  <Phone size={20} className="text-primary" />
-                </button>
-                <button
-                  type="button"
-                  disabled={isVoiceCallOpen || isVideoCallOpen || isGroupVoiceCallOpen || isGroupVideoCallOpen}
-                  onClick={async () => {
-                    // Debounce: prevent double-tap on mobile
-                    if (callInitiatingRef.current) return;
-                    callInitiatingRef.current = true;
-                    setTimeout(() => { callInitiatingRef.current = false; }, 2000);
-
-                    // Force microphone + camera permission BEFORE initiating the call
-                    try {
-                      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-                      stream.getTracks().forEach((t) => t.stop()); // Release immediately
-                    } catch {
-                      callInitiatingRef.current = false;
-                      alert('Microphone and camera access are required to make a video call. Please allow permissions and try again.');
-                      return;
-                    }
-
-                    if (selectedConversation?.isGroup && selectedConversation?.id) {
-                      const callMessage: Message = {
-                        id: `call-initiated-${Date.now()}`,
-                        sender: 'System',
-                        content: 'Starting group video call',
-                        timestamp: new Date().toISOString(),
-                        isSent: true,
-                        type: 'system',
-                        senderId: 'system',
-                        senderName: 'System',
-                        status: 'sent' as const,
-                        isSystemMessage: true,
-                        systemMessageType: 'call-initiated',
-                      };
-                      setMessages((prev) => [...prev, callMessage]);
-                      emitInitiateGroupCall(selectedConversation.id, 'video');
-                      setIsGroupVideoCallOpen(true);
-                    } else if (
-                      selectedConversation?.participantId &&
-                      selectedConversation?.threadId
-                    ) {
-                      const callMessage: Message = {
-                        id: `call-initiated-${Date.now()}`,
-                        sender: 'System',
-                        content: 'Outgoing video call',
-                        timestamp: new Date().toISOString(),
-                        isSent: true,
-                        type: 'system',
-                        senderId: 'system',
-                        senderName: 'System',
-                        status: 'sent' as const,
-                        isSystemMessage: true,
-                        systemMessageType: 'call-initiated',
-                      };
-                      setMessages((prev) => [...prev, callMessage]);
-                      emitInitiateCall(
-                        selectedConversation.participantId,
-                        selectedConversation.threadId,
-                        'video'
-                      );
-                      setIsVideoCallOpen(true);
-                    } else {
-                    }
-                  }}
-                  className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
-                  title="Start video call"
-                >
-                  <Video size={20} className="text-primary" />
-                </button>
-
-                {!selectedConversation.isGroup && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
-                        title="More options"
-                      >
-                        <MoreHorizontal size={20} className="text-muted-foreground" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => handleOpenProfile(selectedConversation.participantId)}
-                        className="cursor-pointer"
-                      >
-                        <User size={16} className="mr-2" />
-                        View Profile
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={handleReportUser}
-                        className="text-orange-500 cursor-pointer"
-                      >
-                        <Flag size={16} className="mr-2" />
-                        Report User
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={handleBlockUser}
-                        className="text-destructive cursor-pointer"
-                      >
-                        <Ban size={16} className="mr-2" />
-                        Block User
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto overscroll-contain p-2 lg:p-4 space-y-1.5 lg:space-y-4"
+            >
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-muted-foreground">Loading messages...</p>
@@ -2537,6 +2768,10 @@ function ChatPageContent() {
                       }}
                       onDeleteForMe={(id) => handleDeleteMessage(id, 'me')}
                       onDeleteForEveryone={(id) => handleDeleteMessage(id, 'everyone')}
+                      isSelecting={isSelecting}
+                      isSelected={selectedMessageIds.has(message.id.toString())}
+                      onToggleSelect={toggleMessageSelect}
+                      onLongPress={enterSelectionMode}
                     />
                   ))}
 
@@ -2585,32 +2820,53 @@ function ChatPageContent() {
               )}
             </div>
 
-            <ChatInputBar
-              messageInput={messageInput}
-              onMessageInputChange={handleMessageInputChange}
-              onSendMessage={handleSendMessage}
-              isSendingMessage={isSendingMessage}
-              selectedFile={selectedFile}
-              previewUrl={previewUrl}
-              onFileSelect={handleFileSelect}
-              onRemoveFile={removeSelectedFile}
-              showAttachmentMenu={showAttachmentMenu}
-              onToggleAttachmentMenu={() => setShowAttachmentMenu(!showAttachmentMenu)}
-              onEmojiSelect={handleEmojiSelect}
-              isRecording={isRecording}
-              recordingDuration={recordingDuration}
-              formatRecordingDuration={formatRecordingDuration}
-              onStartRecording={startRecording}
-              onStopRecording={stopRecording}
-              onCancelRecording={cancelRecording}
-              replyingTo={replyingTo}
-              onCancelReply={() => setReplyingTo(null)}
-              isSendingLocation={isSendingLocation}
-              showLocationMenu={showLocationMenu}
-              onToggleLocationMenu={() => setShowLocationMenu(!showLocationMenu)}
-              onSendCurrentLocation={sendCurrentLocation}
-              onSendLiveLocation={sendLiveLocation}
-            />
+            {isSelecting ? (
+              <div className="p-3 border-t border-border bg-muted/30 flex items-center justify-center gap-4">
+                <button
+                  onClick={handleBulkForward}
+                  disabled={selectedMessageIds.size === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-40 cursor-pointer"
+                >
+                  <Forward size={16} />
+                  <span className="text-sm font-medium">Forward ({selectedMessageIds.size})</span>
+                </button>
+                <button
+                  onClick={() => handleBulkDelete('me')}
+                  disabled={selectedMessageIds.size === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition disabled:opacity-40 cursor-pointer"
+                >
+                  <Trash2 size={16} />
+                  <span className="text-sm font-medium">Delete ({selectedMessageIds.size})</span>
+                </button>
+              </div>
+            ) : (
+              <ChatInputBar
+                messageInput={messageInput}
+                onMessageInputChange={handleMessageInputChange}
+                onSendMessage={handleSendMessage}
+                isSendingMessage={isSendingMessage}
+                selectedFile={selectedFile}
+                previewUrl={previewUrl}
+                onFileSelect={handleFileSelect}
+                onRemoveFile={removeSelectedFile}
+                showAttachmentMenu={showAttachmentMenu}
+                onToggleAttachmentMenu={() => setShowAttachmentMenu(!showAttachmentMenu)}
+                onEmojiSelect={handleEmojiSelect}
+                isRecording={isRecording}
+                recordingDuration={recordingDuration}
+                formatRecordingDuration={formatRecordingDuration}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
+                onCancelRecording={cancelRecording}
+                replyingTo={replyingTo}
+                onCancelReply={() => setReplyingTo(null)}
+                isSendingLocation={isSendingLocation}
+                showLocationMenu={showLocationMenu}
+                onToggleLocationMenu={() => setShowLocationMenu(!showLocationMenu)}
+                onSendCurrentLocation={sendCurrentLocation}
+                onSendLiveLocation={sendLiveLocation}
+              />
+            )}
           </section>
         ) : (
           <section className="lg:col-span-2 flex items-center justify-center">
@@ -2870,20 +3126,37 @@ function ChatPageContent() {
         }}
       />
 
-      <Dialog open={isForwardModalOpen} onOpenChange={setIsForwardModalOpen}>
+      <Dialog
+        open={isForwardModalOpen}
+        onOpenChange={(open) => {
+          setIsForwardModalOpen(open);
+          if (!open) setForwardSearchQuery('');
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Forward Message</DialogTitle>
+            <DialogTitle>
+              {isSelecting
+                ? `Forward ${selectedMessageIds.size} message${selectedMessageIds.size > 1 ? 's' : ''}`
+                : 'Forward Message'}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {messageToForward && (
+            {/* Preview: single message or multi-select count */}
+            {isSelecting && selectedMessageIds.size > 0 ? (
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm text-muted-foreground">
+                  {selectedMessageIds.size} message{selectedMessageIds.size > 1 ? 's' : ''} selected
+                </p>
+              </div>
+            ) : messageToForward ? (
               <div className="p-3 rounded-lg bg-muted">
                 <p className="text-sm text-muted-foreground mb-1">Message:</p>
                 <p className="text-sm truncate">
                   {messageToForward.content || (messageToForward.media ? '📷 Media' : 'Message')}
                 </p>
               </div>
-            )}
+            ) : null}
 
             <Input
               placeholder="Search conversations..."
@@ -2893,7 +3166,7 @@ function ChatPageContent() {
 
             <ScrollArea className="h-[300px]">
               <div className="space-y-2">
-                {conversations
+                {[...conversations, ...groups]
                   .filter(
                     (conv) =>
                       conv.name.toLowerCase().includes(forwardSearchQuery.toLowerCase()) &&
@@ -2902,7 +3175,11 @@ function ChatPageContent() {
                   .map((conv) => (
                     <button
                       key={conv.id}
-                      onClick={() => handleForwardMessage(conv)}
+                      onClick={() =>
+                        isSelecting
+                          ? handleBulkForwardToConversation(conv)
+                          : handleForwardMessage(conv)
+                      }
                       className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition"
                     >
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg overflow-hidden">
@@ -2912,18 +3189,22 @@ function ChatPageContent() {
                             alt={conv.name}
                             className="w-full h-full object-cover"
                           />
+                        ) : conv.isGroup ? (
+                          <Users className="w-5 h-5 text-white" />
                         ) : (
                           <User className="w-5 h-5 text-white" />
                         )}
                       </div>
                       <div className="flex-1 text-left">
                         <p className="font-medium text-sm">{conv.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{conv.lastMessage}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {conv.isGroup ? 'Group' : conv.lastMessage}
+                        </p>
                       </div>
                       <Send size={16} className="text-primary" />
                     </button>
                   ))}
-                {conversations.filter(
+                {[...conversations, ...groups].filter(
                   (conv) =>
                     conv.name.toLowerCase().includes(forwardSearchQuery.toLowerCase()) &&
                     conv.id !== selectedConversation?.id

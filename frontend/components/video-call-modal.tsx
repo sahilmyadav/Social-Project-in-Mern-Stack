@@ -5,45 +5,45 @@ import { useCallState } from '@/contexts/call-context';
 import { getMediaUrl } from '@/lib/media-utils';
 import { Ringtone } from '@/lib/ringtone';
 import {
-    emitAcceptCall,
-    emitAnswer,
-    emitEndCall,
-    emitIceCandidate,
-    emitOffer,
-    emitRejectCall,
-    offAnswer,
-    offCallAccepted,
-    offCallEnded,
-    offCallFailed,
-    offCallRejected,
-    offIceCandidate,
-    offOffer,
-    onAnswer,
-    onCallAccepted,
-    onCallEnded,
-    onCallFailed,
-    onCallRejected,
-    onIceCandidate,
-    onOffer,
+  emitAcceptCall,
+  emitAnswer,
+  emitEndCall,
+  emitIceCandidate,
+  emitOffer,
+  emitRejectCall,
+  offAnswer,
+  offCallAccepted,
+  offCallEnded,
+  offCallFailed,
+  offCallRejected,
+  offIceCandidate,
+  offOffer,
+  onAnswer,
+  onCallAccepted,
+  onCallEnded,
+  onCallFailed,
+  onCallRejected,
+  onIceCandidate,
+  onOffer,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-    AUDIO_CONSTRAINTS,
-    BITRATE_LIMITS,
-    ICE_RECONNECT_TIMEOUT_MS,
-    RING_TIMEOUT_MS,
-    VIDEO_CONSTRAINTS_1to1,
-    adaptVideoQuality,
-    applyAudioBitrateCap,
-    applyBitrateCap,
-    attemptIceRestart,
-    cleanupMediaStream,
-    cleanupPeerConnection,
-    formatCallDuration,
-    getCallQualityStats,
-    getIceServers,
-    isGroupCallSignal,
-    registerBeforeUnloadCleanup,
+  AUDIO_CONSTRAINTS,
+  BITRATE_LIMITS,
+  ICE_RECONNECT_TIMEOUT_MS,
+  RING_TIMEOUT_MS,
+  VIDEO_CONSTRAINTS_1to1,
+  adaptVideoQuality,
+  applyAudioBitrateCap,
+  applyBitrateCap,
+  attemptIceRestart,
+  cleanupMediaStream,
+  cleanupPeerConnection,
+  formatCallDuration,
+  getCallQualityStats,
+  getIceServers,
+  isGroupCallSignal,
+  registerBeforeUnloadCleanup,
 } from '@/lib/webrtc';
 import { Mic, MicOff, PhoneOff, User, Video, VideoOff, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -113,12 +113,22 @@ export default function VideoCallModal({
 
   const initializePeerConnection = () => {
     const iceConfig = getIceServers();
-    console.log('[VideoCall] Creating PeerConnection with ICE servers:', JSON.stringify(iceConfig.iceServers?.map(s => typeof s === 'string' ? s : (s as any).urls)));
+    console.log(
+      '[VideoCall] Creating PeerConnection with ICE servers:',
+      JSON.stringify(
+        iceConfig.iceServers?.map((s) => (typeof s === 'string' ? s : (s as any).urls))
+      )
+    );
     const pc = new RTCPeerConnection(iceConfig);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('[VideoCall] ICE candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
+        console.log(
+          '[VideoCall] ICE candidate:',
+          event.candidate.type,
+          event.candidate.protocol,
+          event.candidate.address
+        );
         const targetId = incomingFlag ? callerId || recipientId : recipientId;
         emitIceCandidate(targetId, event.candidate);
       }
@@ -133,7 +143,7 @@ export default function VideoCallModal({
 
     pc.oniceconnectionstatechange = () => {
       console.log('[VideoCall] ICE connection state:', pc.iceConnectionState);
-      if (pc.iceConnectionState === 'connected') {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setCallStatus('active');
         // Apply bitrate caps once connected
         applyBitrateCap(pc, BITRATE_LIMITS.video1to1).catch(() => {});
@@ -153,7 +163,32 @@ export default function VideoCallModal({
             }
           }
         }, ICE_RECONNECT_TIMEOUT_MS);
-      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+      } else if (pc.iceConnectionState === 'failed') {
+        // Attempt ICE restart before giving up
+        console.log('[VideoCall] ICE failed — attempting restart before ending call');
+        iceRestartTimeoutRef.current = setTimeout(async () => {
+          if (pc.iceConnectionState === 'failed') {
+            try {
+              const targetId = incomingFlag ? callerId || recipientId : recipientId;
+              const restartOffer = await attemptIceRestart(pc);
+              if (restartOffer) {
+                emitOffer(targetId, restartOffer as any);
+                // Give the restart 10s to work
+                setTimeout(() => {
+                  if (pc.iceConnectionState === 'failed') {
+                    console.log('[VideoCall] ICE restart failed — ending call');
+                    handleEndCall();
+                  }
+                }, 10000);
+              } else {
+                handleEndCall();
+              }
+            } catch {
+              handleEndCall();
+            }
+          }
+        }, 2000);
+      } else if (pc.iceConnectionState === 'closed') {
         handleEndCall();
       }
     };
@@ -190,7 +225,10 @@ export default function VideoCallModal({
     console.log('[VideoCall] isIncoming:', incomingFlag);
     const stream = await getLocalStream();
     if (!stream) return;
-    console.log('[VideoCall] Local stream acquired, tracks:', stream.getTracks().map(t => t.kind));
+    console.log(
+      '[VideoCall] Local stream acquired, tracks:',
+      stream.getTracks().map((t) => t.kind)
+    );
 
     const pc = initializePeerConnection();
     peerConnectionRef.current = pc;
@@ -432,7 +470,18 @@ export default function VideoCallModal({
         isIncoming: incomingFlag,
       });
       console.log('[VideoCall] ========== VIDEO CALL MODAL OPENED ==========');
-      console.log('[VideoCall] isIncoming:', incomingFlag, 'acquired:', acquired, 'recipientId:', recipientId, 'callerId:', callerId, 'threadId:', threadId);
+      console.log(
+        '[VideoCall] isIncoming:',
+        incomingFlag,
+        'acquired:',
+        acquired,
+        'recipientId:',
+        recipientId,
+        'callerId:',
+        callerId,
+        'threadId:',
+        threadId
+      );
       if (!acquired) {
         console.log('[VideoCall] BLOCKED - already in a call');
         hasAcquiredLockRef.current = false;

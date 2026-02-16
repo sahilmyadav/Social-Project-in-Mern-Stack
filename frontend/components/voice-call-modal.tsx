@@ -4,40 +4,40 @@ import { useCallState } from '@/contexts/call-context';
 import { getMediaUrl } from '@/lib/media-utils';
 import { Ringtone } from '@/lib/ringtone';
 import {
-    emitAcceptCall,
-    emitAnswer,
-    emitEndCall,
-    emitIceCandidate,
-    emitOffer,
-    emitRejectCall,
-    offAnswer,
-    offCallAccepted,
-    offCallEnded,
-    offCallFailed,
-    offCallRejected,
-    offIceCandidate,
-    offOffer,
-    onAnswer,
-    onCallAccepted,
-    onCallEnded,
-    onCallFailed,
-    onCallRejected,
-    onIceCandidate,
-    onOffer,
+  emitAcceptCall,
+  emitAnswer,
+  emitEndCall,
+  emitIceCandidate,
+  emitOffer,
+  emitRejectCall,
+  offAnswer,
+  offCallAccepted,
+  offCallEnded,
+  offCallFailed,
+  offCallRejected,
+  offIceCandidate,
+  offOffer,
+  onAnswer,
+  onCallAccepted,
+  onCallEnded,
+  onCallFailed,
+  onCallRejected,
+  onIceCandidate,
+  onOffer,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import {
-    AUDIO_CONSTRAINTS,
-    ICE_RECONNECT_TIMEOUT_MS,
-    RING_TIMEOUT_MS,
-    attemptIceRestart,
-    cleanupMediaStream,
-    cleanupPeerConnection,
-    formatCallDuration,
-    getCallQualityStats,
-    getIceServers,
-    isGroupCallSignal,
-    registerBeforeUnloadCleanup,
+  AUDIO_CONSTRAINTS,
+  ICE_RECONNECT_TIMEOUT_MS,
+  RING_TIMEOUT_MS,
+  attemptIceRestart,
+  cleanupMediaStream,
+  cleanupPeerConnection,
+  formatCallDuration,
+  getCallQualityStats,
+  getIceServers,
+  isGroupCallSignal,
+  registerBeforeUnloadCleanup,
 } from '@/lib/webrtc';
 import { Mic, MicOff, Phone, PhoneOff, User, Volume2, VolumeX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -367,7 +367,12 @@ export default function VoiceCallModal({
   const createPeerConnection = async () => {
     try {
       const iceConfig = getIceServers();
-      console.log('[VoiceCall] Creating PeerConnection with ICE servers:', JSON.stringify(iceConfig.iceServers?.map(s => typeof s === 'string' ? s : (s as any).urls)));
+      console.log(
+        '[VoiceCall] Creating PeerConnection with ICE servers:',
+        JSON.stringify(
+          iceConfig.iceServers?.map((s) => (typeof s === 'string' ? s : (s as any).urls))
+        )
+      );
       const peerConnection = new RTCPeerConnection(iceConfig);
       peerConnectionRef.current = peerConnection;
 
@@ -392,14 +397,22 @@ export default function VoiceCallModal({
 
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log('[VoiceCall] ICE candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
+          console.log(
+            '[VoiceCall] ICE candidate:',
+            event.candidate.type,
+            event.candidate.protocol,
+            event.candidate.address
+          );
           emitIceCandidate(recipientId || callerId || '', event.candidate);
         }
       };
 
       peerConnection.oniceconnectionstatechange = () => {
         console.log('[VoiceCall] ICE connection state:', peerConnection.iceConnectionState);
-        if (peerConnection.iceConnectionState === 'connected') {
+        if (
+          peerConnection.iceConnectionState === 'connected' ||
+          peerConnection.iceConnectionState === 'completed'
+        ) {
           setCallStatus('active');
           if (iceRestartTimeoutRef.current) {
             clearTimeout(iceRestartTimeoutRef.current);
@@ -416,13 +429,39 @@ export default function VoiceCallModal({
             }
           }, ICE_RECONNECT_TIMEOUT_MS);
         } else if (peerConnection.iceConnectionState === 'failed') {
-          endCall();
+          // Attempt ICE restart before giving up
+          console.log('[VoiceCall] ICE failed — attempting restart before ending call');
+          iceRestartTimeoutRef.current = setTimeout(async () => {
+            if (peerConnection.iceConnectionState === 'failed') {
+              try {
+                const restartOffer = await attemptIceRestart(peerConnection);
+                if (restartOffer) {
+                  emitOffer(recipientId || callerId || '', restartOffer as any);
+                  // Give the restart 10s to work
+                  setTimeout(() => {
+                    if (peerConnection.iceConnectionState === 'failed') {
+                      console.log('[VoiceCall] ICE restart failed — ending call');
+                      endCall();
+                    }
+                  }, 10000);
+                } else {
+                  endCall();
+                }
+              } catch {
+                endCall();
+              }
+            }
+          }, 2000);
         }
       };
 
       peerConnection.onconnectionstatechange = () => {
         console.log('[VoiceCall] Connection state:', peerConnection.connectionState);
-        if (peerConnection.connectionState === 'failed') {
+        // Don't immediately end on 'failed' — let ICE restart handler manage it
+        if (
+          peerConnection.connectionState === 'failed' &&
+          peerConnection.iceConnectionState === 'closed'
+        ) {
           endCall();
         }
       };
@@ -533,7 +572,12 @@ export default function VoiceCallModal({
       const peerConnection = await createPeerConnection();
 
       if (callerId && threadId) {
-        console.log('[VoiceCall] Emitting acceptCall to server, callerId:', callerId, 'threadId:', threadId);
+        console.log(
+          '[VoiceCall] Emitting acceptCall to server, callerId:',
+          callerId,
+          'threadId:',
+          threadId
+        );
         emitAcceptCall(callerId, threadId);
       }
 

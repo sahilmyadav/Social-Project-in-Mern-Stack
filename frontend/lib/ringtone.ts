@@ -1,29 +1,117 @@
 /**
  * Ringtone manager for voice and video calls.
  *
- * Uses the Web Audio API to generate pleasant ringtones without any external
- * audio files. Two tones are provided:
- *   - **incoming**: a repeated two-note chime (like a phone ringing)
- *   - **outgoing**: a steady "ringback" tone (single beep with pauses)
+ * - **incoming**: plays /saiyaara.mp3 at max volume (receiver hears this)
+ * - **outgoing**: plays a simple ringback beep tone (caller hears this)
  *
  * Usage:
  *   import { Ringtone } from '@/lib/ringtone';
  *
- *   // Start playing
- *   Ringtone.play('incoming');   // or 'outgoing'
- *
- *   // Stop when call is answered / rejected / ended
+ *   Ringtone.play('incoming');   // receiver's phone rings with saiyaara.mp3
+ *   Ringtone.play('outgoing');   // caller hears ringback tone
  *   Ringtone.stop();
  */
 
 type ToneType = 'incoming' | 'outgoing';
 
+let audioElement: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
 let activeOscillators: OscillatorNode[] = [];
 let activeGains: GainNode[] = [];
 let loopTimer: ReturnType<typeof setInterval> | null = null;
 let isPlaying = false;
 let currentType: ToneType | null = null;
+
+// --- Incoming: saiyaara.mp3 at max volume ---
+
+function getAudio(): HTMLAudioElement {
+  if (!audioElement) {
+    audioElement = new Audio('/saiyaara.mp3');
+    audioElement.loop = true;
+    audioElement.volume = 1.0; // Max volume
+    audioElement.preload = 'auto';
+  }
+  return audioElement;
+}
+
+// Unlock audio playback on first user interaction (required by mobile browsers).
+// We play a silent snippet so the Audio element is "warm" and can be triggered
+// programmatically later (e.g. on incoming call via socket event).
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    const audio = getAudio();
+    audio.muted = true;
+    audio
+      .play()
+      .then(() => {
+        audio.pause();
+        audio.muted = false;
+        audio.currentTime = 0;
+        console.log('[Ringtone] Audio unlocked for autoplay');
+      })
+      .catch(() => {
+        // Retry on next interaction
+        return;
+      });
+    window.removeEventListener('click', unlock);
+    window.removeEventListener('touchstart', unlock);
+    window.removeEventListener('touchend', unlock);
+    window.removeEventListener('keydown', unlock);
+  };
+  window.addEventListener('click', unlock, { once: false });
+  window.addEventListener('touchstart', unlock, { once: false });
+  window.addEventListener('touchend', unlock, { once: false });
+  window.addEventListener('keydown', unlock, { once: false });
+}
+
+function playIncomingRingtone() {
+  const audio = getAudio();
+  audio.volume = 1.0;
+  audio.currentTime = 0;
+  const playPromise = audio.play();
+  if (playPromise) {
+    playPromise.catch((e) => {
+      console.warn('[Ringtone] Autoplay blocked, retrying with user gesture workaround:', e);
+      // Fallback: try Web Audio API beep so the user at least hears something
+      try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.value = 0.5;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+        activeOscillators.push(osc);
+        activeGains.push(gain);
+        // Keep retrying the mp3 every 500ms
+        const retryInterval = setInterval(() => {
+          if (!isPlaying || currentType !== 'incoming') {
+            clearInterval(retryInterval);
+            return;
+          }
+          audio
+            .play()
+            .then(() => {
+              clearInterval(retryInterval);
+              console.log('[Ringtone] saiyaara.mp3 playback started on retry');
+            })
+            .catch(() => {
+              /* still blocked, will retry */
+            });
+        }, 500);
+      } catch {
+        // Web Audio also blocked — nothing we can do
+        isPlaying = false;
+        currentType = null;
+      }
+    });
+  }
+}
+
+// --- Outgoing: simple ringback beep via Web Audio API ---
 
 function getAudioContext(): AudioContext {
   if (!audioContext || audioContext.state === 'closed') {
@@ -35,66 +123,6 @@ function getAudioContext(): AudioContext {
   return audioContext;
 }
 
-/**
- * Play two quick chime notes — a pleasant "incoming call" sound.
- * Repeats every ~2 seconds until stopped.
- */
-function playIncomingChime() {
-  const ctx = getAudioContext();
-
-  const playChime = () => {
-    // First note
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = 'sine';
-    osc1.frequency.value = 880; // A5
-    gain1.gain.setValueAtTime(0, ctx.currentTime);
-    gain1.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.05);
-    gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-    osc1.start(ctx.currentTime);
-    osc1.stop(ctx.currentTime + 0.4);
-
-    // Second note (slightly higher, starts after first)
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = 'sine';
-    osc2.frequency.value = 1108.73; // C#6
-    gain2.gain.setValueAtTime(0, ctx.currentTime + 0.15);
-    gain2.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.2);
-    gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start(ctx.currentTime + 0.15);
-    osc2.stop(ctx.currentTime + 0.6);
-
-    // Third note for a pleasant tri-tone
-    const osc3 = ctx.createOscillator();
-    const gain3 = ctx.createGain();
-    osc3.type = 'sine';
-    osc3.frequency.value = 1318.51; // E6
-    gain3.gain.setValueAtTime(0, ctx.currentTime + 0.3);
-    gain3.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.35);
-    gain3.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-    osc3.connect(gain3);
-    gain3.connect(ctx.destination);
-    osc3.start(ctx.currentTime + 0.3);
-    osc3.stop(ctx.currentTime + 0.8);
-
-    activeOscillators.push(osc1, osc2, osc3);
-    activeGains.push(gain1, gain2, gain3);
-  };
-
-  playChime();
-  loopTimer = setInterval(playChime, 2000);
-}
-
-/**
- * Play a classic "ringback" tone — a single mid-frequency beep with pauses.
- * Mimics the sound you hear when calling someone and waiting for them to pick up.
- * Pattern: 1s on, 3s off (standard North American ringback).
- */
 function playOutgoingRingback() {
   const ctx = getAudioContext();
 
@@ -119,7 +147,16 @@ function playOutgoingRingback() {
   loopTimer = setInterval(playBeep, 4000); // 1s tone + 3s silence
 }
 
+// --- Stop ---
+
 function stopAll() {
+  // Stop mp3 audio
+  if (audioElement) {
+    audioElement.pause();
+    audioElement.currentTime = 0;
+  }
+
+  // Stop Web Audio oscillators
   if (loopTimer) {
     clearInterval(loopTimer);
     loopTimer = null;
@@ -128,31 +165,33 @@ function stopAll() {
     try {
       osc.stop();
     } catch {
-      // Already stopped
+      /* already stopped */
     }
     try {
       osc.disconnect();
     } catch {
-      // Already disconnected
+      /* already disconnected */
     }
   }
   for (const gain of activeGains) {
     try {
       gain.disconnect();
     } catch {
-      // Already disconnected
+      /* already disconnected */
     }
   }
   activeOscillators = [];
   activeGains = [];
+
   isPlaying = false;
   currentType = null;
 }
 
 export const Ringtone = {
   /**
-   * Start playing a ringtone. If already playing the same type, does nothing.
-   * If playing a different type, stops the current one first.
+   * Start playing a ringtone.
+   * - 'incoming': saiyaara.mp3 at full volume (for receiver)
+   * - 'outgoing': simple ringback beep (for caller)
    */
   play(type: ToneType) {
     if (typeof window === 'undefined') return;
@@ -164,7 +203,7 @@ export const Ringtone = {
 
     try {
       if (type === 'incoming') {
-        playIncomingChime();
+        playIncomingRingtone();
       } else {
         playOutgoingRingback();
       }
