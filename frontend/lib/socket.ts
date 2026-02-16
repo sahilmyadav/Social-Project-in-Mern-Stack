@@ -10,8 +10,14 @@ let _callActive = false;
 export const setCallActive = (active: boolean) => { _callActive = active; };
 export const isCallActive = () => _callActive;
 
-const typingCallbacks = new WeakMap<(data: unknown) => void, (data: unknown) => void>();
-const stopTypingCallbacks = new WeakMap<(data: unknown) => void, (data: unknown) => void>();
+// Use Map (not WeakMap) so inline/arrow callbacks from React don't get GC'd,
+// which would make offTyping/offStopTyping unable to find the wrapped callback.
+const typingCallbacks = new Map<(data: unknown) => void, (data: unknown) => void>();
+const stopTypingCallbacks = new Map<(data: unknown) => void, (data: unknown) => void>();
+
+// Track auth-refresh reconnect attempts to prevent infinite loop
+let authReconnectAttempts = 0;
+const MAX_AUTH_RECONNECT_ATTEMPTS = 3;
 
 export const reconnectSocket = async (): Promise<Socket | null> => {
   // NEVER reconnect (disconnect+reconnect) while a call is active — it kills WebRTC
@@ -47,13 +53,14 @@ export const initSocket = (token: string) => {
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
-    reconnectionAttempts: Infinity,
+    reconnectionAttempts: 20,
     timeout: 20000,
     forceNew: false,
   });
 
   socket.on('connect', () => {
     isConnecting = false;
+    authReconnectAttempts = 0; // Reset on successful connection
     console.log('[Socket] Connected! id:', socket?.id, 'transport:', socket?.io?.engine?.transport?.name);
   });
 
@@ -70,12 +77,23 @@ export const initSocket = (token: string) => {
     isConnecting = false;
     console.error('[Socket] Connection error:', error.message);
     if (error.message.includes('Authentication') || error.message.includes('Invalid token')) {
-      console.log('[Socket] Auth failed, refreshing token...');
+      authReconnectAttempts++;
+      if (authReconnectAttempts > MAX_AUTH_RECONNECT_ATTEMPTS) {
+        console.error('[Socket] Max auth reconnect attempts reached, stopping.');
+        socket?.disconnect();
+        socket = null;
+        return;
+      }
+      console.log(`[Socket] Auth failed, refreshing token (attempt ${authReconnectAttempts}/${MAX_AUTH_RECONNECT_ATTEMPTS})...`);
       const newToken = await refreshAccessToken();
       if (newToken) {
         setTimeout(() => {
           reconnectSocket();
-        }, 1000);
+        }, 1000 * authReconnectAttempts); // Exponential-ish backoff
+      } else {
+        console.error('[Socket] Token refresh failed, stopping reconnection.');
+        socket?.disconnect();
+        socket = null;
       }
     }
   });
@@ -117,7 +135,9 @@ const off = (event: string, cb: CB) => {
   socket?.off(event, cb);
 };
 const emit = (event: string, data?: unknown) => {
-  socket?.emit(event, data);
+  if (socket?.connected) {
+    socket.emit(event, data);
+  }
 };
 
 export const onNewMessage = (cb: CB) => on('newMessage', cb);

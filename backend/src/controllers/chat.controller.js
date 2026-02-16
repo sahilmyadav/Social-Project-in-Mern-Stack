@@ -9,10 +9,10 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import {
-  decryptMessage,
-  encryptMediaUrl,
-  encryptMessage,
-  generateSessionKey,
+    decryptMessage,
+    encryptMediaUrl,
+    encryptMessage,
+    generateSessionKey,
 } from '../utils/encryption.js';
 import { uploadFile } from '../utils/localStorage.js';
 import logger from '../utils/logger.js';
@@ -116,10 +116,11 @@ export const getAllThreads = asyncHandler(async (req, res) => {
     };
   });
 
-  const totalCount = await ChatThread.countDocuments({
-    participants: userId,
-    isDeleted: false,
-  });
+  // Use the threads array length + skip to avoid a second full query.
+  // If we got fewer than `limit`, we know the exact total.
+  const totalCount = threads.length < parseInt(limit)
+    ? parseInt(skip) + threads.length
+    : parseInt(skip) + parseInt(limit) + 1; // Signal there's at least one more
 
   return res.status(200).json(
     new ApiResponse(
@@ -431,15 +432,15 @@ export const sendMessage = asyncHandler(async (req, res) => {
     await message.populate('replyTo', 'encryptedContent createdAt');
   }
 
-  // Update thread
-  thread.lastMessage = message._id;
-  thread.lastMessageAt = new Date();
-
-  // Increment unread count for receiver
-  const currentUnread = thread.unreadCount.get(receiverId.toString()) || 0;
-  thread.unreadCount.set(receiverId.toString(), currentUnread + 1);
-
-  await thread.save();
+  // Update thread atomically — use findOneAndUpdate with $inc to avoid
+  // race conditions when multiple messages are sent concurrently
+  await ChatThread.findOneAndUpdate(
+    { _id: threadId },
+    {
+      $set: { lastMessage: message._id, lastMessageAt: new Date() },
+      $inc: { [`unreadCount.${receiverId.toString()}`]: 1 },
+    }
+  );
 
   // Prepare message for socket emission
   const messageForSocket = {
@@ -451,23 +452,17 @@ export const sendMessage = asyncHandler(async (req, res) => {
   // Emit socket event for real-time delivery
   const io = getIO();
   if (io) {
-    // Emit to thread room so both participants get the message
-    io.to(threadId.toString()).emit('newMessage', {
-      threadId,
-      message: messageForSocket,
-    });
-
-    // Also emit to receiver's personal room (for notification when not in thread)
+    // Emit to receiver's personal room only.
+    // Previously we also emitted to the thread room, but that caused
+    // duplicate delivery when the receiver had joined the thread.
     io.to(receiverId.toString()).emit('newMessage', {
       threadId,
       message: messageForSocket,
     });
 
-    // Send delivery status to sender
-    io.to(userId.toString()).emit('messageStatus', {
-      messageId: message._id,
-      status: 'delivered',
-    });
+    // NOTE: We no longer emit a premature 'delivered' status here.
+    // Delivery is confirmed when the receiver's socket emits 'messageDelivered'
+    // after actually receiving the message, which is handled in socket.js.
   }
 
   // Return response with decrypted text
@@ -505,13 +500,17 @@ export const deleteMessage = asyncHandler(async (req, res) => {
     message.deletedBy = userId;
     await message.save();
 
-    // Notify via socket
+    // Notify via socket — emit to both participants' personal rooms
+    // (thread room is unreliable since users may not have joined it)
     const io = getIO();
     if (io) {
-      io.to(message.threadId.toString()).emit('messageDeleted', {
+      const deletePayload = {
         messageId: message._id,
+        threadId: message.threadId,
         deleteFor: 'everyone',
-      });
+      };
+      io.to(message.senderId.toString()).emit('messageDeleted', deletePayload);
+      io.to(message.receiverId.toString()).emit('messageDeleted', deletePayload);
     }
   } else {
     // Soft delete for current user only - anyone in the thread can do this
@@ -575,14 +574,18 @@ export const editMessage = asyncHandler(async (req, res) => {
   message.editedAt = new Date();
   await message.save();
 
-  // Notify via socket
+  // Notify via socket — emit to both participants' personal rooms
+  // (thread room is unreliable since users may not have joined it)
   const io = getIO();
   if (io) {
-    io.to(message.threadId.toString()).emit('messageEdited', {
+    const editPayload = {
       messageId: message._id,
+      threadId: message.threadId,
       text: text,
       editedAt: message.editedAt,
-    });
+    };
+    io.to(message.senderId.toString()).emit('messageEdited', editPayload);
+    io.to(message.receiverId.toString()).emit('messageEdited', editPayload);
   }
 
   return res.status(200).json(
@@ -622,6 +625,7 @@ export const getMessages = asyncHandler(async (req, res) => {
   };
 
   if (cursor) {
+    // Cursor-based pagination: fetch messages OLDER than the cursor
     query._id = { $lt: cursor };
   }
 
@@ -629,9 +633,9 @@ export const getMessages = asyncHandler(async (req, res) => {
     query.createdAt = { $gt: new Date(since) };
   }
 
-  // Fetch messages - sorted in ascending order (oldest first)
+  // Fetch messages: sort descending to get the latest N, then reverse for chronological order
   const messages = await ChatMessage.find(query)
-    .sort({ createdAt: 1 })
+    .sort({ createdAt: -1 })
     .limit(parseInt(limit))
     .populate('senderId', 'firstName lastName username profilePicture')
     .populate({
@@ -642,6 +646,9 @@ export const getMessages = asyncHandler(async (req, res) => {
         select: 'firstName lastName username',
       },
     });
+
+  // Reverse to chronological order (oldest first) for the client
+  messages.reverse();
 
   // Decrypt messages
   const decryptedMessages = messages.map((msg) => {
@@ -677,7 +684,7 @@ export const getMessages = asyncHandler(async (req, res) => {
       {
         messages: decryptedMessages,
         hasMore: messages.length === parseInt(limit),
-        nextCursor: messages.length > 0 ? messages[messages.length - 1]._id : null,
+        nextCursor: messages.length > 0 ? messages[0]._id : null,
       },
       'Messages fetched successfully'
     )
@@ -715,9 +722,12 @@ export const markMessagesAsSeen = asyncHandler(async (req, res) => {
     }
   );
 
-  // Reset unread count for current user
-  thread.unreadCount.set(userId.toString(), 0);
-  await thread.save();
+  // Reset unread count for current user atomically to avoid race conditions
+  // where a new message arrives between the read and the save.
+  await ChatThread.findOneAndUpdate(
+    { _id: threadId },
+    { $set: { [`unreadCount.${userId.toString()}`]: 0 } }
+  );
 
   // Get sender ID
   const senderId = thread.participants.find((p) => p.toString() !== userId.toString());
@@ -905,19 +915,39 @@ export const deleteThread = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'You are not a participant in this thread');
   }
 
-  // Soft delete - Remove user from participants
-  // This keeps the thread for other participants
-  await ChatThread.findByIdAndUpdate(threadId, {
-    $pull: { participants: userId },
+  // Soft delete: mark thread as deleted for this user.
+  // We use isDeleted flag instead of removing the participant,
+  // which would break the other user's thread lookup.
+  // Mark all messages as deleted-for-me
+  await ChatMessage.updateMany(
+    { threadId, deletedFor: { $ne: userId } },
+    { $addToSet: { deletedFor: userId } }
+  );
+
+  // Check if both participants have "deleted" the thread.
+  // A message is "fully deleted" only when ALL participants have it in their deletedFor.
+  // Count messages that are NOT yet deleted by every participant.
+  const allParticipantIds = thread.participants.map((p) => p.toString());
+  const remainingMessages = await ChatMessage.countDocuments({
+    threadId,
+    isDeleted: false,
+    // Find messages where at least one participant has NOT deleted it.
+    // i.e., deletedFor does NOT contain ALL participant IDs.
+    $or: allParticipantIds.map((pid) => ({ deletedFor: { $ne: pid } })),
   });
 
-  // Check if any participants are left
-  const updatedThread = await ChatThread.findById(threadId);
-
-  // If no participants left, delete the thread and all messages
-  if (updatedThread && updatedThread.participants.length === 0) {
-    await ChatMessage.deleteMany({ threadId });
-    await ChatThread.findByIdAndDelete(threadId);
+  // If every message has been deleted by all participants, clean up the thread.
+  // Use findOneAndUpdate to prevent double-deletion race.
+  if (remainingMessages === 0) {
+    const deleted = await ChatThread.findOneAndUpdate(
+      { _id: threadId, isDeleted: false },
+      { $set: { isDeleted: true } },
+      { new: true }
+    );
+    // Only delete messages if we were the one to mark the thread deleted
+    if (deleted) {
+      await ChatMessage.deleteMany({ threadId });
+    }
   }
 
   // Emit socket event to notify about thread deletion
@@ -946,20 +976,31 @@ export const getUnreadCount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const userIdStr = userId.toString();
 
-  // Find all threads where user is a participant
-  const threads = await ChatThread.find({
-    participants: userId,
-    isDeleted: false,
-  }).lean();
+  // Use aggregation to sum unread counts in a single query instead of
+  // fetching all threads and summing in JS
+  const result = await ChatThread.aggregate([
+    {
+      $match: {
+        participants: userId,
+        isDeleted: false,
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalUnread: {
+          $sum: {
+            $ifNull: [
+              { $getField: { field: userIdStr, input: '$unreadCount' } },
+              0,
+            ],
+          },
+        },
+      },
+    },
+  ]);
 
-  // Sum up unread counts across all threads
-  let totalUnread = 0;
-  threads.forEach((thread) => {
-    if (thread.unreadCount) {
-      const count = thread.unreadCount[userIdStr] || 0;
-      totalUnread += count;
-    }
-  });
+  const totalUnread = result.length > 0 ? result[0].totalUnread : 0;
 
   return res
     .status(200)

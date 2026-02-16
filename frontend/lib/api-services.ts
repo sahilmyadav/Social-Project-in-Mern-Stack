@@ -198,6 +198,10 @@ export const authService = {
   verifyPhoneChange: async (data: { newPhone: string; otp: string }) => {
     return api.post(API_ENDPOINTS.AUTH.VERIFY_PHONE_CHANGE, data);
   },
+
+  reportUser: async (userId: string, reason: string) => {
+    return api.post(API_ENDPOINTS.AUTH.REPORT_USER(userId), { reason });
+  },
 };
 
 export const postService = {

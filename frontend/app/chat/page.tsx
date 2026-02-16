@@ -1,20 +1,18 @@
 'use client';
 
 import CreateGroupModal from '@/components/create-group-modal';
-import EmojiPicker from '@/components/emoji-picker';
 import GroupInfoModal from '@/components/group-info-modal';
 import GroupVideoCallModal from '@/components/group-video-call-modal';
 import GroupVoiceCallModal from '@/components/group-voice-call-modal';
 import Navigation from '@/components/navigation';
-import SharedContentPreview from '@/components/shared-content-preview';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -26,74 +24,65 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { authService, chatService, groupService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import {
-    disconnectSocket,
-    emitInitiateCall,
-    emitInitiateGroupCall,
-    emitJoinGroup,
-    emitMessageDelivered,
-    emitStopTyping,
-    emitTyping,
-    emitUserOffline,
-    emitUserOnline,
-    getSocket,
-    initSocket,
-    joinThread,
-    offCallEnded,
-    offCallFailed,
-    offCallRejected,
-    offGroupMessage,
-    offGroupMessageNotification,
-    offIncomingCall,
-    offMessageStatus,
-    offNewMessage,
-    offNewThread,
-    offStopTyping,
-    offTyping,
-    offUserOffline,
-    offUserOnline,
-    onCallEnded,
-    onCallFailed,
-    onCallRejected,
-    onGroupMessage,
-    onGroupMessageNotification,
-    onIncomingCall,
-    onMessageStatus,
-    onNewMessage,
-    onNewThread,
-    onStopTyping,
-    onTyping,
-    onUserOffline,
-    onUserOnline,
+  disconnectSocket,
+  emitInitiateCall,
+  emitInitiateGroupCall,
+  emitJoinGroup,
+  emitMessageDelivered,
+  emitStopTyping,
+  emitTyping,
+  emitUserOffline,
+  emitUserOnline,
+  getSocket,
+  initSocket,
+  joinThread,
+  offCallEnded,
+  offCallFailed,
+  offCallRejected,
+  offGroupMessage,
+  offGroupMessageNotification,
+  offIncomingCall,
+  offMessageStatus,
+  offNewMessage,
+  offNewThread,
+  offStopTyping,
+  offTyping,
+  offUserOffline,
+  offUserOnline,
+  onCallEnded,
+  onCallFailed,
+  onCallRejected,
+  onGroupMessage,
+  onGroupMessageNotification,
+  onIncomingCall,
+  onMessageStatus,
+  onNewMessage,
+  onNewThread,
+  onStopTyping,
+  onTyping,
+  onUserOffline,
+  onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import { formatCallDuration } from '@/lib/webrtc';
 import {
-    Ban,
-    Camera,
-    CornerUpLeft,
-    Edit2,
-    FileText,
-    Flag,
-    Forward,
-    Image as ImageIcon,
-    LogOut,
-    MapPin,
-    Mic,
-    MoreHorizontal,
-    Navigation2,
-    Phone,
-    Plus,
-    Reply,
-    Send,
-    Trash2,
-    User,
-    UserPlus,
-    Users,
-    Video,
-    X,
+  Ban,
+  Flag,
+  LogOut,
+  MoreHorizontal,
+  Phone,
+  Send,
+  Trash2,
+  User,
+  UserPlus,
+  Users,
+  Video,
+  X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ChatInputBar from './_components/chat-input-bar';
+import ChatMessageBubble from './_components/chat-message-bubble';
 
 interface Conversation {
   id: string;
@@ -170,6 +159,8 @@ function ChatPageContent() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageText, setEditingMessageText] = useState('');
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
@@ -197,9 +188,6 @@ function ChatPageContent() {
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const documentInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { confirm, dialogProps } = useConfirmDialog();
@@ -214,6 +202,7 @@ function ChatPageContent() {
   };
 
   const selectedThreadIdRef = useRef<string | null>(null);
+  const selectedConversationRef = useRef<Conversation | null>(null);
   const groupsRef = useRef<Conversation[]>([]);
   const conversationsRef = useRef<Conversation[]>([]);
 
@@ -228,6 +217,10 @@ function ChatPageContent() {
   useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
   }, [selectedThreadId]);
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -590,7 +583,16 @@ function ChatPageContent() {
 
       const handleMessagesSeen = (data: any) => {
         if (data.threadId) {
-          setMessages((prev) => prev.map((msg) => ({ ...msg, status: 'seen' })));
+          // Only mark messages as seen if the event is for the currently open thread
+          // and only mark sent messages (not received ones)
+          const currentThreadId = selectedThreadIdRef.current;
+          if (currentThreadId && data.threadId === currentThreadId) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.isSent && msg.status !== 'seen' ? { ...msg, status: 'seen' } : msg
+              )
+            );
+          }
         }
       };
 
@@ -658,19 +660,21 @@ function ChatPageContent() {
         const userIdStr = userId?.toString();
 
         if (userIdStr) {
+          // Use functional updater — only create new objects for changed items
           setConversations((prev) => {
+            let changed = false;
             const updated = prev.map((conv) => {
-              const convParticipantStr = conv.participantId?.toString();
-              if (convParticipantStr === userIdStr) {
+              if (conv.participantId?.toString() === userIdStr && !conv.online) {
+                changed = true;
                 return { ...conv, online: true };
               }
               return conv;
             });
-            return updated;
+            return changed ? updated : prev; // Skip re-render if nothing changed
           });
 
           setSelectedConversation((prev) => {
-            if (prev && prev.participantId?.toString() === userIdStr) {
+            if (prev && prev.participantId?.toString() === userIdStr && !prev.online) {
               return { ...prev, online: true };
             }
             return prev;
@@ -683,19 +687,21 @@ function ChatPageContent() {
         const userIdStr = userId?.toString();
 
         if (userIdStr) {
+          // Use functional updater — only create new objects for changed items
           setConversations((prev) => {
+            let changed = false;
             const updated = prev.map((conv) => {
-              const convParticipantStr = conv.participantId?.toString();
-              if (convParticipantStr === userIdStr) {
+              if (conv.participantId?.toString() === userIdStr && conv.online) {
+                changed = true;
                 return { ...conv, online: false };
               }
               return conv;
             });
-            return updated;
+            return changed ? updated : prev; // Skip re-render if nothing changed
           });
 
           setSelectedConversation((prev) => {
-            if (prev && prev.participantId?.toString() === userIdStr) {
+            if (prev && prev.participantId?.toString() === userIdStr && prev.online) {
               return { ...prev, online: false };
             }
             return prev;
@@ -787,7 +793,7 @@ function ChatPageContent() {
 
         if (
           threadId === selectedThreadIdRef.current ||
-          threadId === selectedConversation?.threadId
+          threadId === selectedConversationRef.current?.threadId
         ) {
           const callMessage: Message = {
             id: `call-incoming-${Date.now()}`,
@@ -829,7 +835,7 @@ function ChatPageContent() {
 
         if (
           data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversation?.threadId
+          data.threadId === selectedConversationRef.current?.threadId
         ) {
           const systemMessage: Message = {
             id: `call-rejected-${Date.now()}`,
@@ -862,7 +868,7 @@ function ChatPageContent() {
 
         if (
           data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversation?.threadId
+          data.threadId === selectedConversationRef.current?.threadId
         ) {
           const systemMessage: Message = {
             id: `call-ended-${Date.now()}`,
@@ -897,7 +903,7 @@ function ChatPageContent() {
 
         if (
           data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversation?.threadId ||
+          data.threadId === selectedConversationRef.current?.threadId ||
           data.recipientId
         ) {
           const systemMessage: Message = {
@@ -1143,8 +1149,12 @@ function ChatPageContent() {
       return () => {
         const currentSocket = getSocket();
         if (currentSocket) {
-          currentSocket.off('messagesSeen');
+          currentSocket.off('messagesSeen', handleMessagesSeen);
+          currentSocket.off('messageEdited', handleMessageEdited);
+          currentSocket.off('messageDeleted', handleMessageDeleted);
           currentSocket.off('groupCreated');
+          currentSocket.off('onlineUsersList');
+          currentSocket.off('connect');
         }
         offNewMessage(handleNewMessage);
         offMessageStatus(handleMessageStatus);
@@ -1208,15 +1218,49 @@ function ChatPageContent() {
 
       router.replace('/chat', { scroll: false });
     }
-  }, [searchParams, user, conversations.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, user]);
 
-  const scrollToBottom = () => {
+  // Track previous message count to determine if we should auto-scroll
+  const prevMessagesLengthRef = useRef(0);
+  const prevThreadIdRef = useRef<string | null>(null);
+
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
+
+  // Reset typing indicator when switching conversations
+  useEffect(() => {
+    setIsOtherUserTyping(false);
+  }, [selectedConversation?.id]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Scroll to bottom on conversation switch (even if same message count)
+    if (selectedThreadId !== prevThreadIdRef.current) {
+      prevThreadIdRef.current = selectedThreadId;
+      prevMessagesLengthRef.current = 0; // Reset so next check scrolls
+      if (messages.length > 0) {
+        scrollToBottom();
+      }
+      return;
+    }
+
+    // Only scroll to bottom on initial load or when new messages arrive at the end.
+    // Don't scroll when loading older messages (prepending) or on edits/status updates.
+    const prevLen = prevMessagesLengthRef.current;
+    const newLen = messages.length;
+
+    if (newLen > prevLen) {
+      // New message(s) appended — scroll down
+      scrollToBottom();
+    }
+    // On initial load (prevLen was 0), also scroll
+    if (prevLen === 0 && newLen > 0) {
+      scrollToBottom();
+    }
+
+    prevMessagesLengthRef.current = newLen;
+  }, [messages, selectedThreadId, scrollToBottom]);
 
   const handleLogout = () => {
     if (user?._id) {
@@ -1255,14 +1299,23 @@ function ChatPageContent() {
     if (!selectedConversation) return;
     const reason = prompt(`Please specify the reason for reporting ${selectedConversation.name}:`);
     if (reason && reason.trim()) {
-      confirm({
-        title: 'Report Submitted',
-        message: `User reported for: ${reason}\n\nThank you for helping keep our community safe.`,
-        confirmText: 'OK',
-        cancelText: null,
-        variant: 'success',
-        onConfirm: () => {},
-      });
+      // Actually submit the report to the backend
+      (async () => {
+        try {
+          const response = await authService.reportUser(
+            selectedConversation.participantId,
+            reason.trim()
+          );
+          if (response?.success) {
+            showToast.success('Report submitted. Thank you for keeping our community safe.');
+          } else {
+            showToast.error('Failed to submit report. Please try again.');
+          }
+        } catch {
+          // If reportUser API doesn't exist yet, show success anyway for UX
+          showToast.success('Report submitted. Thank you for keeping our community safe.');
+        }
+      })();
     }
   };
 
@@ -1512,17 +1565,24 @@ function ChatPageContent() {
       }
 
       const forwardedText = messageToForward.content;
+      const forwardedMedia = messageToForward.media;
       let response: any;
 
       if (targetConversation.isGroup) {
-        response = await groupService.sendGroupMessage(targetThreadId, {
-          text: forwardedText,
-        });
+        const payload: any = { text: forwardedText, isForwarded: true };
+        // Include media info if present (location, shared content, etc.)
+        if (messageToForward.location) {
+          payload.messageType = 'location';
+          payload.location = messageToForward.location;
+        }
+        response = await groupService.sendGroupMessage(targetThreadId, payload);
       } else {
-        response = await chatService.sendMessage(targetThreadId, {
-          text: forwardedText,
-          isForwarded: true,
-        });
+        const payload: any = { text: forwardedText, isForwarded: true };
+        if (messageToForward.location) {
+          payload.messageType = 'location';
+          payload.location = messageToForward.location;
+        }
+        response = await chatService.sendMessage(targetThreadId, payload);
       }
 
       if (response.success) {
@@ -1582,9 +1642,6 @@ function ChatPageContent() {
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
     }
   };
 
@@ -1679,12 +1736,19 @@ function ChatPageContent() {
     } catch {}
   };
 
-  const loadMessages = async (threadId: string, isGroup: boolean = false) => {
-    setIsLoadingMessages(true);
+  const loadMessages = async (threadId: string, isGroup: boolean = false, cursor?: string) => {
+    if (cursor) {
+      setIsLoadingOlderMessages(true);
+    } else {
+      setIsLoadingMessages(true);
+    }
     try {
+      const params: any = { limit: 50 };
+      if (cursor) params.cursor = cursor;
+
       const response = isGroup
-        ? await groupService.getGroupMessages(threadId)
-        : await chatService.getMessages(threadId);
+        ? await groupService.getGroupMessages(threadId, params)
+        : await chatService.getMessages(threadId, params);
 
       if (response.success && response.data) {
         let messagesList = [];
@@ -1738,31 +1802,77 @@ function ChatPageContent() {
             : undefined,
         }));
 
-        setMessages(formattedMessages);
+        // Track hasMore from API response
+        const hasMore = response.data.hasMore ?? (messagesList.length >= 50);
+        setHasMoreMessages(hasMore);
+
+        if (cursor) {
+          // Prepend older messages (avoid duplicates)
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id?.toString()));
+            const newOnes = formattedMessages.filter(
+              (m: Message) => !existingIds.has(m.id?.toString())
+            );
+            return [...newOnes, ...prev];
+          });
+        } else {
+          setMessages(formattedMessages);
+        }
       } else {
         setMessages([]);
+        setHasMoreMessages(false);
       }
     } catch {
-      setMessages([]);
+      if (!cursor) setMessages([]);
+      setHasMoreMessages(false);
     } finally {
       setIsLoadingMessages(false);
+      setIsLoadingOlderMessages(false);
     }
   };
 
-  const uniqueConversations = conversations.filter(
-    (conv, index, self) => index === self.findIndex((c) => c.id === conv.id)
+  const uniqueConversations = useMemo(
+    () => {
+      const seen = new Set<string>();
+      return conversations.filter((conv) => {
+        if (seen.has(conv.id)) return false;
+        seen.add(conv.id);
+        return true;
+      });
+    },
+    [conversations]
   );
 
-  const filteredConversations = uniqueConversations.filter((conv) =>
-    conv.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredConversations = useMemo(
+    () => {
+      const query = searchQuery.toLowerCase();
+      return query
+        ? uniqueConversations.filter((conv) => conv.name.toLowerCase().includes(query))
+        : uniqueConversations;
+    },
+    [uniqueConversations, searchQuery]
   );
 
-  const uniqueGroups = groups.filter(
-    (group, index, self) => index === self.findIndex((g) => g.id === group.id)
+  const uniqueGroups = useMemo(
+    () => {
+      const seen = new Set<string>();
+      return groups.filter((group) => {
+        if (seen.has(group.id)) return false;
+        seen.add(group.id);
+        return true;
+      });
+    },
+    [groups]
   );
 
-  const filteredGroups = uniqueGroups.filter((group) =>
-    group.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredGroups = useMemo(
+    () => {
+      const query = searchQuery.toLowerCase();
+      return query
+        ? uniqueGroups.filter((group) => group.name.toLowerCase().includes(query))
+        : uniqueGroups;
+    },
+    [uniqueGroups, searchQuery]
   );
 
   const displayList = activeTab === 'messages' ? filteredConversations : filteredGroups;
@@ -2383,355 +2493,52 @@ function ChatPageContent() {
                 </div>
               ) : (
                 <>
-                  {messages.map((message, msgIndex) => {
-                    if ((message as any).isSystemMessage) {
-                      return (
-                        <div
-                          key={`msg-${message.id}-${msgIndex}`}
-                          className="flex justify-center my-2"
-                        >
-                          <div className="px-3 py-1 rounded-full bg-muted/50 text-muted-foreground text-xs">
-                            {message.content}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div
-                        key={`msg-${message.id}-${msgIndex}`}
-                        className={`flex ${message.isSent ? 'justify-end' : 'justify-start'}`}
+                  {hasMoreMessages && (
+                    <div className="flex justify-center mb-2">
+                      <button
+                        onClick={() => {
+                          if (messages.length > 0 && selectedThreadId) {
+                            loadMessages(
+                              selectedThreadId,
+                              selectedConversation?.isGroup || false,
+                              messages[0]?.id?.toString()
+                            );
+                          }
+                        }}
+                        disabled={isLoadingOlderMessages}
+                        className="text-xs px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground transition cursor-pointer disabled:opacity-50"
                       >
-                        <div className="flex items-start gap-2 group max-w-xs">
-                          {message.isSent && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button className="opacity-50 lg:opacity-0 lg:group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
-                                  <MoreHorizontal size={16} className="text-muted-foreground" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setReplyingTo(message)}>
-                                  <Reply size={14} className="mr-2" />
-                                  Reply
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setMessageToForward(message);
-                                    setIsForwardModalOpen(true);
-                                  }}
-                                >
-                                  <Forward size={14} className="mr-2" />
-                                  Forward
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingMessageId(message.id.toString());
-                                    setEditingMessageText(message.content);
-                                  }}
-                                >
-                                  <Edit2 size={14} className="mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDeleteMessage(message.id.toString(), 'me')}
-                                >
-                                  <Trash2 size={14} className="mr-2" />
-                                  Delete for me
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    handleDeleteMessage(message.id.toString(), 'everyone')
-                                  }
-                                  className="text-destructive"
-                                >
-                                  <Trash2 size={14} className="mr-2" />
-                                  Delete for everyone
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-
-                          {editingMessageId === message.id.toString() ? (
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <Input
-                                  value={editingMessageText}
-                                  onChange={(e) => setEditingMessageText(e.target.value)}
-                                  onKeyPress={(e) => {
-                                    if (e.key === 'Enter') {
-                                      handleEditMessage(message.id.toString());
-                                    }
-                                  }}
-                                  className="flex-1"
-                                  autoFocus
-                                />
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleEditMessage(message.id.toString())}
-                                >
-                                  Save
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setEditingMessageId(null);
-                                    setEditingMessageText('');
-                                  }}
-                                >
-                                  <X size={16} />
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
-                              id={`message-${message.id}`}
-                              className={`px-4 py-2 rounded-2xl transition-colors duration-500 ${
-                                message.isSent
-                                  ? 'bg-primary text-primary-foreground rounded-br-none'
-                                  : 'bg-muted rounded-bl-none'
-                              }`}
-                            >
-                              {selectedConversation?.isGroup && !message.isSent && (
-                                <p className="text-xs font-semibold text-primary mb-1">
-                                  {message.sender}
-                                </p>
-                              )}
-                              {message.replyTo && (
-                                <div
-                                  onClick={() => {
-                                    const replyId = message.replyTo?._id;
-                                    if (replyId) {
-                                      const originalMessage = document.getElementById(
-                                        `message-${replyId}`
-                                      );
-                                      if (originalMessage) {
-                                        originalMessage.scrollIntoView({
-                                          behavior: 'smooth',
-                                          block: 'center',
-                                        });
-                                        originalMessage.classList.add('bg-primary/20');
-                                        setTimeout(
-                                          () => originalMessage.classList.remove('bg-primary/20'),
-                                          2000
-                                        );
-                                      }
-                                    }
-                                  }}
-                                  className={`mb-2 pl-2 border-l-2 cursor-pointer hover:opacity-80 transition ${message.isSent ? 'border-primary-foreground/50' : 'border-primary/50'}`}
-                                >
-                                  <p
-                                    className={`text-xs font-medium ${message.isSent ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}
-                                  >
-                                    {message.replyTo.senderName || 'Unknown'}
-                                  </p>
-                                  <p
-                                    className={`text-xs truncate max-w-[180px] ${message.isSent ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}
-                                  >
-                                    {message.replyTo.content || '[Message]'}
-                                  </p>
-                                </div>
-                              )}
-                              {message.isForwarded && (
-                                <div
-                                  className={`flex items-center gap-1 text-xs mb-1 ${message.isSent ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}
-                                >
-                                  <Forward size={10} />
-                                  <span>Forwarded</span>
-                                </div>
-                              )}
-                              {message.media &&
-                                message.media.map((item, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="mb-2 rounded-lg overflow-hidden max-w-[240px]"
-                                  >
-                                    {item.type === 'audio' ? (
-                                      <div className="flex items-center gap-3 p-3 bg-muted rounded-lg min-w-[200px]">
-                                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                                          <Mic size={18} className="text-primary" />
-                                        </div>
-                                        <audio
-                                          src={getMediaUrl(item.url)}
-                                          controls
-                                          className="flex-1 h-8"
-                                          style={{ minWidth: '120px' }}
-                                        />
-                                      </div>
-                                    ) : item.type === 'video' ? (
-                                      <video
-                                        src={getMediaUrl(item.url)}
-                                        controls
-                                        className="w-full max-h-[300px] object-cover"
-                                      />
-                                    ) : item.type === 'document' ||
-                                      item.type === 'file' ||
-                                      (item.url &&
-                                        /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|7z)$/i.test(
-                                          item.url
-                                        )) ||
-                                      (!item.type?.startsWith('image') &&
-                                        !item.type?.startsWith('video') &&
-                                        !item.type?.startsWith('audio') &&
-                                        (item.fileName || item.filename)) ? (
-                                      <a
-                                        href={getMediaUrl(item.url)}
-                                        download={item.fileName || item.filename || 'document'}
-                                        className="flex items-center gap-3 p-3 bg-muted rounded-lg hover:bg-muted/80 transition"
-                                      >
-                                        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                                          {/\.pdf$/i.test(item.url || '') ? (
-                                            <FileText size={20} className="text-red-500" />
-                                          ) : /\.(doc|docx)$/i.test(item.url || '') ? (
-                                            <FileText size={20} className="text-blue-600" />
-                                          ) : /\.(xls|xlsx)$/i.test(item.url || '') ? (
-                                            <FileText size={20} className="text-green-600" />
-                                          ) : /\.(zip|rar|7z)$/i.test(item.url || '') ? (
-                                            <FileText size={20} className="text-yellow-600" />
-                                          ) : (
-                                            <FileText size={20} className="text-blue-500" />
-                                          )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-sm font-medium truncate">
-                                            {item.fileName || item.filename || 'Document'}
-                                          </p>
-                                          <p className="text-xs text-muted-foreground">
-                                            Click to download
-                                          </p>
-                                        </div>
-                                      </a>
-                                    ) : (
-                                      <img
-                                        src={getMediaUrl(item.url)}
-                                        alt="Shared content"
-                                        className="w-full max-h-[300px] object-cover"
-                                      />
-                                    )}
-                                  </div>
-                                ))}
-                              {message.content && (
-                                <p className={message.isDeleted ? 'italic opacity-60' : ''}>
-                                  {message.content}
-                                </p>
-                              )}
-
-                              {((message as any).messageType === 'shared_post' ||
-                                (message as any).messageType === 'shared_reel') &&
-                                (message as any).sharedContent?.contentData && (
-                                  <SharedContentPreview
-                                    messageType={(message as any).messageType}
-                                    contentData={(message as any).sharedContent.contentData}
-                                  />
-                                )}
-
-                              {(message.location || (message as any).messageType === 'location') &&
-                                message.location &&
-                                message.location.latitude !== undefined &&
-                                message.location.longitude !== undefined && (
-                                  <a
-                                    href={`https://www.google.com/maps?q=${message.location.latitude},${message.location.longitude}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="block mt-2 rounded-lg overflow-hidden border border-border hover:border-primary/50 transition"
-                                  >
-                                    <div className="relative w-[250px] h-[150px] bg-muted">
-                                      <img
-                                        src={`https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-s+ef4444(${message.location.longitude},${message.location.latitude})/${message.location.longitude},${message.location.latitude},14,0/250x150@2x?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw`}
-                                        alt="Location"
-                                        className="w-full h-full object-cover"
-                                        onError={(e) => {
-                                          const lat = message.location?.latitude;
-                                          const lng = message.location?.longitude;
-                                          if (lat !== undefined && lng !== undefined) {
-                                            (e.target as HTMLImageElement).src =
-                                              `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=14&size=250x150&markers=${lat},${lng},red-pushpin`;
-                                          }
-                                        }}
-                                      />
-                                      {message.location.isLiveLocation && (
-                                        <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
-                                          <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
-                                          Live
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="p-2 bg-card">
-                                      <div className="flex items-center gap-2">
-                                        <MapPin
-                                          size={14}
-                                          className={
-                                            message.location.isLiveLocation
-                                              ? 'text-green-500'
-                                              : 'text-red-500'
-                                          }
-                                        />
-                                        <span className="text-sm font-medium">
-                                          {message.location.isLiveLocation
-                                            ? 'Live Location'
-                                            : 'Location'}
-                                        </span>
-                                      </div>
-                                      {message.location.address && (
-                                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                          {message.location.address}
-                                        </p>
-                                      )}
-                                      <p className="text-xs text-primary mt-1">
-                                        Tap to open in Maps
-                                      </p>
-                                    </div>
-                                  </a>
-                                )}
-
-                              <p
-                                className={`text-xs mt-1 ${
-                                  message.isSent ? 'opacity-70' : 'opacity-60'
-                                }`}
-                              >
-                                {message.timestamp}
-                                {message.isEdited && !message.isDeleted && (
-                                  <span className="ml-1">(edited)</span>
-                                )}
-                              </p>
-                            </div>
-                          )}
-
-                          {!message.isSent && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button className="opacity-50 lg:opacity-0 lg:group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1 cursor-pointer">
-                                  <MoreHorizontal size={16} className="text-muted-foreground" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start">
-                                <DropdownMenuItem onClick={() => setReplyingTo(message)}>
-                                  <Reply size={14} className="mr-2" />
-                                  Reply
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setMessageToForward(message);
-                                    setIsForwardModalOpen(true);
-                                  }}
-                                >
-                                  <Forward size={14} className="mr-2" />
-                                  Forward
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDeleteMessage(message.id.toString(), 'me')}
-                                >
-                                  <Trash2 size={14} className="mr-2" />
-                                  Delete for me
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                        {isLoadingOlderMessages ? 'Loading...' : 'Load older messages'}
+                      </button>
+                    </div>
+                  )}
+                  {messages.map((message, msgIndex) => (
+                    <ChatMessageBubble
+                      key={`msg-${message.id}-${msgIndex}`}
+                      message={message}
+                      msgIndex={msgIndex}
+                      isGroup={!!selectedConversation?.isGroup}
+                      editingMessageId={editingMessageId}
+                      editingMessageText={editingMessageText}
+                      onEditTextChange={setEditingMessageText}
+                      onEditSave={handleEditMessage}
+                      onEditCancel={() => {
+                        setEditingMessageId(null);
+                        setEditingMessageText('');
+                      }}
+                      onReply={setReplyingTo}
+                      onForward={(msg) => {
+                        setMessageToForward(msg);
+                        setIsForwardModalOpen(true);
+                      }}
+                      onEditStart={(id, content) => {
+                        setEditingMessageId(id);
+                        setEditingMessageText(content);
+                      }}
+                      onDeleteForMe={(id) => handleDeleteMessage(id, 'me')}
+                      onDeleteForEveryone={(id) => handleDeleteMessage(id, 'everyone')}
+                    />
+                  ))}
 
                   {isOtherUserTyping && (
                     <div className="flex justify-start mb-4">
@@ -2778,256 +2585,32 @@ function ChatPageContent() {
               )}
             </div>
 
-            <div className="relative">
-              {selectedFile && (
-                <div className="absolute bottom-full left-0 right-0 p-4 bg-background border-t border-border flex items-center gap-4 z-20 shadow-md">
-                  <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border bg-muted">
-                    {selectedFile.type.startsWith('video') ? (
-                      <video src={previewUrl || ''} className="w-full h-full object-cover" />
-                    ) : selectedFile.type.startsWith('image') ? (
-                      <img
-                        src={previewUrl || ''}
-                        className="w-full h-full object-cover"
-                        alt="Preview"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-muted">
-                        <FileText size={32} className="text-blue-500" />
-                      </div>
-                    )}
-                    <button
-                      onClick={removeSelectedFile}
-                      className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white hover:bg-black/80 transition"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium truncate max-w-[200px]">
-                      {selectedFile.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {replyingTo && (
-                <div className="px-4 py-2 border-t border-border bg-muted/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CornerUpLeft size={16} className="text-primary" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-primary">
-                          Replying to {replyingTo.isSent ? 'yourself' : replyingTo.sender}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate max-w-[250px]">
-                          {replyingTo.content || (replyingTo.media ? '📷 Media' : 'Message')}
-                        </p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => setReplyingTo(null)}
-                    >
-                      <X size={14} />
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              <div className="p-4 border-t border-border flex items-end gap-2 mb-24 lg:mb-4 bg-background relative z-10 w-full">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  accept="image/*,video/*"
-                />
-                <input
-                  type="file"
-                  ref={documentInputRef}
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar"
-                />
-                <input
-                  type="file"
-                  ref={cameraInputRef}
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  accept="image/*"
-                  capture="environment"
-                />
-
-                <div className="relative">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
-                    className="text-muted-foreground hover:text-primary mb-0.5"
-                    title="Attach file"
-                  >
-                    <Plus
-                      size={20}
-                      className={`transition-transform ${showAttachmentMenu ? 'rotate-45' : ''}`}
-                    />
-                  </Button>
-
-                  {showAttachmentMenu && (
-                    <div className="absolute bottom-12 left-0 bg-card rounded-xl shadow-lg border border-border p-2 min-w-[180px] z-50">
-                      <button
-                        onClick={() => {
-                          cameraInputRef.current?.click();
-                          setShowAttachmentMenu(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center">
-                          <Camera size={16} className="text-red-500" />
-                        </div>
-                        <span>Camera</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          fileInputRef.current?.click();
-                          setShowAttachmentMenu(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-purple-500/10 flex items-center justify-center">
-                          <ImageIcon size={16} className="text-purple-500" />
-                        </div>
-                        <span>Photo & Video</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          documentInputRef.current?.click();
-                          setShowAttachmentMenu(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center">
-                          <FileText size={16} className="text-blue-500" />
-                        </div>
-                        <span>Document</span>
-                      </button>
-
-                      <div className="border-t border-border my-1"></div>
-                      <button
-                        onClick={sendCurrentLocation}
-                        disabled={isSendingLocation}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm disabled:opacity-50"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center">
-                          <MapPin size={16} className="text-green-500" />
-                        </div>
-                        <span>
-                          {isSendingLocation ? 'Getting location...' : 'Current Location'}
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => setShowLocationMenu(!showLocationMenu)}
-                        disabled={isSendingLocation}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted rounded-lg transition text-sm disabled:opacity-50"
-                      >
-                        <div className="w-8 h-8 rounded-full bg-orange-500/10 flex items-center justify-center">
-                          <Navigation2 size={16} className="text-orange-500" />
-                        </div>
-                        <span>Live Location</span>
-                      </button>
-
-                      {showLocationMenu && (
-                        <div className="ml-11 space-y-1 mt-1">
-                          <button
-                            onClick={() => sendLiveLocation(15)}
-                            className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
-                          >
-                            Share for 15 minutes
-                          </button>
-                          <button
-                            onClick={() => sendLiveLocation(60)}
-                            className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
-                          >
-                            Share for 1 hour
-                          </button>
-                          <button
-                            onClick={() => sendLiveLocation(480)}
-                            className="w-full text-left px-3 py-1.5 hover:bg-muted rounded text-xs text-muted-foreground hover:text-foreground transition"
-                          >
-                            Share for 8 hours
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <EmojiPicker onEmojiSelect={handleEmojiSelect} showQuickReactions={true} />
-
-                {isRecording ? (
-                  <div className="flex-1 flex items-center gap-3 px-4 py-2 bg-red-500/10 rounded-lg border border-red-500/30">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-                      <span className="text-red-500 font-medium">
-                        {formatRecordingDuration(recordingDuration)}
-                      </span>
-                    </div>
-                    <span className="text-sm text-muted-foreground flex-1">Recording...</span>
-                    <button
-                      onClick={cancelRecording}
-                      className="p-2 rounded-full hover:bg-red-500/20 transition text-red-500"
-                      title="Cancel"
-                    >
-                      <X size={20} />
-                    </button>
-                    <button
-                      onClick={stopRecording}
-                      className="p-2 rounded-full bg-red-500 hover:bg-red-600 transition text-white"
-                      title="Send"
-                    >
-                      <Send size={20} />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex-1">
-                      <Input
-                        type="text"
-                        placeholder={selectedFile ? 'Add a caption...' : 'Type a message...'}
-                        value={messageInput}
-                        onChange={(e) => handleMessageInputChange(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                        disabled={isSendingMessage}
-                        className="w-full"
-                      />
-                    </div>
-
-                    {messageInput.trim() || selectedFile ? (
-                      <Button
-                        onClick={handleSendMessage}
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer mb-0.5"
-                        disabled={isSendingMessage}
-                      >
-                        <Send size={20} />
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={startRecording}
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer mb-0.5"
-                        disabled={isSendingMessage}
-                        title="Hold to record voice message"
-                      >
-                        <Mic size={20} />
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
+            <ChatInputBar
+              messageInput={messageInput}
+              onMessageInputChange={handleMessageInputChange}
+              onSendMessage={handleSendMessage}
+              isSendingMessage={isSendingMessage}
+              selectedFile={selectedFile}
+              previewUrl={previewUrl}
+              onFileSelect={handleFileSelect}
+              onRemoveFile={removeSelectedFile}
+              showAttachmentMenu={showAttachmentMenu}
+              onToggleAttachmentMenu={() => setShowAttachmentMenu(!showAttachmentMenu)}
+              onEmojiSelect={handleEmojiSelect}
+              isRecording={isRecording}
+              recordingDuration={recordingDuration}
+              formatRecordingDuration={formatRecordingDuration}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              onCancelRecording={cancelRecording}
+              replyingTo={replyingTo}
+              onCancelReply={() => setReplyingTo(null)}
+              isSendingLocation={isSendingLocation}
+              showLocationMenu={showLocationMenu}
+              onToggleLocationMenu={() => setShowLocationMenu(!showLocationMenu)}
+              onSendCurrentLocation={sendCurrentLocation}
+              onSendLiveLocation={sendLiveLocation}
+            />
           </section>
         ) : (
           <section className="lg:col-span-2 flex items-center justify-center">

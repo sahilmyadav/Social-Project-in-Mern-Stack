@@ -149,6 +149,9 @@ const chatMessageSchema = new mongoose.Schema(
 // Indexes for performance
 chatMessageSchema.index({ threadId: 1, createdAt: -1 });
 chatMessageSchema.index({ senderId: 1, receiverId: 1 });
-chatMessageSchema.index({ status: 1 });
+// Compound index for markMessagesAsSeen query: { threadId, receiverId, status }
+chatMessageSchema.index({ threadId: 1, receiverId: 1, status: 1 });
+// Compound index for deletedFor filtering in getMessages
+chatMessageSchema.index({ threadId: 1, isDeleted: 1, deletedFor: 1 });
 
 export const ChatMessage = mongoose.model('ChatMessage', chatMessageSchema);

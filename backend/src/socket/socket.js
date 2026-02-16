@@ -8,6 +8,7 @@ import { ChatThread } from '../models/chatThread.model.js';
 import { GroupCall } from '../models/groupCall.model.js';
 import { GroupChat } from '../models/groupChat.model.js';
 import { User } from '../models/user.model.js';
+import { encryptMessage } from '../utils/encryption.js';
 import logger from '../utils/logger.js';
 import groupSocket from './group.socket.js';
 import liveStreamSocket from './liveStream.socket.js';
@@ -116,6 +117,7 @@ function clearCallRingingTimeout(callerId, recipientId) {
 // ── User info cache (avoids DB queries on hot signaling paths) ──
 const userInfoCache = new Map(); // userId -> { name, avatar, cachedAt }
 const USER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const USER_CACHE_MAX_SIZE = 5000; // Prevent unbounded growth
 
 async function getCachedUserInfo(userId) {
   const cached = userInfoCache.get(userId);
@@ -137,6 +139,11 @@ async function getCachedUserInfo(userId) {
       userId: user._id.toString(),
       cachedAt: Date.now(),
     };
+    // Evict oldest entries if cache exceeds max size
+    if (userInfoCache.size >= USER_CACHE_MAX_SIZE) {
+      const firstKey = userInfoCache.keys().next().value;
+      userInfoCache.delete(firstKey);
+    }
     userInfoCache.set(userId, info);
     return info;
   } catch (e) {
@@ -145,29 +152,32 @@ async function getCachedUserInfo(userId) {
 }
 
 // ── Simple rate limiter for socket events ──
-// DISABLED per client request — can be re-enabled later
-// const rateLimitMap = new Map(); // `${userId}:${event}` -> { count, windowStart }
-//
-// function checkRateLimit(userId, event, maxPerWindow = 10, windowMs = 5000) {
-//   const key = `${userId}:${event}`;
-//   const now = Date.now();
-//   const entry = rateLimitMap.get(key);
-//   if (!entry || now - entry.windowStart > windowMs) {
-//     rateLimitMap.set(key, { count: 1, windowStart: now });
-//     return true;
-//   }
-//   entry.count++;
-//   if (entry.count > maxPerWindow) return false;
-//   return true;
-// }
-//
-// // Cleanup stale rate limit entries every 30s
-// setInterval(() => {
-//   const now = Date.now();
-//   for (const [key, entry] of rateLimitMap.entries()) {
-//     if (now - entry.windowStart > 30000) rateLimitMap.delete(key);
-//   }
-// }, 30000);
+const rateLimitMap = new Map(); // `${userId}:${event}` -> { count, windowStart }
+
+function checkRateLimit(userId, event, maxPerWindow = 10, windowMs = 5000) {
+  const key = `${userId}:${event}`;
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+  if (!entry || now - entry.windowStart > windowMs) {
+    rateLimitMap.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count++;
+  if (entry.count > maxPerWindow) return false;
+  return true;
+}
+
+// Cleanup stale rate limit entries every 30s
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitMap.entries()) {
+    if (now - entry.windowStart > 30000) rateLimitMap.delete(key);
+  }
+  // Also evict expired userInfoCache entries proactively
+  for (const [key, entry] of userInfoCache.entries()) {
+    if (now - entry.cachedAt > USER_CACHE_TTL) userInfoCache.delete(key);
+  }
+}, 30000);
 
 // ── Cluster-safe group call tracking helpers ──
 async function getGroupCallParticipants(groupId) {
@@ -339,27 +349,35 @@ async function initializeRedisAdapter(io) {
     // in Redis online:* SETs making every user appear online permanently.
     // Flush them so only actually-connected sockets are tracked.
     try {
-      let cursor = '0';
       let flushed = 0;
+      // Collect keys first, then batch-delete via pipeline (was individual del per key)
+      let keysToFlush = [];
+      let cursor = '0';
       do {
         const result = await redisClient.scan(cursor, { MATCH: 'online:*', COUNT: 200 });
         cursor = String(result.cursor);
-        for (const key of result.keys) {
-          await redisClient.del(key);
-          flushed++;
-        }
+        keysToFlush.push(...result.keys);
       } while (cursor !== '0');
-      // Also flush stale call peer keys
       cursor = '0';
       do {
         const result = await redisClient.scan(cursor, { MATCH: 'callpeer:*', COUNT: 200 });
         cursor = String(result.cursor);
-        for (const key of result.keys) {
-          await redisClient.del(key);
-        }
+        keysToFlush.push(...result.keys);
       } while (cursor !== '0');
+      if (keysToFlush.length > 0) {
+        // Delete in batches of 200 to avoid oversized pipelines
+        for (let i = 0; i < keysToFlush.length; i += 200) {
+          const batch = keysToFlush.slice(i, i + 200);
+          const pipeline = redisClient.multi();
+          for (const key of batch) {
+            pipeline.del(key);
+          }
+          await pipeline.exec();
+        }
+        flushed = keysToFlush.length;
+      }
       if (flushed > 0) {
-        logger.info(`[Redis] Flushed ${flushed} stale online:* keys from previous lifecycle`);
+        logger.info(`[Redis] Flushed ${flushed} stale keys from previous lifecycle`);
       }
     } catch (e) {
       logger.warn(`[Redis] Failed to flush stale keys: ${e.message}`);
@@ -480,6 +498,7 @@ export const initializeSocket = async (server) => {
 
     // Typing indicator
     socket.on('typing', ({ threadId, receiverId }) => {
+      if (!checkRateLimit(userId, 'typing', 5, 3000)) return;
       socket.to(receiverId).emit('userTyping', {
         threadId,
         userId: socket.userId,
@@ -499,43 +518,107 @@ export const initializeSocket = async (server) => {
 
     socket.on('sendMessage', async (messageData) => {
       try {
-        // Fetch sender's user info
-        const senderUser = await User.findById(socket.userId).select(
-          'firstName lastName username profilePicture avatar'
+        // Rate limit: max 10 messages per 5 seconds
+        if (!checkRateLimit(userId, 'sendMessage', 10, 5000)) {
+          socket.emit('messageError', { error: 'Rate limit exceeded. Please slow down.' });
+          return;
+        }
+
+        // Validate required fields
+        if (!messageData.threadId || !messageData.receiverId) {
+          socket.emit('messageError', { error: 'Missing threadId or receiverId' });
+          return;
+        }
+
+        if (!messageData.content || typeof messageData.content !== 'string' || !messageData.content.trim()) {
+          socket.emit('messageError', { error: 'Message content is required' });
+          return;
+        }
+
+        // Truncate extremely long messages
+        const content = messageData.content.slice(0, 5000);
+
+        // Validate sender is a participant of the thread
+        const thread = await ChatThread.findOne({
+          _id: messageData.threadId,
+          participants: socket.userId,
+          isDeleted: false,
+        });
+
+        if (!thread) {
+          socket.emit('messageError', { error: 'Thread not found or access denied' });
+          return;
+        }
+
+        if (thread.isBlocked) {
+          socket.emit('messageError', { error: 'Conversation is blocked' });
+          return;
+        }
+
+        // Validate receiverId is actually a participant in the thread
+        const validReceiverId = thread.participants.find(
+          (p) => p.toString() !== socket.userId.toString()
+        );
+        if (!validReceiverId || validReceiverId.toString() !== messageData.receiverId.toString()) {
+          socket.emit('messageError', { error: 'Invalid receiver for this thread' });
+          return;
+        }
+
+        const receiverIdStr = validReceiverId.toString();
+
+        // Use module-level encryptMessage (no dynamic import needed)
+        // Persist message to database
+        const newMessage = await ChatMessage.create({
+          threadId: messageData.threadId,
+          senderId: socket.userId,
+          receiverId: receiverIdStr,
+          messageType: 'text',
+          encryptedContent: encryptMessage(content),
+          status: 'sent',
+          replyTo: messageData.replyTo || null,
+        });
+
+        // Update thread atomically — use $inc to avoid race conditions
+        await ChatThread.findOneAndUpdate(
+          { _id: messageData.threadId },
+          {
+            $set: { lastMessage: newMessage._id, lastMessageAt: new Date() },
+            $inc: { [`unreadCount.${receiverIdStr}`]: 1 },
+          }
         );
 
-        // Format message to match your frontend expectations
+        // Use cached sender info to avoid DB query on hot path
+        const senderInfo = await getCachedUserInfo(socket.userId.toString());
+
+        // Format message to match frontend expectations
         const formattedMessage = {
           threadId: messageData.threadId,
           message: {
-            _id: messageData.messageId, // Use the ID from database
-            text: messageData.content,
+            _id: newMessage._id,
+            text: content,
             senderId: {
               _id: socket.userId,
-              firstName: senderUser?.firstName,
-              lastName: senderUser?.lastName,
-              username: senderUser?.username,
-              profilePicture: senderUser?.profilePicture,
-              avatar: senderUser?.avatar,
+              firstName: senderInfo?.name?.split(' ')[0] || 'Unknown',
+              lastName: senderInfo?.name?.split(' ').slice(1).join(' ') || '',
+              username: senderInfo?.name || 'Unknown',
+              profilePicture: senderInfo?.avatar || '',
+              avatar: senderInfo?.avatar || '',
             },
-            createdAt: messageData.timestamp || new Date(),
+            createdAt: newMessage.createdAt,
             status: 'sent',
+            media: [],
           },
         };
 
-        // Send to thread room so both participants get the message
-        if (messageData.threadId) {
-          io.to(messageData.threadId).emit('newMessage', formattedMessage);
-        }
+        // Emit only to receiver's personal room (no thread room to avoid duplication)
+        io.to(receiverIdStr).emit('newMessage', formattedMessage);
 
-        // Also send to receiver's personal room (for notification when not in thread)
-        io.to(messageData.receiverId).emit('newMessage', formattedMessage);
-
-        // Also send back to sender for confirmation (optional)
+        // Confirm to sender
         socket.emit('messageSent', {
-          messageId: messageData.messageId,
+          messageId: newMessage._id,
+          tempId: messageData.tempId, // So client can replace optimistic message
           status: 'sent',
-          timestamp: new Date(),
+          timestamp: newMessage.createdAt,
         });
       } catch (error) {
         logger.error('Error sending message via socket', { error: error.message });
@@ -546,20 +629,29 @@ export const initializeSocket = async (server) => {
       }
     });
 
-    // Message delivery acknowledgment
+    // Message delivery acknowledgment — batched for efficiency
     socket.on('messageDelivered', async ({ messageId }) => {
       try {
-        const message = await ChatMessage.findById(messageId);
-        if (message && message.receiverId.toString() === socket.userId) {
-          message.status = 'delivered';
-          message.deliveredAt = new Date();
-          await message.save();
+        // Use findOneAndUpdate for an atomic single-query update instead of
+        // find + mutate + save (which is 2 round trips)
+        const message = await ChatMessage.findOneAndUpdate(
+          {
+            _id: messageId,
+            receiverId: socket.userId,
+            status: { $in: ['sent'] }, // Only update if not already delivered/seen
+          },
+          {
+            $set: { status: 'delivered', deliveredAt: new Date() },
+          },
+          { new: true, projection: { senderId: 1 } }
+        );
 
+        if (message) {
           // Notify sender
           io.to(message.senderId.toString()).emit('messageStatus', {
             messageId,
             status: 'delivered',
-            deliveredAt: message.deliveredAt,
+            deliveredAt: new Date(),
           });
         }
       } catch (error) {
@@ -788,37 +880,52 @@ export const initializeSocket = async (server) => {
 
         let onlineMembersCount = 0;
 
+        // Batch-check online status for all members in one pipeline (was N queries)
+        let memberOnlineMap = new Map();
+        if (redisClient?.isOpen) {
+          const pipeline = redisClient.multi();
+          for (const memberId of memberIds) {
+            pipeline.sCard(`online:${memberId}`);
+          }
+          try {
+            const results = await pipeline.exec();
+            for (let i = 0; i < memberIds.length; i++) {
+              memberOnlineMap.set(memberIds[i], results[i] > 0);
+            }
+          } catch {
+            // Fallback to local map on pipeline failure
+            for (const memberId of memberIds) {
+              memberOnlineMap.set(memberId, onlineUsers.has(memberId));
+            }
+          }
+        } else {
+          for (const memberId of memberIds) {
+            memberOnlineMap.set(memberId, onlineUsers.has(memberId));
+          }
+        }
+
         for (const memberId of memberIds) {
-          // Check if member is online via Redis SET (cross-worker reliable)
-          let memberOnline = false;
-          if (redisClient?.isOpen) {
-            const mCount = await redisClient.sCard(`online:${memberId}`);
-            memberOnline = mCount > 0;
-          } else {
-            memberOnline = onlineUsers.has(memberId);
-          }
+          if (!memberOnlineMap.get(memberId)) continue;
 
-          if (memberOnline) {
-            onlineMembersCount++;
+          onlineMembersCount++;
 
-            io.to(memberId).emit('incomingCall', {
-              callerId: userId,
-              threadId: groupId,
-              callType: callType,
-              isGroupCall: true,
-              groupInfo: {
-                groupId: groupId,
-                groupName: group.name,
-                groupAvatar: group.avatar,
-              },
-              callerInfo: {
-                avatar: callerUser?.profilePicture || callerUser?.avatar || '',
-                name: callerName,
-              },
-              timestamp: new Date(),
-              name: `${callerName} (${group.name})`,
-            });
-          }
+          io.to(memberId).emit('incomingCall', {
+            callerId: userId,
+            threadId: groupId,
+            callType: callType,
+            isGroupCall: true,
+            groupInfo: {
+              groupId: groupId,
+              groupName: group.name,
+              groupAvatar: group.avatar,
+            },
+            callerInfo: {
+              avatar: callerUser?.profilePicture || callerUser?.avatar || '',
+              name: callerName,
+            },
+            timestamp: new Date(),
+            name: `${callerName} (${group.name})`,
+          });
         }
 
         if (onlineMembersCount === 0) {
@@ -1206,24 +1313,35 @@ export const initializeSocket = async (server) => {
       await removeActiveCallPeer(userId);
       await removeActiveCallPeer(recipientIdStr);
 
-      // Update call log with end time
+      // Update call log with end time — atomic findOneAndUpdate (was find+save race)
       try {
-        const callLog = await CallLog.findOne({
-          $or: [
-            { callerId: userId, receiverId: recipientIdStr },
-            { callerId: recipientIdStr, receiverId: userId },
+        const now = new Date();
+        await CallLog.findOneAndUpdate(
+          {
+            $or: [
+              { callerId: userId, receiverId: recipientIdStr },
+              { callerId: recipientIdStr, receiverId: userId },
+            ],
+            status: { $in: ['initiated', 'ringing', 'answered'] },
+          },
+          [
+            {
+              $set: {
+                status: 'ended',
+                endedAt: now,
+                endReason: 'normal',
+                duration: {
+                  $cond: {
+                    if: { $ne: ['$startedAt', null] },
+                    then: { $floor: { $divide: [{ $subtract: [now, '$startedAt'] }, 1000] } },
+                    else: 0,
+                  },
+                },
+              },
+            },
           ],
-          status: { $in: ['initiated', 'ringing', 'answered'] },
-        }).sort({ createdAt: -1 });
-        if (callLog) {
-          callLog.status = 'ended';
-          callLog.endedAt = new Date();
-          callLog.endReason = 'normal';
-          if (callLog.startedAt) {
-            callLog.duration = Math.floor((callLog.endedAt - callLog.startedAt) / 1000);
-          }
-          await callLog.save();
-        }
+          { sort: { createdAt: -1 } }
+        );
       } catch (e) {
         logger.error('Error updating call log on end', { error: e.message });
       }
@@ -1457,11 +1575,16 @@ export const initializeSocket = async (server) => {
   setInterval(async () => {
     if (!redisClient?.isOpen) return;
     try {
+      // Batch all expire calls in a pipeline (was individual await per socket)
+      const pipeline = redisClient.multi();
+      let count = 0;
       for (const [, socket] of io.sockets.sockets) {
         if (socket.userId) {
-          await redisClient.expire(`online:${socket.userId}`, 3600).catch(() => {});
+          pipeline.expire(`online:${socket.userId}`, 3600);
+          count++;
         }
       }
+      if (count > 0) await pipeline.exec();
     } catch {
       // Non-critical
     }
@@ -1526,23 +1649,40 @@ async function getValidatedOnlineUsers() {
   const rawUsers = await getOnlineUsers();
   if (!redisClient?.isOpen) return rawUsers;
 
-  // Only filter out users whose Redis SET is completely empty (0 socket IDs).
-  // This catches keys that exist but have no members (edge case after sRem).
-  const validatedUsers = [];
+  // Use Redis pipeline to batch all sCard calls in one round-trip (was N+1).
+  const pipeline = redisClient.multi();
   for (const userId of rawUsers) {
-    try {
-      const count = await redisClient.sCard(`online:${userId}`);
-      if (count > 0) {
-        validatedUsers.push(userId);
-      } else {
-        // SET exists but is empty (all sockets removed) — clean up the key
-        await redisClient.del(`online:${userId}`).catch(() => {});
-        onlineUsers.delete(userId);
-      }
-    } catch {
-      validatedUsers.push(userId);
+    pipeline.sCard(`online:${userId}`);
+  }
+
+  let results;
+  try {
+    results = await pipeline.exec();
+  } catch {
+    return rawUsers; // Pipeline failed — return unfiltered
+  }
+
+  const validatedUsers = [];
+  const keysToDelete = [];
+  for (let i = 0; i < rawUsers.length; i++) {
+    const count = results[i];
+    if (count > 0) {
+      validatedUsers.push(rawUsers[i]);
+    } else {
+      keysToDelete.push(rawUsers[i]);
+      onlineUsers.delete(rawUsers[i]);
     }
   }
+
+  // Batch-clean empty sets
+  if (keysToDelete.length > 0) {
+    const delPipeline = redisClient.multi();
+    for (const userId of keysToDelete) {
+      delPipeline.del(`online:${userId}`);
+    }
+    delPipeline.exec().catch(() => {});
+  }
+
   return validatedUsers;
 }
 

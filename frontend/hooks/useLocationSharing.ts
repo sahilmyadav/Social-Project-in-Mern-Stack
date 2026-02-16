@@ -1,6 +1,6 @@
 import { chatService, groupService } from '@/lib/api-services';
 import { showToast } from '@/lib/toast';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 interface LocationMessage {
   id: number | string;
@@ -34,6 +34,8 @@ export function useLocationSharing({
 }: UseLocationSharingOptions) {
   const [isSendingLocation, setIsSendingLocation] = useState(false);
   const [showLocationMenu, setShowLocationMenu] = useState(false);
+  // Use ref for the guard to avoid stale closure issues
+  const isSendingRef = useRef(false);
 
   const getPosition = useCallback(() => {
     return new Promise<GeolocationPosition>((resolve, reject) => {
@@ -62,11 +64,15 @@ export function useLocationSharing({
   }, []);
 
   const sendCurrentLocation = useCallback(async () => {
-    if (!selectedThreadId || isSendingLocation) return;
+    if (!selectedThreadId || isSendingRef.current) return;
 
+    isSendingRef.current = true;
     setIsSendingLocation(true);
     setShowAttachmentMenu(false);
     setShowLocationMenu(false);
+
+    // Use a unique ID for the temp message so we can remove it on failure
+    const tempId = `loc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     try {
       const position = await getPosition();
@@ -75,14 +81,17 @@ export function useLocationSharing({
       let address = '';
       try {
         const geoResponse = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+          { headers: { 'User-Agent': 'SocialApp/1.0' } }
         );
         const geoData = await geoResponse.json();
         address = geoData.display_name || '';
-      } catch {}
+      } catch {
+        // Geocoding failed — location will still send without an address
+      }
 
       const tempMessage: LocationMessage = {
-        id: Date.now(),
+        id: tempId,
         sender: 'You',
         content: '📍 Location',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -107,7 +116,7 @@ export function useLocationSharing({
             latitude,
             longitude,
             address,
-            isLive: false,
+            isLiveLocation: false,
           },
         });
       } else {
@@ -125,19 +134,25 @@ export function useLocationSharing({
       if (response.success && response.data) {
         setMessages((prev: any[]) =>
           prev.map((msg: any) =>
-            msg.id === tempMessage.id ? { ...msg, id: response.data._id } : msg
+            msg.id === tempId ? { ...msg, id: response.data._id } : msg
           )
         );
         showToast.success('Location sent');
+      } else {
+        // Remove temp message on failure
+        setMessages((prev: any[]) => prev.filter((msg: any) => msg.id !== tempId));
+        showToast.error('Failed to send location');
       }
     } catch (error: any) {
+      // Remove temp message on error
+      setMessages((prev: any[]) => prev.filter((msg: any) => msg.id !== tempId));
       handleLocationError(error);
     } finally {
+      isSendingRef.current = false;
       setIsSendingLocation(false);
     }
   }, [
     selectedThreadId,
-    isSendingLocation,
     isGroup,
     setMessages,
     setShowAttachmentMenu,
@@ -147,18 +162,21 @@ export function useLocationSharing({
 
   const sendLiveLocation = useCallback(
     async (durationMinutes: number = 15) => {
-      if (!selectedThreadId || isSendingLocation) return;
+      if (!selectedThreadId || isSendingRef.current) return;
 
+      isSendingRef.current = true;
       setIsSendingLocation(true);
       setShowAttachmentMenu(false);
       setShowLocationMenu(false);
+
+      const tempId = `liveloc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       try {
         const position = await getPosition();
         const { latitude, longitude } = position.coords;
 
         const tempMessage: LocationMessage = {
-          id: Date.now(),
+          id: tempId,
           sender: 'You',
           content: '📍 Live Location',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -176,13 +194,14 @@ export function useLocationSharing({
 
         let response: any;
 
+        // Use consistent field naming (isLiveLocation) for both DM and group
         if (isGroup) {
           response = await groupService.sendGroupMessage(selectedThreadId, {
             messageType: 'location',
             location: {
               latitude,
               longitude,
-              isLive: true,
+              isLiveLocation: true,
               duration: durationMinutes,
             },
           });
@@ -201,20 +220,24 @@ export function useLocationSharing({
         if (response.success && response.data) {
           setMessages((prev: any[]) =>
             prev.map((msg: any) =>
-              msg.id === tempMessage.id ? { ...msg, id: response.data._id } : msg
+              msg.id === tempId ? { ...msg, id: response.data._id } : msg
             )
           );
           showToast.success(`Live location shared for ${durationMinutes} minutes`);
+        } else {
+          setMessages((prev: any[]) => prev.filter((msg: any) => msg.id !== tempId));
+          showToast.error('Failed to share live location');
         }
       } catch (error: any) {
+        setMessages((prev: any[]) => prev.filter((msg: any) => msg.id !== tempId));
         handleLocationError(error);
       } finally {
+        isSendingRef.current = false;
         setIsSendingLocation(false);
       }
     },
     [
       selectedThreadId,
-      isSendingLocation,
       isGroup,
       setMessages,
       setShowAttachmentMenu,

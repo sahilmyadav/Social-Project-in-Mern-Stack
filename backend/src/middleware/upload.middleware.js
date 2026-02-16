@@ -74,11 +74,16 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// No file size limits per client request — rely on nginx/proxy limits if needed
+// File size limits: 50MB for general uploads, keeps server safe from abuse
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+    files: 10, // Max 10 files per request
+  },
 });
 
 // Middleware for single file upload
@@ -110,13 +115,13 @@ export const handleUploadError = (err, req, res, next) => {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
-        message: 'File upload failed. Please try again.',
+        message: 'File too large. Maximum file size is 50MB.',
       });
     }
     if (err.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({
         success: false,
-        message: 'Too many files. Maximum is 100 files.',
+        message: 'Too many files. Maximum is 10 files per upload.',
       });
     }
     return res.status(400).json({

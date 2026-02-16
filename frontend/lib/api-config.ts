@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
     VERIFY_EMAIL_CHANGE: '/users/verify-email-change',
     REQUEST_PHONE_CHANGE: '/users/request-phone-change',
     VERIFY_PHONE_CHANGE: '/users/verify-phone-change',
+    REPORT_USER: (userId: string) => `/users/report/${userId}`,
   },
 
   POSTS: {
