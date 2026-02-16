@@ -79,3 +79,4 @@ coverage/
 *.tsbuildinfo
 .eslintcache
 backups/
+*.md
