@@ -678,10 +678,11 @@ export default function VoiceCallModal({
   };
 
   const toggleSpeaker = () => {
+    const newSpeakerState = !isSpeakerOn;
     if (remoteAudioRef.current) {
-      remoteAudioRef.current.muted = !isSpeakerOn;
+      remoteAudioRef.current.muted = !newSpeakerState;
     }
-    setIsSpeakerOn(!isSpeakerOn);
+    setIsSpeakerOn(newSpeakerState);
   };
 
   if (!isOpen) {

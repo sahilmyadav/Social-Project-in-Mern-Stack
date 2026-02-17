@@ -106,46 +106,46 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { liveStreamService } from '@/lib/api-services';
 import {
-    emitEndLiveStream,
-    emitLiveComment,
-    emitLiveStreamIceCandidate,
-    emitLiveStreamOffer,
-    emitStartLiveStream,
-    offLiveComment,
-    offLiveStreamAnswer,
-    offLiveStreamIceCandidate,
-    offViewerCountUpdate,
-    offViewerJoined,
-    offViewerLeft,
-    onLiveComment,
-    onLiveStreamAnswer,
-    onLiveStreamIceCandidate,
-    onViewerCountUpdate,
-    onViewerJoined,
-    onViewerLeft,
+  emitEndLiveStream,
+  emitLiveComment,
+  emitLiveStreamIceCandidate,
+  emitLiveStreamOffer,
+  emitStartLiveStream,
+  offLiveComment,
+  offLiveStreamAnswer,
+  offLiveStreamIceCandidate,
+  offViewerCountUpdate,
+  offViewerJoined,
+  offViewerLeft,
+  onLiveComment,
+  onLiveStreamAnswer,
+  onLiveStreamIceCandidate,
+  onViewerCountUpdate,
+  onViewerJoined,
+  onViewerLeft,
 } from '@/lib/socket';
 import { cn } from '@/lib/utils';
 import { ICE_SERVERS, cleanupMediaStream, cleanupPeerConnection } from '@/lib/webrtc';
 import { LiveComment, LiveViewer } from '@/types/live';
 import {
-    CameraOff,
-    Clock,
-    Eye,
-    FlipHorizontal,
-    Heart,
-    Loader2,
-    MessageCircle,
-    Mic,
-    MicOff,
-    Pin,
-    Radio,
-    Send,
-    Share2,
-    Sparkles,
-    Users,
-    Video,
-    VideoOff,
-    X,
+  CameraOff,
+  Clock,
+  Eye,
+  FlipHorizontal,
+  Heart,
+  Loader2,
+  MessageCircle,
+  Mic,
+  MicOff,
+  Pin,
+  Radio,
+  Send,
+  Share2,
+  Sparkles,
+  Users,
+  Video,
+  VideoOff,
+  X,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -223,7 +223,7 @@ const StreamTimer = ({ startedAt, isLive }: { startedAt: Date | null; isLive: bo
   }, [startedAt, isLive]);
 
   return (
-    <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg">
+    <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg text-white">
       <Clock className="h-3.5 w-3.5" />
       <span className="text-sm font-mono font-medium">{elapsed}</span>
     </div>
@@ -370,7 +370,6 @@ export default function BroadcastPage() {
       setLoading(false);
       toast.success('Camera ready! Click "Go Live" when ready.');
     } catch (error: any) {
-
       let errorMessage = 'Failed to access camera/microphone';
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
         errorMessage =
@@ -465,7 +464,6 @@ export default function BroadcastPage() {
    */
   const createPeerConnection = useCallback(
     (viewerId: string) => {
-
       const pc = new RTCPeerConnection(ICE_SERVERS);
 
       const stream = localStreamRef.current;
@@ -483,7 +481,6 @@ export default function BroadcastPage() {
       };
 
       pc.onconnectionstatechange = () => {
-
         if (pc.connectionState === 'connected') {
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
           cleanupPeerConnection(pc);
@@ -491,8 +488,7 @@ export default function BroadcastPage() {
         }
       };
 
-      pc.oniceconnectionstatechange = () => {
-      };
+      pc.oniceconnectionstatechange = () => {};
 
       peerConnectionsRef.current.set(viewerId, pc);
       return pc;
@@ -550,8 +546,7 @@ export default function BroadcastPage() {
         await pc.setLocalDescription(offer);
 
         emitLiveStreamOffer(streamId, viewerId, offer);
-      } catch (error) {
-      }
+      } catch (error) {}
     },
     [createPeerConnection, streamId]
   );
@@ -596,8 +591,7 @@ export default function BroadcastPage() {
     if (pc && pc.signalingState === 'have-local-offer') {
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      } catch (error) {
-      }
+      } catch (error) {}
     } else {
     }
   }, []);
@@ -619,8 +613,7 @@ export default function BroadcastPage() {
     if (pc && candidate) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (error) {
-      }
+      } catch (error) {}
     }
   }, []);
 
@@ -908,7 +901,7 @@ export default function BroadcastPage() {
 
                     <Button
                       variant="ghost"
-                      className="bg-black/60 hover:bg-black/80 gap-2"
+                      className="bg-black/60 hover:bg-black/80 gap-2 text-white"
                       onClick={() => setShowViewers(true)}
                     >
                       <Eye className="h-4 w-4" />
@@ -918,7 +911,9 @@ export default function BroadcastPage() {
 
                   {streamTitle && (
                     <div className="mt-3">
-                      <h2 className="text-lg font-semibold drop-shadow-lg">{streamTitle}</h2>
+                      <h2 className="text-lg font-semibold drop-shadow-lg text-white">
+                        {streamTitle}
+                      </h2>
                     </div>
                   )}
                 </div>

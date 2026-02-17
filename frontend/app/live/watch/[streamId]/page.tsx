@@ -96,42 +96,42 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { liveStreamService } from '@/lib/api-services';
 import {
-    emitJoinLiveStream,
-    emitLeaveLiveStream,
-    emitLiveComment,
-    emitLiveReaction,
-    emitLiveStreamAnswer,
-    emitLiveStreamIceCandidate,
-    offLiveComment,
-    offLiveStreamEnded,
-    offLiveStreamIceCandidate,
-    offLiveStreamOffer,
-    offViewerCountUpdate,
-    onLiveComment,
-    onLiveStreamEnded,
-    onLiveStreamIceCandidate,
-    onLiveStreamOffer,
-    onViewerCountUpdate,
+  emitJoinLiveStream,
+  emitLeaveLiveStream,
+  emitLiveComment,
+  emitLiveReaction,
+  emitLiveStreamAnswer,
+  emitLiveStreamIceCandidate,
+  offLiveComment,
+  offLiveStreamEnded,
+  offLiveStreamIceCandidate,
+  offLiveStreamOffer,
+  offViewerCountUpdate,
+  onLiveComment,
+  onLiveStreamEnded,
+  onLiveStreamIceCandidate,
+  onLiveStreamOffer,
+  onViewerCountUpdate,
 } from '@/lib/socket';
 import { cn } from '@/lib/utils';
 import { LiveComment, LiveStream } from '@/types/live';
 import {
-    ArrowLeft,
-    Clock,
-    Eye,
-    Heart,
-    Loader2,
-    Maximize2,
-    MessageCircle,
-    Minimize2,
-    Pin,
-    Send,
-    Share2,
-    Volume2,
-    VolumeX,
-    Wifi,
-    WifiOff,
-    X,
+  ArrowLeft,
+  Clock,
+  Eye,
+  Heart,
+  Loader2,
+  Maximize2,
+  MessageCircle,
+  Minimize2,
+  Pin,
+  Send,
+  Share2,
+  Volume2,
+  VolumeX,
+  Wifi,
+  WifiOff,
+  X,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -341,7 +341,6 @@ export default function WatchLivePage() {
       const response = await liveStreamService.joinLiveStream(streamId);
 
       if (response.success) {
-
         emitJoinLiveStream(streamId);
 
         const offerTimeout = setTimeout(() => {
@@ -351,7 +350,6 @@ export default function WatchLivePage() {
         }, 10000);
 
         (window as any).__offerTimeout = offerTimeout;
-
       } else {
         toast.error(response.message || 'Failed to join stream');
       }
@@ -371,14 +369,12 @@ export default function WatchLivePage() {
    */
   const setupPeerConnection = useCallback(
     (broadcasterId: string) => {
-
       cleanupPeerConnection(peerConnectionRef.current);
 
       const pc = new RTCPeerConnection(ICE_SERVERS);
       peerConnectionRef.current = pc;
 
       pc.ontrack = (event) => {
-
         const [remoteStream] = event.streams;
         setRemoteStream(remoteStream);
 
@@ -386,8 +382,7 @@ export default function WatchLivePage() {
           videoRef.current.srcObject = remoteStream;
           videoRef.current.muted = true;
           setIsMuted(true);
-          videoRef.current.play().catch((err) => {
-          });
+          videoRef.current.play().catch((err) => {});
         }
       };
 
@@ -409,8 +404,7 @@ export default function WatchLivePage() {
         }
       };
 
-      pc.oniceconnectionstatechange = () => {
-      };
+      pc.oniceconnectionstatechange = () => {};
 
       return pc;
     },
@@ -430,7 +424,6 @@ export default function WatchLivePage() {
    */
   const handleOffer = useCallback(
     async (data: any) => {
-
       if ((window as any).__offerTimeout) {
         clearTimeout((window as any).__offerTimeout);
         delete (window as any).__offerTimeout;
@@ -480,8 +473,7 @@ export default function WatchLivePage() {
     if (pc && candidate) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (error) {
-      }
+      } catch (error) {}
     }
   }, []);
 
@@ -566,8 +558,7 @@ export default function WatchLivePage() {
         await document.exitFullscreen();
         setIsFullscreen(false);
       }
-    } catch (error) {
-    }
+    } catch (error) {}
   };
 
   const leaveStream = () => {
@@ -692,7 +683,7 @@ export default function WatchLivePage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="bg-black/40 hover:bg-black/60"
+                    className="bg-black/40 hover:bg-black/60 text-white"
                     onClick={leaveStream}
                   >
                     <ArrowLeft className="h-5 w-5" />
@@ -710,7 +701,7 @@ export default function WatchLivePage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-lg flex items-center gap-2">
+                  <div className="bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-lg flex items-center gap-2 text-white">
                     <Eye className="h-4 w-4" />
                     <span className="font-medium">{viewerCount}</span>
                   </div>
@@ -718,7 +709,7 @@ export default function WatchLivePage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="bg-black/40 hover:bg-black/60"
+                    className="bg-black/40 hover:bg-black/60 text-white"
                     onClick={shareStream}
                   >
                     <Share2 className="h-5 w-5" />

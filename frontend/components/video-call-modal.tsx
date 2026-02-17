@@ -45,7 +45,18 @@ import {
   isGroupCallSignal,
   registerBeforeUnloadCleanup,
 } from '@/lib/webrtc';
-import { Mic, MicOff, PhoneOff, User, Video, VideoOff, X } from 'lucide-react';
+import {
+  Mic,
+  MicOff,
+  PhoneOff,
+  RefreshCw,
+  User,
+  Video,
+  VideoOff,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 interface VideoCallModalProps {
@@ -83,6 +94,8 @@ export default function VideoCallModal({
   );
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [callDuration, setCallDuration] = useState(0);
   const [currentCallId, setCurrentCallId] = useState(callId || '');
   const [callFailedReason, setCallFailedReason] = useState<string | null>(null);
@@ -376,6 +389,54 @@ export default function VideoCallModal({
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoOff(!videoTrack.enabled);
       }
+    }
+  };
+
+  const toggleSpeaker = () => {
+    const newSpeakerState = !isSpeakerOn;
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = !newSpeakerState;
+    }
+    setIsSpeakerOn(newSpeakerState);
+  };
+
+  const switchCamera = async () => {
+    try {
+      const newFacing = facingMode === 'user' ? 'environment' : 'user';
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { ...VIDEO_CONSTRAINTS_1to1, facingMode: newFacing },
+        audio: AUDIO_CONSTRAINTS,
+      });
+
+      // Replace video track in peer connection
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (peerConnectionRef.current && newVideoTrack) {
+        const senders = peerConnectionRef.current.getSenders();
+        const videoSender = senders.find((s) => s.track?.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(newVideoTrack);
+        }
+      }
+
+      // Stop old video track and replace in local stream
+      if (localStreamRef.current) {
+        const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+        if (oldVideoTrack) oldVideoTrack.stop();
+        localStreamRef.current.removeTrack(oldVideoTrack);
+        localStreamRef.current.addTrack(newVideoTrack);
+      }
+
+      // Stop unused audio track from new stream (we keep the original)
+      newStream.getAudioTracks().forEach((t) => t.stop());
+
+      // Update local video preview
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+
+      setFacingMode(newFacing);
+    } catch (error) {
+      showToast.error('Could not switch camera');
     }
   };
 
@@ -854,7 +915,7 @@ export default function VideoCallModal({
             </Button>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-6">
+          <div className="flex items-center justify-center gap-4">
             <Button
               onClick={toggleVideo}
               size="lg"
@@ -862,6 +923,23 @@ export default function VideoCallModal({
               className="w-14 h-14 rounded-full shadow-lg"
             >
               {isVideoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
+            </Button>
+            <Button
+              onClick={switchCamera}
+              size="lg"
+              variant="secondary"
+              className="w-14 h-14 rounded-full shadow-lg"
+              disabled={isVideoOff}
+            >
+              <RefreshCw className="w-5 h-5" />
+            </Button>
+            <Button
+              onClick={toggleSpeaker}
+              size="lg"
+              variant={isSpeakerOn ? 'secondary' : 'destructive'}
+              className="w-14 h-14 rounded-full shadow-lg"
+            >
+              {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
             </Button>
             <Button
               onClick={handleEndCall}

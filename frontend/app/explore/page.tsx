@@ -1,14 +1,14 @@
-"use client"
+'use client';
 
-import Navigation from "@/components/navigation"
-import PostCard from "@/components/post-card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { followService, postService, searchService } from "@/lib/api-services"
-import { getMediaUrl } from "@/lib/media-utils"
-import { Clock, Search, UserCheck, UserPlus, X } from "lucide-react"
-import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
+import Navigation from '@/components/navigation';
+import PostCard from '@/components/post-card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { followService, postService, searchService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
+import { Clock, Search, UserCheck, UserPlus, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 
 const isValidImageUrl = (url: string | undefined | null): boolean => {
   if (!url) return false;
@@ -16,124 +16,136 @@ const isValidImageUrl = (url: string | undefined | null): boolean => {
 };
 
 interface Creator {
-  id: string
-  name: string
-  username?: string
-  avatar: string
-  bio: string
-  followers: number
-  following?: number
-  posts?: number
-  verified: boolean
-  isFollowing?: boolean
-  isPending?: boolean
-  isPrivate?: boolean
+  id: string;
+  name: string;
+  username?: string;
+  avatar: string;
+  bio: string;
+  followers: number;
+  following?: number;
+  posts?: number;
+  verified: boolean;
+  isFollowing?: boolean;
+  isPending?: boolean;
+  isPrivate?: boolean;
 }
 
 export default function ExplorePage() {
-  const [user, setUser] = useState<any>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [activeTab, setActiveTab] = useState<"posts" | "creators">("posts")
-  const [creators, setCreators] = useState<Creator[]>([])
-  const [isSearching, setIsSearching] = useState(false)
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
-  const [followingStatus, setFollowingStatus] = useState<Record<string, 'following' | 'pending' | 'none'>>({})
-  const [explorePosts, setExplorePosts] = useState<any[]>([])
-  const [loadingPosts, setLoadingPosts] = useState(false)
-  const [postsError, setPostsError] = useState<string | null>(null)
+  const [user, setUser] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'posts' | 'creators'>('posts');
+  const [creators, setCreators] = useState<Creator[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [followingStatus, setFollowingStatus] = useState<
+    Record<string, 'following' | 'pending' | 'none'>
+  >({});
+  const [explorePosts, setExplorePosts] = useState<any[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [postsError, setPostsError] = useState<string | null>(null);
 
-  const router = useRouter()
+  const router = useRouter();
 
   useEffect(() => {
-    const userData = localStorage.getItem("user")
+    const userData = localStorage.getItem('user');
     if (!userData) {
-      router.push("/")
+      router.push('/');
     } else {
-      setUser(JSON.parse(userData))
-      loadSuggestions()
-      loadExplorePosts()
+      setUser(JSON.parse(userData));
+      loadSuggestions();
+      loadExplorePosts();
     }
-  }, [router])
+  }, [router]);
 
   const loadExplorePosts = async () => {
-    setLoadingPosts(true)
-    setPostsError(null)
+    setLoadingPosts(true);
+    setPostsError(null);
     try {
-      const response = await postService.getExplorePosts({ page: 1, limit: 20 })
+      const response = await postService.getExplorePosts({ page: 1, limit: 20 });
       if (response.success && response.data) {
-        setExplorePosts(response.data.posts || [])
+        setExplorePosts(response.data.posts || []);
       } else {
-        setExplorePosts([])
+        setExplorePosts([]);
       }
     } catch (error: any) {
-      setPostsError(error.message || 'Failed to load posts')
-      setExplorePosts([])
+      setPostsError(error.message || 'Failed to load posts');
+      setExplorePosts([]);
     } finally {
-      setLoadingPosts(false)
+      setLoadingPosts(false);
     }
-  }
+  };
 
   useEffect(() => {
     if (searchTimeout) {
-      clearTimeout(searchTimeout)
+      clearTimeout(searchTimeout);
     }
 
     if (searchQuery.trim()) {
       const timeout = setTimeout(() => {
-        searchUsers(searchQuery)
-      }, 500)
-      setSearchTimeout(timeout)
+        searchUsers(searchQuery);
+      }, 500);
+      setSearchTimeout(timeout);
     } else {
-      loadSuggestions()
+      loadSuggestions();
     }
 
     return () => {
       if (searchTimeout) {
-        clearTimeout(searchTimeout)
+        clearTimeout(searchTimeout);
       }
-    }
-  }, [searchQuery])
+    };
+  }, [searchQuery]);
 
   const loadSuggestions = async () => {
     try {
-      const response = await followService.getSuggestions({ limit: 20 })
+      const response = await followService.getSuggestions({ limit: 20 });
       if (response.success && response.data) {
-        const suggestions = Array.isArray(response.data) ? response.data : response.data.suggestions || []
+        const suggestions = Array.isArray(response.data)
+          ? response.data
+          : response.data.suggestions || [];
 
-        const formattedCreators = suggestions.map((user: any) => ({
+        // Filter out current user from suggestions
+        const userData = localStorage.getItem('user');
+        const currentUser = userData ? JSON.parse(userData) : null;
+        const filteredSuggestions = currentUser
+          ? suggestions.filter((u: any) => u._id !== currentUser._id && u._id !== currentUser.id)
+          : suggestions;
+
+        const formattedCreators = filteredSuggestions.map((user: any) => ({
           id: user._id,
           name: `${user.firstName} ${user.lastName}`,
-          username: user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
-          avatar: user.profileImage || user.avatar || "👤",
-          bio: user.bio || "No bio yet",
+          username:
+            user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
+          avatar: user.profileImage || user.avatar || '👤',
+          bio: user.bio || 'No bio yet',
           followers: user.followers_count || user.followersCount || 0,
           following: user.followingCount || 0,
           posts: user.postsCount || 0,
           verified: user.isVerified || false,
           isPrivate: user.isPrivate || false,
           isFollowing: user.isFollowing || false,
-        }))
-        setCreators(formattedCreators)
+        }));
+        setCreators(formattedCreators);
       }
-    } catch (error) {
-    }
-  }
+    } catch (error) {}
+  };
 
   const searchUsers = async (query: string) => {
-    setIsSearching(true)
-    setCreators([]) // Clear previous results
+    setIsSearching(true);
+    setCreators([]); // Clear previous results
 
     try {
-      const response = await searchService.searchUsers({ query, limit: 20 })
+      const response = await searchService.searchUsers({ query, limit: 20 });
 
       if (response.success && response.data?.users) {
         let users = response.data.users || [];
 
         if (user) {
           const blockedUsers = user.blockedUsers || [];
-          users = users.filter((u: any) =>
-            u._id !== user._id && // Remove self
-            !blockedUsers.includes(u._id) // Remove blocked users
+          users = users.filter(
+            (u: any) =>
+              u._id !== user._id && // Remove self
+              !blockedUsers.includes(u._id) // Remove blocked users
           );
         }
 
@@ -141,110 +153,113 @@ export default function ExplorePage() {
           const formattedCreators = users.map((user: any) => ({
             id: user._id,
             name: user.fullName || `${user.firstName} ${user.lastName}`,
-            username: user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
-            avatar: user.avatar || user.profileImage || "👤",
-            bio: user.bio || "No bio yet",
+            username:
+              user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
+            avatar: user.avatar || user.profileImage || '👤',
+            bio: user.bio || 'No bio yet',
             followers: user.followers_count || user.followersCount || 0,
             following: user.followingCount || 0,
             posts: user.postsCount || 0,
             verified: user.isVerified || false,
             isPrivate: user.profile_type === 'private',
             isFollowing: user.isFollowing || false,
-          }))
-          setCreators(formattedCreators)
+          }));
+          setCreators(formattedCreators);
         } else {
-          setCreators([])
+          setCreators([]);
         }
       } else {
-        setCreators([])
+        setCreators([]);
       }
     } catch (error) {
-      setCreators([])
+      setCreators([]);
     } finally {
-      setIsSearching(false)
+      setIsSearching(false);
     }
-  }
+  };
 
   const handleFollowAction = async (userId: string, isPrivate: boolean) => {
     try {
-      const currentStatus = followingStatus[userId] || 'none'
+      const currentStatus = followingStatus[userId] || 'none';
 
       if (currentStatus === 'following') {
-        await followService.unfollowUser(userId)
-        setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }))
+        await followService.unfollowUser(userId);
+        setFollowingStatus((prev) => ({ ...prev, [userId]: 'none' }));
       } else if (currentStatus === 'pending') {
-        await followService.cancelFollowRequest(userId)
-        setFollowingStatus(prev => ({ ...prev, [userId]: 'none' }))
+        await followService.cancelFollowRequest(userId);
+        setFollowingStatus((prev) => ({ ...prev, [userId]: 'none' }));
       } else {
         if (isPrivate) {
-          await followService.sendFollowRequest(userId)
-          setFollowingStatus(prev => ({ ...prev, [userId]: 'pending' }))
+          await followService.sendFollowRequest(userId);
+          setFollowingStatus((prev) => ({ ...prev, [userId]: 'pending' }));
         } else {
-          await followService.followUser(userId)
-          setFollowingStatus(prev => ({ ...prev, [userId]: 'following' }))
+          await followService.followUser(userId);
+          setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
         }
       }
-    } catch (error) {
-    }
-  }
+    } catch (error) {}
+  };
 
   const getFollowButtonConfig = (userId: string, isPrivate: boolean) => {
-    const status = followingStatus[userId] || 'none'
+    const status = followingStatus[userId] || 'none';
 
     if (status === 'following') {
       return {
         text: 'Following',
         icon: <UserCheck size={16} />,
         variant: 'outline' as const,
-      }
+      };
     } else if (status === 'pending') {
       return {
         text: 'Requested',
         icon: <Clock size={16} />,
         variant: 'outline' as const,
-      }
+      };
     } else {
       return {
         text: isPrivate ? 'Request' : 'Follow',
         icon: <UserPlus size={16} />,
         variant: 'default' as const,
-      }
+      };
     }
-  }
+  };
 
   const handleOpenPostDetails = useCallback((post: any) => {
-    setExplorePosts(prevPosts =>
-      prevPosts.map(item => {
+    setExplorePosts((prevPosts) =>
+      prevPosts.map((item) => {
         if (item._id === post._id || item.id === post._id) {
-          return { ...item, showComments: !item.showComments }
+          return { ...item, showComments: !item.showComments };
         }
-        return item
+        return item;
       })
-    )
-  }, [])
+    );
+  }, []);
 
-  const handlePostLikeUpdate = useCallback((postId: string, isLiked: boolean, likeCount: number) => {
-    setExplorePosts(prevPosts =>
-      prevPosts.map(item => {
-        if (item._id === postId || item.id === postId) {
-          return {
-            ...item,
-            isLiked,
-            likes_count: likeCount
+  const handlePostLikeUpdate = useCallback(
+    (postId: string, isLiked: boolean, likeCount: number) => {
+      setExplorePosts((prevPosts) =>
+        prevPosts.map((item) => {
+          if (item._id === postId || item.id === postId) {
+            return {
+              ...item,
+              isLiked,
+              likes_count: likeCount,
+            };
           }
-        }
-        return item
-      })
-    )
-  }, [])
+          return item;
+        })
+      );
+    },
+    []
+  );
 
   const handleLogout = () => {
-    localStorage.removeItem("user")
-    router.push("/")
-  }
+    localStorage.removeItem('user');
+    router.push('/');
+  };
 
   if (!user) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
   return (
@@ -257,7 +272,10 @@ export default function ExplorePage() {
         <section className="lg:col-span-2">
           <div className="sticky top-0 z-20 mb-6 bg-background pt-4">
             <div className="relative bg-card rounded-2xl border border-border p-4">
-              <Search className="absolute left-7 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={20} />
+              <Search
+                className="absolute left-7 top-1/2 transform -translate-y-1/2 text-muted-foreground"
+                size={20}
+              />
               <Input
                 type="text"
                 placeholder="Search users by name... (e.g., 'kr', 'john')"
@@ -267,7 +285,7 @@ export default function ExplorePage() {
               />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => setSearchQuery('')}
                   className="absolute right-7 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   <X size={20} />
@@ -292,8 +310,8 @@ export default function ExplorePage() {
                         <button
                           key={creator.id}
                           onClick={() => {
-                            router.push(`/profile/${creator.id}`)
-                            setSearchQuery("")
+                            router.push(`/profile/${creator.id}`);
+                            setSearchQuery('');
                           }}
                           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/50 transition-colors border-b border-border last:border-0"
                         >
@@ -316,7 +334,11 @@ export default function ExplorePage() {
                               className="w-full h-full flex items-center justify-center"
                               style={{ display: isValidImageUrl(creator.avatar) ? 'none' : 'flex' }}
                             >
-                              {(creator.name || 'U').split(' ').map(n => (n || 'U').charAt(0).toUpperCase()).join('').slice(0, 2) || 'U'}
+                              {(creator.name || 'U')
+                                .split(' ')
+                                .map((n) => (n || 'U').charAt(0).toUpperCase())
+                                .join('')
+                                .slice(0, 2) || 'U'}
                             </span>
                           </div>
                           <div className="flex-1 text-left">
@@ -325,8 +347,10 @@ export default function ExplorePage() {
                               {creator.verified && <span className="text-blue-500">✓</span>}
                             </div>
                             <p className="text-sm text-muted-foreground">@{creator.username}</p>
-                            {creator.bio !== "No bio yet" && (
-                              <p className="text-sm text-muted-foreground line-clamp-1 mt-1">{creator.bio}</p>
+                            {creator.bio !== 'No bio yet' && (
+                              <p className="text-sm text-muted-foreground line-clamp-1 mt-1">
+                                {creator.bio}
+                              </p>
                             )}
                           </div>
                           <div className="text-right text-sm text-muted-foreground">
@@ -347,26 +371,28 @@ export default function ExplorePage() {
 
           <div className="flex gap-4 mb-6 border-b border-border">
             <button
-              onClick={() => setActiveTab("posts")}
-              className={`px-4 py-3 font-semibold border-b-2 transition ${activeTab === "posts"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+              onClick={() => setActiveTab('posts')}
+              className={`px-4 py-3 font-semibold border-b-2 transition ${
+                activeTab === 'posts'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
             >
               Posts
             </button>
             <button
-              onClick={() => setActiveTab("creators")}
-              className={`px-4 py-3 font-semibold border-b-2 transition ${activeTab === "creators"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+              onClick={() => setActiveTab('creators')}
+              className={`px-4 py-3 font-semibold border-b-2 transition ${
+                activeTab === 'creators'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
             >
               Creators
             </button>
           </div>
 
-          {activeTab === "posts" && (
+          {activeTab === 'posts' && (
             <div className="space-y-4">
               {loadingPosts ? (
                 <div className="flex justify-center py-12">
@@ -375,7 +401,9 @@ export default function ExplorePage() {
               ) : postsError ? (
                 <div className="text-center py-12 text-destructive">
                   <p>{postsError}</p>
-                  <Button variant="outline" onClick={loadExplorePosts} className="mt-4">Try Again</Button>
+                  <Button variant="outline" onClick={loadExplorePosts} className="mt-4">
+                    Try Again
+                  </Button>
                 </div>
               ) : explorePosts.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
@@ -397,17 +425,20 @@ export default function ExplorePage() {
             </div>
           )}
 
-          {activeTab === "creators" && (
+          {activeTab === 'creators' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {creators.length === 0 ? (
                 <div className="col-span-2 text-center py-12">
                   <p className="text-muted-foreground">
-                    {searchQuery ? "No users found" : "No suggestions available"}
+                    {searchQuery ? 'No users found' : 'No suggestions available'}
                   </p>
                 </div>
               ) : (
                 creators.map((creator) => {
-                  const buttonConfig = getFollowButtonConfig(creator.id, creator.isPrivate || false)
+                  const buttonConfig = getFollowButtonConfig(
+                    creator.id,
+                    creator.isPrivate || false
+                  );
 
                   return (
                     <div
@@ -428,7 +459,11 @@ export default function ExplorePage() {
                               />
                             ) : (
                               <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-2xl font-bold text-white border-4 border-primary/20 group-hover:border-primary/40 transition">
-                                {(creator.name || 'U').split(' ').map(n => (n || 'U').charAt(0).toUpperCase()).join('').slice(0, 2) || 'U'}
+                                {(creator.name || 'U')
+                                  .split(' ')
+                                  .map((n) => (n || 'U').charAt(0).toUpperCase())
+                                  .join('')
+                                  .slice(0, 2) || 'U'}
                               </div>
                             )}
                             {creator.verified && (
@@ -465,7 +500,9 @@ export default function ExplorePage() {
                             <p className="text-xs text-muted-foreground">Posts</p>
                           </div>
                           <div className="text-center">
-                            <p className="font-bold text-foreground">{creator.followers.toLocaleString()}</p>
+                            <p className="font-bold text-foreground">
+                              {creator.followers.toLocaleString()}
+                            </p>
                             <p className="text-xs text-muted-foreground">Followers</p>
                           </div>
                           <div className="text-center">
@@ -478,8 +515,8 @@ export default function ExplorePage() {
                       <div className="flex gap-2">
                         <Button
                           onClick={(e) => {
-                            e.stopPropagation()
-                            router.push(`/profile/${creator.id}`)
+                            e.stopPropagation();
+                            router.push(`/profile/${creator.id}`);
                           }}
                           variant="outline"
                           className="flex-1"
@@ -488,8 +525,8 @@ export default function ExplorePage() {
                         </Button>
                         <Button
                           onClick={(e) => {
-                            e.stopPropagation()
-                            handleFollowAction(creator.id, creator.isPrivate || false)
+                            e.stopPropagation();
+                            handleFollowAction(creator.id, creator.isPrivate || false);
                           }}
                           variant={buttonConfig.variant}
                           className="flex-1 gap-2"
@@ -499,7 +536,7 @@ export default function ExplorePage() {
                         </Button>
                       </div>
                     </div>
-                  )
+                  );
                 })
               )}
             </div>
@@ -510,12 +547,17 @@ export default function ExplorePage() {
           <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
             <h3 className="font-bold text-lg mb-4">Popular Categories</h3>
             <div className="space-y-3">
-              {["Design", "Photography", "Technology", "Art", "Music", "Travel"].map((category, i) => (
-                <button key={i} className="w-full text-left p-3 hover:bg-muted rounded-lg transition">
-                  <p className="font-semibold text-foreground">{category}</p>
-                  <p className="text-xs text-muted-foreground">45.2K posts</p>
-                </button>
-              ))}
+              {['Design', 'Photography', 'Technology', 'Art', 'Music', 'Travel'].map(
+                (category, i) => (
+                  <button
+                    key={i}
+                    className="w-full text-left p-3 hover:bg-muted rounded-lg transition"
+                  >
+                    <p className="font-semibold text-foreground">{category}</p>
+                    <p className="text-xs text-muted-foreground">45.2K posts</p>
+                  </button>
+                )
+              )}
             </div>
           </div>
         </aside>
@@ -523,5 +565,5 @@ export default function ExplorePage() {
 
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
-  )
+  );
 }

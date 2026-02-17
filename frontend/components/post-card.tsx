@@ -16,6 +16,8 @@ import { postService } from '@/lib/api-services';
 import { getMediaUrl } from '@/lib/media-utils';
 import { showToast, toasts } from '@/lib/toast';
 import {
+  Bookmark,
+  Copy,
   Download,
   Eye,
   Heart,
@@ -525,6 +527,7 @@ function PostCard({
             <DropdownMenuContent align="end" className="w-48">
               {!isOwnPost && (
                 <DropdownMenuItem onClick={handleSavePost} disabled={isSaving}>
+                  <Bookmark size={16} className={`mr-2 ${saved ? 'fill-current' : ''}`} />
                   {isSaving ? 'Saving...' : saved ? 'Unsave Post' : 'Save Post'}
                 </DropdownMenuItem>
               )}
@@ -536,7 +539,7 @@ function PostCard({
                   }}
                   disabled={post.canDownload === false || post.user_id?.allowDownloads === false}
                 >
-                  <Download size={14} className="mr-2" />
+                  <Download size={16} className="mr-2" />
                   {post.canDownload === false || post.user_id?.allowDownloads === false
                     ? 'Download Disabled'
                     : 'Download'}
@@ -549,11 +552,17 @@ function PostCard({
                     setIsReportModalOpen(true);
                   }}
                 >
+                  <span className="mr-2">⚠️</span>
                   Report Post
                 </DropdownMenuItem>
               )}
               {isOwnPost && (
-                <DropdownMenuItem onClick={handleDeletePost} disabled={isDeleting}>
+                <DropdownMenuItem
+                  onClick={handleDeletePost}
+                  disabled={isDeleting}
+                  className="text-destructive"
+                >
+                  <Trash2 size={16} className="mr-2" />
                   {isDeleting ? 'Deleting...' : 'Delete Post'}
                 </DropdownMenuItem>
               )}
@@ -588,6 +597,7 @@ function PostCard({
                   }, 100);
                 }}
               >
+                <Copy size={16} className="mr-2" />
                 Copy Link
               </DropdownMenuItem>
             </DropdownMenuContent>
