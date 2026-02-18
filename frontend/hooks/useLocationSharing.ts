@@ -116,7 +116,7 @@ export function useLocationSharing({
             latitude,
             longitude,
             address,
-            isLiveLocation: false,
+            isLive: false,
           },
         });
       } else {
@@ -201,7 +201,7 @@ export function useLocationSharing({
             location: {
               latitude,
               longitude,
-              isLiveLocation: true,
+              isLive: true,
               duration: durationMinutes,
             },
           });
