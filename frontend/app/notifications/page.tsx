@@ -40,6 +40,7 @@ interface Notification {
     | 'comment'
     | 'share'
     | 'follow'
+    | 'follow_request'
     | 'mention'
     | 'reel_like'
     | 'reel_comment'
@@ -303,19 +304,22 @@ export default function NotificationsPage() {
         }
       } else if (
         notification.type === 'follow' ||
+        notification.type === 'follow_request' ||
         notification.type === 'follow_request_accepted'
       ) {
-        const userIdMatch = notification.action_url.match(/\/profile\/([a-zA-Z0-9_]+)/);
-        if (userIdMatch) {
-          targetUrl = `/profile/${userIdMatch[1]}`;
-        } else if (notification.sender_id?.username) {
+        if (notification.sender_id?.username) {
           targetUrl = `/profile/${notification.sender_id.username}`;
         } else if (notification.sender_id?._id) {
           targetUrl = `/profile/${notification.sender_id._id}`;
+        } else {
+          const userIdMatch = notification.action_url.match(/\/profile\/([a-zA-Z0-9_]+)/);
+          if (userIdMatch) {
+            targetUrl = `/profile/${userIdMatch[1]}`;
+          }
         }
       }
     } else {
-      if (notification.type === 'follow' || notification.type === 'follow_request_accepted') {
+      if (notification.type === 'follow' || notification.type === 'follow_request' || notification.type === 'follow_request_accepted') {
         if (notification.sender_id?.username) {
           targetUrl = `/profile/${notification.sender_id.username}`;
         } else if (notification.sender_id?._id) {
@@ -338,6 +342,7 @@ export default function NotificationsPage() {
       case 'reel_comment':
         return <MessageCircle className="w-5 h-5 text-blue-500" />;
       case 'follow':
+      case 'follow_request':
       case 'follow_request_accepted':
         return <UserPlus className="w-5 h-5 text-green-500" />;
       case 'share':

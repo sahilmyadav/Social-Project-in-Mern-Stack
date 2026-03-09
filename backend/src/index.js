@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import http from 'http';
 import { Server as ExpressApp } from './app.js';
 import { validateEnv } from './config/env.js';
+import { startLiveStreamCleanupJob } from './controllers/liveStream.controller.js';
 import { startStoryCleanupJob } from './controllers/story.controller.js';
 import connectDB from './db/connection.js';
 import { initializeSocket } from './socket/socket.js';
@@ -29,6 +30,9 @@ connectDB()
 
     // Start automatic story cleanup job (deletes expired stories every hour)
     startStoryCleanupJob();
+
+    // Start live stream cleanup job (ends stale/zombie streams every 30 min)
+    startLiveStreamCleanupJob();
   })
   .catch((e) => {
     logger.error('Something went wrong while connecting to DB', e);

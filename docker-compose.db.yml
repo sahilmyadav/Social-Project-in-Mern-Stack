@@ -1,0 +1,23 @@
+# Docker Compose - Database Services Only (for local dev)
+# Usage: docker compose -f docker-compose.db.yml up -d
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: social-mongo
+    restart: unless-stopped
+    command: >
+      mongod --wiredTigerCacheSizeGB 12 --wiredTigerCollectionBlockCompressor zstd --wiredTigerJournalCompressor zstd --setParameter diagnosticDataCollectionEnabled=false
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - '27017:27017'
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  mongo-data:
