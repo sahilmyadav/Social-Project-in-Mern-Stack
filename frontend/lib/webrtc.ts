@@ -78,13 +78,11 @@ export const ICE_RECONNECT_TIMEOUT_MS = 8_000;
 /** Max group call participants (mesh topology limit) */
 export const MAX_GROUP_PARTICIPANTS = 8;
 
-/** WhatsApp-grade audio constraints — echo cancel + noise suppression + AGC */
+/** Audio constraints — echo cancel + noise suppression + AGC (soft constraints for mobile compat) */
 export const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-  sampleRate: 48000,
-  channelCount: 1,
+  echoCancellation: { ideal: true },
+  noiseSuppression: { ideal: true },
+  autoGainControl: { ideal: true },
 };
 
 /** Video constraints for 1:1 calls (HD) */

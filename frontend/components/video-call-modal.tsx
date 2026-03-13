@@ -870,7 +870,7 @@ export default function VideoCallModal({
           playsInline
           muted
           className="w-full h-full object-cover"
-          style={{ transform: 'scaleX(-1)' }}
+          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
         {isVideoOff && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-800">

@@ -10,6 +10,7 @@ import { GroupChat } from '../models/groupChat.model.js';
 import { User } from '../models/user.model.js';
 import { encryptMessage } from '../utils/encryption.js';
 import logger from '../utils/logger.js';
+import { sendCallPushNotification, sendCallEventPush, sendMessagePushNotification } from '../services/firebase.service.js';
 import groupSocket from './group.socket.js';
 import liveStreamSocket from './liveStream.socket.js';
 
@@ -94,6 +95,11 @@ function setCallRingingTimeout(callerId, recipientId, io, socket) {
         reason: 'No answer - timeout',
         endedAt: new Date(),
       });
+
+      // Send FCM push to dismiss incoming call UI on mobile
+      sendCallEventPush(recipientId, callerId, 'call_missed').catch(() => { });
+      sendCallEventPush(callerId, recipientId, 'call_missed').catch(() => { });
+
       logger.info(`[Call] Ringing timeout: ${callerId} -> ${recipientId} (no answer after ${CALL_RINGING_TIMEOUT / 1000}s)`);
     }
   }, CALL_RINGING_TIMEOUT);
@@ -613,6 +619,16 @@ export const initializeSocket = async (server) => {
         // Emit only to receiver's personal room (no thread room to avoid duplication)
         io.to(receiverIdStr).emit('newMessage', formattedMessage);
 
+        // Send FCM push for mobile devices (background/killed state)
+        sendMessagePushNotification(receiverIdStr, {
+          senderId: socket.userId,
+          senderName: senderInfo?.name || 'Unknown',
+          senderAvatar: senderInfo?.avatar || '',
+          threadId: messageData.threadId,
+          messagePreview: content.slice(0, 100),
+          messageType: 'text',
+        }).catch((err) => logger.error('[MsgPush] FCM push failed:', { error: err.message }));
+
         // Confirm to sender
         socket.emit('messageSent', {
           messageId: newMessage._id,
@@ -756,8 +772,44 @@ export const initializeSocket = async (server) => {
         logger.info(`[Call] Recipient ${recipientIdStr} status: redisOnline=${isRecipientOnline}`);
 
         if (!isRecipientOnline) {
-          logger.info(`[Call] FAILED: recipient ${recipientIdStr} is offline`);
-          socket.emit('callFailed', { recipientId: recipientIdStr, reason: 'User is offline' });
+          logger.info(`[Call] Recipient ${recipientIdStr} is offline — sending FCM push to wake device`);
+
+          let callerName = 'Unknown User';
+          if (caller?.firstName && caller?.lastName) {
+            callerName = `${caller.firstName} ${caller.lastName}`;
+          } else if (caller?.username) {
+            callerName = caller.username;
+          }
+
+          // Track call so we can clean up on timeout
+          await setActiveCallPeer(userId, recipientIdStr);
+
+          // Create call log
+          try {
+            const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            await CallLog.create({
+              callId,
+              callType: callType === 'video' ? 'video' : 'audio',
+              callerId: userId,
+              receiverId: recipientIdStr,
+              threadId: threadId || undefined,
+              status: 'initiated',
+            });
+          } catch (e) {
+            logger.error('Error creating call log for offline recipient', { error: e.message });
+          }
+
+          // Send FCM push to wake the device — the app will connect via socket on wake
+          sendCallPushNotification(recipientIdStr, {
+            callerId: userId,
+            callerName,
+            callerAvatar: caller?.profilePicture || caller?.avatar || '',
+            callType,
+            threadId,
+          }).catch((err) => logger.error('[Call] FCM push to offline user failed:', { error: err.message }));
+
+          // Start ringing timeout (30s) — if device doesn't wake up, auto-fail
+          setCallRingingTimeout(userId, recipientIdStr, io, socket);
           return;
         }
 
@@ -819,6 +871,16 @@ export const initializeSocket = async (server) => {
 
         logger.info(`[Call] Emitting incomingCall to ${recipientIdStr} from ${userId} (${callerName}), callType: ${callType}`);
 
+        // Verify target has sockets in the room BEFORE emitting (cross-worker via Redis adapter)
+        let roomSocketCount = 0;
+        try {
+          const socketsInRoom = await io.in(recipientIdStr).fetchSockets();
+          roomSocketCount = socketsInRoom.length;
+          logger.info(`[Call] Room ${recipientIdStr} has ${roomSocketCount} socket(s) before emit`);
+        } catch (e) {
+          logger.warn(`[Call] fetchSockets failed for room ${recipientIdStr}: ${e.message}`);
+        }
+
         io.to(recipientIdStr).emit('incomingCall', {
           callerId: userId,
           threadId: threadId,
@@ -831,14 +893,27 @@ export const initializeSocket = async (server) => {
           name: callerName,
         });
 
-        logger.info(`[Call] incomingCall emitted successfully to ${recipientIdStr}`);
+        if (roomSocketCount === 0) {
+          logger.warn(`[Call] WARNING: Room ${recipientIdStr} was EMPTY — recipient won't receive incomingCall via socket. Relying on FCM push.`);
+        } else {
+          logger.info(`[Call] incomingCall emitted successfully to ${recipientIdStr} (${roomSocketCount} socket(s))`);
+        }
+
+        // Send FCM data message for mobile devices (background/killed state)
+        sendCallPushNotification(recipientIdStr, {
+          callerId: userId,
+          callerName,
+          callerAvatar: caller?.profilePicture || caller?.avatar || '',
+          callType,
+          threadId,
+        }).catch((err) => logger.error('[Call] FCM push failed:', { error: err.message }));
 
         // Start ringing timeout — auto-fail if recipient doesn't answer within 30s
         setCallRingingTimeout(userId, recipientIdStr, io, socket);
       } catch (error) {
         logger.error('[Call] Error initiating call', { error: error.message, stack: error.stack });
         // Clean up callpeer keys set earlier in this handler
-        await removeActiveCallPeer(userId).catch(() => {});
+        await removeActiveCallPeer(userId).catch(() => { });
         socket.emit('callFailed', { recipientId, reason: 'Internal server error' });
       }
     });
@@ -926,6 +1001,18 @@ export const initializeSocket = async (server) => {
             timestamp: new Date(),
             name: `${callerName} (${group.name})`,
           });
+
+          // FCM push for group call on mobile
+          sendCallPushNotification(memberId, {
+            callerId: userId,
+            callerName,
+            callerAvatar: callerUser?.profilePicture || callerUser?.avatar || '',
+            callType,
+            threadId: groupId,
+            isGroupCall: true,
+            groupId,
+            groupName: group.name,
+          }).catch((err) => logger.error('[GroupCall] FCM push failed:', { error: err.message }));
         }
 
         if (onlineMembersCount === 0) {
@@ -1219,8 +1306,8 @@ export const initializeSocket = async (server) => {
 
       // Extend TTL for both peers now that call is connected (1 hour)
       if (redisClient?.isOpen) {
-        await redisClient.expire(`callpeer:${callerIdStr}`, 3600).catch(() => {});
-        await redisClient.expire(`callpeer:${userId}`, 3600).catch(() => {});
+        await redisClient.expire(`callpeer:${callerIdStr}`, 3600).catch(() => { });
+        await redisClient.expire(`callpeer:${userId}`, 3600).catch(() => { });
       }
 
       // Mark call as accepted in Redis — so ringing timeout on other workers
@@ -1248,6 +1335,9 @@ export const initializeSocket = async (server) => {
         receiverId: userId,
         threadId: threadId,
       });
+
+      // Notify caller's other devices to dismiss ringing UI
+      sendCallEventPush(callerIdStr, userId, 'call_accepted').catch(() => { });
     });
 
     // Reject call - User B rejects the incoming call
@@ -1278,14 +1368,17 @@ export const initializeSocket = async (server) => {
         receiverId: userId,
         threadId: threadId,
       });
+
+      // Notify caller's mobile device to dismiss call UI
+      sendCallEventPush(callerIdStr, userId, 'call_rejected').catch(() => { });
     });
 
     // Busy signal - recipient is already in a call
     socket.on('callBusy', async ({ callerId, threadId }) => {
       const callerIdStr = callerId?.toString();
       // Clean up callpeer keys since the call can't proceed
-      await removeActiveCallPeer(callerIdStr).catch(() => {});
-      await removeActiveCallPeer(userId).catch(() => {});
+      await removeActiveCallPeer(callerIdStr).catch(() => { });
+      await removeActiveCallPeer(userId).catch(() => { });
       io.to(callerIdStr).emit('callFailed', {
         recipientId: userId,
         threadId: threadId,
@@ -1305,8 +1398,8 @@ export const initializeSocket = async (server) => {
 
       // Clean up call_accepted flag
       if (redisClient?.isOpen) {
-        await redisClient.del(`call_accepted:${userId}:${recipientIdStr}`).catch(() => {});
-        await redisClient.del(`call_accepted:${recipientIdStr}:${userId}`).catch(() => {});
+        await redisClient.del(`call_accepted:${userId}:${recipientIdStr}`).catch(() => { });
+        await redisClient.del(`call_accepted:${recipientIdStr}:${userId}`).catch(() => { });
       }
 
       // Clean up peer tracking
@@ -1351,6 +1444,9 @@ export const initializeSocket = async (server) => {
         threadId: threadId,
         endedAt: new Date(),
       });
+
+      // Notify recipient's mobile device to dismiss call UI
+      sendCallEventPush(recipientIdStr, userId, 'call_ended').catch(() => { });
     });
 
     // WebRTC signaling (SDP Offer/Answer/ICE)
@@ -1366,10 +1462,10 @@ export const initializeSocket = async (server) => {
         callType: callType,
         callerInfo: userInfo
           ? {
-              userId: socket.userId,
-              userName: userInfo.name,
-              userAvatar: userInfo.avatar,
-            }
+            userId: socket.userId,
+            userName: userInfo.name,
+            userAvatar: userInfo.avatar,
+          }
           : { userId: socket.userId, userName: 'Unknown', userAvatar: '' },
       });
     });
@@ -1384,10 +1480,10 @@ export const initializeSocket = async (server) => {
         callType: callType,
         answererInfo: userInfo
           ? {
-              userId: socket.userId,
-              userName: userInfo.name,
-              userAvatar: userInfo.avatar,
-            }
+            userId: socket.userId,
+            userName: userInfo.name,
+            userAvatar: userInfo.avatar,
+          }
           : { userId: socket.userId, userName: 'Unknown', userAvatar: '' },
       });
     });
@@ -1454,6 +1550,8 @@ export const initializeSocket = async (server) => {
             reason: 'User disconnected',
             endedAt: new Date(),
           });
+          // FCM push to peer's mobile to dismiss call UI
+          sendCallEventPush(peerId, userId, 'call_ended').catch(() => { });
           logger.info(`[Socket] Call cleanup: notified peer ${peerId} that ${userId} disconnected`);
         }
 
@@ -1545,14 +1643,14 @@ export const initializeSocket = async (server) => {
             }
             // It's (or was) our socket and it's gone — remove from Redis SET
             if (!localSocketIds.has(socketId)) {
-              await redisClient.sRem(`online:${userId}`, socketId).catch(() => {});
+              await redisClient.sRem(`online:${userId}`, socketId).catch(() => { });
               cleanedSockets++;
             }
           }
           // If the SET is now empty, clean up the key entirely
           const remaining = await redisClient.sCard(`online:${userId}`);
           if (remaining === 0) {
-            await redisClient.del(`online:${userId}`).catch(() => {});
+            await redisClient.del(`online:${userId}`).catch(() => { });
             onlineUsers.delete(userId);
             cleanedUsers++;
             // Notify clients this user is offline
@@ -1680,7 +1778,7 @@ async function getValidatedOnlineUsers() {
     for (const userId of keysToDelete) {
       delPipeline.del(`online:${userId}`);
     }
-    delPipeline.exec().catch(() => {});
+    delPipeline.exec().catch(() => { });
   }
 
   return validatedUsers;

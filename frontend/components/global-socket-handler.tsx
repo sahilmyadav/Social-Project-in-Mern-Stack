@@ -2,15 +2,16 @@
 
 import { getAccessToken, isTokenExpiring, redirectToLogin, refreshAccessToken } from '@/lib/auth';
 import {
-    disconnectSocket,
-    emitUserOffline,
-    emitUserOnline,
-    getSocket,
-    initSocket,
-    isCallActive,
-    isSocketConnected,
-    reconnectSocket,
+  disconnectSocket,
+  emitUserOffline,
+  emitUserOnline,
+  getSocket,
+  initSocket,
+  isCallActive,
+  isSocketConnected,
+  reconnectSocket,
 } from '@/lib/socket';
+import { useFCM } from '@/hooks/use-fcm';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -68,6 +69,19 @@ export default function GlobalSocketHandler() {
   const reconnectAttempts = useRef(0);
   const healthCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const onlineStatusInterval = useRef<NodeJS.Timeout | null>(null);
+
+  // FCM push notification integration
+  useFCM(isLoggedIn, (payload) => {
+    // Foreground FCM messages — show toast (browser notif handled by onMessage)
+    const data = payload.data || {};
+    const notification = payload.notification;
+    if (notification?.title && data.type !== 'incoming_call' && data.type !== 'incoming_group_call') {
+      toast.message(notification.title, {
+        description: notification.body,
+        duration: 5000,
+      });
+    }
+  });
 
   const performHealthCheck = useCallback(async () => {
     const token = localStorage.getItem('accessToken');

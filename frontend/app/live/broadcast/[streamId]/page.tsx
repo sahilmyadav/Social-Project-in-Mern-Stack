@@ -868,7 +868,7 @@ export default function BroadcastPage() {
                   playsInline
                   webkit-playsinline="true"
                   className={cn('w-full h-full object-cover', !isCameraOn && 'hidden')}
-                  style={{ transform: 'scaleX(-1)' }} // Mirror for selfie view
+                  style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
                 />
 
                 {!isCameraOn && (

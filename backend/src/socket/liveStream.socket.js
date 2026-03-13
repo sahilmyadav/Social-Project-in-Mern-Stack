@@ -4,6 +4,7 @@ import { LiveStreamComment } from '../models/liveStreamComment.model.js';
 import { LiveStreamViewer } from '../models/liveStreamViewer.model.js';
 import { Notification } from '../models/notification.model.js';
 import { User } from '../models/user.model.js';
+import { sendLiveStreamPush } from '../services/firebase.service.js';
 import logger from '../utils/logger.js';
 
 export const liveStreamSocket = (io, socket, userId) => {
@@ -84,6 +85,15 @@ export const liveStreamSocket = (io, socket, userId) => {
           io.to(followerId).emit('newNotification', {
             notification: notification.toObject(),
           });
+
+          // FCM push for live stream to all devices (web + mobile)
+          sendLiveStreamPush(followerId, {
+            streamId,
+            streamerId: userId,
+            streamerName: `${streamer?.firstName || ''} ${streamer?.lastName || ''}`.trim(),
+            streamerAvatar: streamer?.profilePicture || streamer?.avatar,
+            thumbnail: liveStream.thumbnail,
+          }).catch(() => { });
         } catch (err) {
           logger.error(`Failed to create notification for follower ${followerId}`, {
             error: err.message,

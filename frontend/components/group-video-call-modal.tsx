@@ -949,7 +949,7 @@ export default function GroupVideoCallModal({
                       muted
                       playsInline
                       className="absolute inset-0 w-full h-full object-cover mirror"
-                      style={{ transform: 'scaleX(-1)' }}
+                      style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
                     />
                   ) : (
                     <video

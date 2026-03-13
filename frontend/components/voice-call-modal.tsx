@@ -170,11 +170,6 @@ export default function VoiceCallModal({
           try {
             const peerConnection = await createPeerConnection();
 
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-
-            emitOffer(recipientId, offer as any);
-
             const handleAnswer = async (answerData: any) => {
               try {
                 // Skip group call signals — prevent cross-talk
@@ -192,9 +187,21 @@ export default function VoiceCallModal({
                   return;
                 }
 
+                console.log('[VoiceCall] Processing answer from callee');
                 const answer = new RTCSessionDescription(answerData.answer);
                 await peerConnection.setRemoteDescription(answer);
                 remoteDescriptionSet.current = true;
+
+                // Ensure remote audio is attached after remote description is set
+                if (remoteAudioRef.current && !remoteAudioRef.current.srcObject) {
+                  const receivers = peerConnection.getReceivers();
+                  const audioReceiver = receivers.find((r) => r.track?.kind === 'audio');
+                  if (audioReceiver?.track) {
+                    console.log('[VoiceCall] Attaching remote audio from receiver (fallback)');
+                    remoteAudioRef.current.srcObject = new MediaStream([audioReceiver.track]);
+                    remoteAudioRef.current.play().catch(() => { });
+                  }
+                }
 
                 for (const candidate of iceCandidatesQueue.current) {
                   try {
@@ -244,6 +251,7 @@ export default function VoiceCallModal({
               }
             };
 
+            // Register answer/ICE handlers BEFORE sending offer to avoid race
             if (handlersRef.current.answer) {
               offAnswer(handlersRef.current.answer);
             }
@@ -255,6 +263,11 @@ export default function VoiceCallModal({
             handlersRef.current.iceCandidate = handleCandidate;
             onAnswer(handleAnswer);
             onIceCandidate(handleCandidate);
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            emitOffer(recipientId, offer as any);
           } catch (error) {
             setCallStatus('ended');
           }
@@ -390,9 +403,21 @@ export default function VoiceCallModal({
       }
 
       peerConnection.ontrack = (event) => {
-        if (remoteAudioRef.current && event.streams[0]) {
-          remoteAudioRef.current.srcObject = event.streams[0];
+        console.log('[VoiceCall] ontrack:', event.track.kind, 'streams:', event.streams.length, 'track.enabled:', event.track.enabled, 'track.readyState:', event.track.readyState);
+        if (!remoteAudioRef.current) {
+          console.warn('[VoiceCall] ontrack: remoteAudioRef not ready');
+          return;
         }
+        // Use event stream or create one from the track (Unified Plan can send empty streams)
+        const stream = event.streams[0] || new MediaStream([event.track]);
+        remoteAudioRef.current.srcObject = stream;
+        remoteAudioRef.current.play().catch((err) => {
+          console.warn('[VoiceCall] Audio play blocked, retrying on user gesture:', err.message);
+          // Retry once after a short delay (autoplay policy may resolve)
+          setTimeout(() => {
+            remoteAudioRef.current?.play().catch(() => { });
+          }, 500);
+        });
       };
 
       peerConnection.onicecandidate = (event) => {
@@ -706,8 +731,8 @@ export default function VoiceCallModal({
           <div className="relative mb-8">
             <div className="w-32 h-32 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-7xl shadow-2xl border-4 border-white/10">
               {recipientAvatar?.startsWith('http') ||
-              recipientAvatar?.startsWith('/') ||
-              recipientAvatar?.startsWith('uploads') ? (
+                recipientAvatar?.startsWith('/') ||
+                recipientAvatar?.startsWith('uploads') ? (
                 <img
                   src={getMediaUrl(recipientAvatar)}
                   alt={recipientName}
@@ -719,9 +744,8 @@ export default function VoiceCallModal({
             </div>
 
             <div
-              className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center ${
-                callStatus === 'active' ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
-              }`}
+              className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center ${callStatus === 'active' ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
+                }`}
             />
           </div>
 
@@ -832,11 +856,10 @@ export default function VoiceCallModal({
               <>
                 <button
                   onClick={toggleMic}
-                  className={`w-14 h-14 rounded-full transition transform active:scale-95 shadow-lg flex items-center justify-center ${
-                    isMicOn
-                      ? 'bg-gray-700 hover:bg-gray-600 hover:shadow-gray-600/50'
-                      : 'bg-red-500 hover:bg-red-600 hover:shadow-red-500/50'
-                  }`}
+                  className={`w-14 h-14 rounded-full transition transform active:scale-95 shadow-lg flex items-center justify-center ${isMicOn
+                    ? 'bg-gray-700 hover:bg-gray-600 hover:shadow-gray-600/50'
+                    : 'bg-red-500 hover:bg-red-600 hover:shadow-red-500/50'
+                    }`}
                   title={isMicOn ? 'Mute' : 'Unmute'}
                 >
                   {isMicOn ? (
@@ -848,11 +871,10 @@ export default function VoiceCallModal({
 
                 <button
                   onClick={toggleSpeaker}
-                  className={`w-14 h-14 rounded-full transition transform active:scale-95 shadow-lg flex items-center justify-center ${
-                    isSpeakerOn
-                      ? 'bg-gray-700 hover:bg-gray-600 hover:shadow-gray-600/50'
-                      : 'bg-yellow-500 hover:bg-yellow-600 hover:shadow-yellow-500/50'
-                  }`}
+                  className={`w-14 h-14 rounded-full transition transform active:scale-95 shadow-lg flex items-center justify-center ${isSpeakerOn
+                    ? 'bg-gray-700 hover:bg-gray-600 hover:shadow-gray-600/50'
+                    : 'bg-yellow-500 hover:bg-yellow-600 hover:shadow-yellow-500/50'
+                    }`}
                   title={isSpeakerOn ? 'Speaker on' : 'Speaker off'}
                 >
                   {isSpeakerOn ? (
@@ -890,8 +912,8 @@ export default function VoiceCallModal({
         </div>
       </div>
 
-      <audio ref={localAudioRef} muted />
-      <audio ref={remoteAudioRef} autoPlay />
+      <audio ref={localAudioRef} muted playsInline />
+      <audio ref={remoteAudioRef} autoPlay playsInline />
     </div>
   );
 }
