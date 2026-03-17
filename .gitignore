@@ -3,13 +3,7 @@
 # ===================
 # Environment Files
 # ===================
-.env
-.env.local
-.env.development
-.env.production
-.env.*.local
-backend/.env
-backend/.env.production
+# .env files are tracked intentionally
 !.env.example
 !backend/.env.example
 
