@@ -51,7 +51,8 @@ export const initSocket = (token: string) => {
 
   socket = io(API_CONFIG.SOCKET_URL, {
     auth: { token },
-    transports: ['polling', 'websocket'],
+    transports: ['websocket'],
+    upgrade: false,
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,

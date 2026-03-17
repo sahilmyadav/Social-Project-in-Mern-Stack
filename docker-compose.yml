@@ -14,19 +14,22 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - REDIS_URL=redis://host.docker.internal:6379
+      - REDIS_URL=redis://redis:6379
       - MONGO_URL=mongodb://mongo:27017/${DB_NAME:-social_media_app}
       - ENABLE_CLUSTER=true
       - CLUSTER_WORKERS=10
       - UV_THREADPOOL_SIZE=24
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/.gcloud/application_default_credentials.json
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-clickme-2026}
     ports:
       - '5000:5000'
     volumes:
       - ./backend/uploads:/app/uploads
+      - /home/clickme/.config/gcloud:/app/.gcloud:ro
     depends_on:
       mongo:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - social-network
@@ -38,9 +41,9 @@ services:
         reservations:
           cpus: '4'
           memory: 4G
-    command: ["node", "src/cluster.js"]
+    command: [ "node", "src/cluster.js" ]
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:5000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:5000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -56,8 +59,25 @@ services:
         NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:?Set NEXT_PUBLIC_SOCKET_URL in .env}
         NEXT_PUBLIC_ENCRYPTION_KEY: ${NEXT_PUBLIC_ENCRYPTION_KEY:?Set NEXT_PUBLIC_ENCRYPTION_KEY in .env}
         NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: ${NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME:-}
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:-}
+        NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_FIREBASE_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_VAPID_KEY:-}
     container_name: social-frontend
     restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+      - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-}
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
+      - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-}
+      - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}
+      - NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID:-}
+      - NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}
+      - NEXT_PUBLIC_FIREBASE_VAPID_KEY=${NEXT_PUBLIC_FIREBASE_VAPID_KEY:-}
     ports:
       - '3000:3000'
     depends_on:
@@ -73,7 +93,7 @@ services:
           cpus: '2'
           memory: 1G
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3000/').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -85,11 +105,7 @@ services:
     container_name: social-mongo
     restart: unless-stopped
     command: >
-      mongod
-      --wiredTigerCacheSizeGB 12
-      --wiredTigerCollectionBlockCompressor zstd
-      --wiredTigerJournalCompressor zstd
-      --setParameter diagnosticDataCollectionEnabled=false
+      mongod --wiredTigerCacheSizeGB 12 --wiredTigerCollectionBlockCompressor zstd --wiredTigerJournalCompressor zstd --setParameter diagnosticDataCollectionEnabled=false
     volumes:
       - mongo-data:/data/db
     ports:
@@ -105,11 +121,38 @@ services:
           cpus: '2'
           memory: 6G
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
+
+  # Redis — in-memory store for Socket.IO adapter & online user tracking
+  redis:
+    image: redis:7-alpine
+    container_name: social-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - '6379:6379'
+    networks:
+      - social-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 networks:
   social-network:
@@ -117,3 +160,4 @@ networks:
 
 volumes:
   mongo-data:
+  redis-data:

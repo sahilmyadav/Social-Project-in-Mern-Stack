@@ -4,6 +4,7 @@ import { LiveStreamComment } from '../models/liveStreamComment.model.js';
 import { LiveStreamViewer } from '../models/liveStreamViewer.model.js';
 import { Notification } from '../models/notification.model.js';
 import { User } from '../models/user.model.js';
+import { sendLiveStreamPush } from '../services/firebase.service.js';
 import logger from '../utils/logger.js';
 
 export const liveStreamSocket = (io, socket, userId) => {
@@ -84,6 +85,15 @@ export const liveStreamSocket = (io, socket, userId) => {
           io.to(followerId).emit('newNotification', {
             notification: notification.toObject(),
           });
+
+          // FCM push for live stream to all devices (web + mobile)
+          sendLiveStreamPush(followerId, {
+            streamId,
+            streamerId: userId,
+            streamerName: `${streamer?.firstName || ''} ${streamer?.lastName || ''}`.trim(),
+            streamerAvatar: streamer?.profilePicture || streamer?.avatar,
+            thumbnail: liveStream.thumbnail,
+          }).catch(() => { });
         } catch (err) {
           logger.error(`Failed to create notification for follower ${followerId}`, {
             error: err.message,
@@ -163,29 +173,35 @@ export const liveStreamSocket = (io, socket, userId) => {
       // Join the stream room
       socket.join(`stream:${streamId}`);
 
-      // Check if viewer already exists
-      let viewer = await LiveStreamViewer.findOne({
-        liveStreamId: streamId,
-        userId: userId,
-      });
+      // Don't count the broadcaster as a viewer
+      const isBroadcaster = liveStream.streamerId.toString() === userId.toString();
 
-      if (!viewer) {
-        // Create new viewer record
-        viewer = await LiveStreamViewer.create({
+      let viewer = null;
+      if (!isBroadcaster) {
+        // Check if viewer already exists
+        viewer = await LiveStreamViewer.findOne({
           liveStreamId: streamId,
           userId: userId,
-          joinedAt: new Date(),
         });
 
-        // Increment viewer count (atomic)
-        await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
-      } else if (viewer.leftAt) {
-        // Viewer rejoining
-        viewer.leftAt = null;
-        viewer.joinedAt = new Date();
-        await viewer.save();
+        if (!viewer) {
+          // Create new viewer record
+          viewer = await LiveStreamViewer.create({
+            liveStreamId: streamId,
+            userId: userId,
+            joinedAt: new Date(),
+          });
 
-        await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
+          // Increment viewer count (atomic)
+          await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
+        } else if (viewer.leftAt) {
+          // Viewer rejoining
+          viewer.leftAt = null;
+          viewer.joinedAt = new Date();
+          await viewer.save();
+
+          await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
+        }
       }
 
       // Get viewer info
@@ -193,29 +209,15 @@ export const liveStreamSocket = (io, socket, userId) => {
         'firstName lastName username profilePicture avatar'
       );
 
-      // Notify broadcaster and all viewers about new viewer
-      // Include viewerId (the userId) for WebRTC signaling
-      io.to(`stream:${streamId}`).emit('viewerJoined', {
-        streamId,
-        viewerId: userId.toString(), // Used for WebRTC peer connection
-        viewerSocketId: socket.id, // Socket ID for direct communication
-        viewerCount: liveStream.viewerCount,
-        viewer: {
-          _id: userId,
-          firstName: viewerInfo?.firstName,
-          lastName: viewerInfo?.lastName,
-          username: viewerInfo?.username,
-          profilePicture: viewerInfo?.profilePicture,
-          avatar: viewerInfo?.avatar,
-        },
-      });
+      // Re-read the updated viewer count after $inc
+      const updatedStream = await LiveStream.findById(streamId).select('viewerCount streamerId');
+      const currentViewerCount = updatedStream?.viewerCount || liveStream.viewerCount;
 
-      // Also notify the broadcaster specifically so they can initiate WebRTC
-      io.to(liveStream.streamerId.toString()).emit('viewerJoined', {
+      const viewerData = {
         streamId,
         viewerId: userId.toString(),
         viewerSocketId: socket.id,
-        viewerCount: liveStream.viewerCount,
+        viewerCount: currentViewerCount,
         viewer: {
           _id: userId,
           firstName: viewerInfo?.firstName,
@@ -224,11 +226,16 @@ export const liveStreamSocket = (io, socket, userId) => {
           profilePicture: viewerInfo?.profilePicture,
           avatar: viewerInfo?.avatar,
         },
-      });
+      };
+
+      if (!isBroadcaster) {
+        // Notify all in room including broadcaster (triggers WebRTC offer)
+        io.to(`stream:${streamId}`).emit('viewerJoined', viewerData);
+      }
 
       socket.emit('liveStreamJoinSuccess', {
         streamId,
-        viewerCount: liveStream.viewerCount,
+        viewerCount: currentViewerCount,
         broadcasterId: liveStream.streamerId.toString(),
       });
     } catch (error) {
@@ -241,6 +248,14 @@ export const liveStreamSocket = (io, socket, userId) => {
   socket.on('leaveLiveStream', async (data) => {
     try {
       const { streamId } = data;
+
+      // Check if user is the broadcaster (they were never counted as a viewer)
+      const stream = await LiveStream.findById(streamId).select('streamerId');
+      if (stream && stream.streamerId.toString() === userId.toString()) {
+        socket.leave(`stream:${streamId}`);
+        socket.emit('liveStreamLeaveSuccess', { streamId });
+        return;
+      }
 
       const viewer = await LiveStreamViewer.findOne({
         liveStreamId: streamId,

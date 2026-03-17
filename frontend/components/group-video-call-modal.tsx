@@ -18,7 +18,7 @@ import {
   RING_TIMEOUT_MS,
   VIDEO_CONSTRAINTS_GROUP,
 } from '@/lib/webrtc';
-import { Mic, MicOff, PhoneOff, Users, Video, VideoOff, X } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, RefreshCw, Users, Video, VideoOff, Volume2, VolumeX, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Participant {
@@ -68,6 +68,8 @@ export default function GroupVideoCallModal({
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [callDuration, setCallDuration] = useState(0);
   const [localStreamReady, setLocalStreamReady] = useState(false);
   const [hasUserAccepted, setHasUserAccepted] = useState(!isIncomingCall);
@@ -806,6 +808,58 @@ export default function GroupVideoCallModal({
     }
   };
 
+  const toggleSpeaker = () => {
+    const newSpeakerState = !isSpeakerOn;
+    setIsSpeakerOn(newSpeakerState);
+    // Mute/unmute all remote video elements
+    videoElementsRef.current.forEach((el) => {
+      el.muted = !newSpeakerState;
+    });
+  };
+
+  const switchCamera = async () => {
+    if (!localStreamRef.current) return;
+    try {
+      const newFacing = facingMode === 'user' ? 'environment' : 'user';
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { ...VIDEO_CONSTRAINTS_GROUP, facingMode: newFacing },
+        audio: AUDIO_CONSTRAINTS,
+      });
+
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (newVideoTrack) {
+        // Replace video track in all peer connections
+        peerConnectionsRef.current.forEach((pc) => {
+          const senders = pc.getSenders();
+          const videoSender = senders.find((s) => s.track?.kind === 'video');
+          if (videoSender) {
+            videoSender.replaceTrack(newVideoTrack).catch(() => {});
+          }
+        });
+
+        // Stop old video track and swap in local stream
+        const oldVideoTrack = localStreamRef.current!.getVideoTracks()[0];
+        if (oldVideoTrack) {
+          oldVideoTrack.stop();
+          localStreamRef.current!.removeTrack(oldVideoTrack);
+        }
+        localStreamRef.current!.addTrack(newVideoTrack);
+      }
+
+      // Stop unused audio track from new stream (we keep the original)
+      newStream.getAudioTracks().forEach((t) => t.stop());
+
+      // Update local video preview
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+
+      setFacingMode(newFacing);
+    } catch (error) {
+      console.warn('[GroupVideoCall] Could not switch camera:', (error as Error).message);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -895,7 +949,7 @@ export default function GroupVideoCallModal({
                       muted
                       playsInline
                       className="absolute inset-0 w-full h-full object-cover mirror"
-                      style={{ transform: 'scaleX(-1)' }}
+                      style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
                     />
                   ) : (
                     <video
@@ -956,19 +1010,6 @@ export default function GroupVideoCallModal({
             ) : (
               <>
                 <button
-                  onClick={toggleMute}
-                  className={`p-4 rounded-full transition shadow-lg ${
-                    !isMuted ? 'bg-white/20 hover:bg-white/30' : 'bg-red-500 hover:bg-red-600'
-                  }`}
-                >
-                  {!isMuted ? (
-                    <Mic size={24} className="text-white" />
-                  ) : (
-                    <MicOff size={24} className="text-white" />
-                  )}
-                </button>
-
-                <button
                   onClick={toggleVideo}
                   className={`p-4 rounded-full transition shadow-lg ${
                     !isVideoOff
@@ -984,10 +1025,50 @@ export default function GroupVideoCallModal({
                 </button>
 
                 <button
+                  onClick={switchCamera}
+                  disabled={isVideoOff}
+                  className={`p-4 rounded-full transition shadow-lg ${
+                    isVideoOff
+                      ? 'bg-white/10 opacity-50 cursor-not-allowed'
+                      : 'bg-white/20 hover:bg-white/30'
+                  }`}
+                >
+                  <RefreshCw size={24} className="text-white" />
+                </button>
+
+                <button
+                  onClick={toggleSpeaker}
+                  className={`p-4 rounded-full transition shadow-lg ${
+                    isSpeakerOn
+                      ? 'bg-white/20 hover:bg-white/30'
+                      : 'bg-red-500 hover:bg-red-600'
+                  }`}
+                >
+                  {isSpeakerOn ? (
+                    <Volume2 size={24} className="text-white" />
+                  ) : (
+                    <VolumeX size={24} className="text-white" />
+                  )}
+                </button>
+
+                <button
                   onClick={endCall}
                   className="p-4 rounded-full bg-red-500 hover:bg-red-600 transition shadow-lg"
                 >
                   <PhoneOff size={28} className="text-white" />
+                </button>
+
+                <button
+                  onClick={toggleMute}
+                  className={`p-4 rounded-full transition shadow-lg ${
+                    !isMuted ? 'bg-white/20 hover:bg-white/30' : 'bg-red-500 hover:bg-red-600'
+                  }`}
+                >
+                  {!isMuted ? (
+                    <Mic size={24} className="text-white" />
+                  ) : (
+                    <MicOff size={24} className="text-white" />
+                  )}
                 </button>
               </>
             )}

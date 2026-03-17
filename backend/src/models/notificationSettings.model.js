@@ -49,6 +49,14 @@ const notificationSettingsSchema = new mongoose.Schema(
           type: Boolean,
           default: true,
         },
+        messages: {
+          type: Boolean,
+          default: true,
+        },
+        calls: {
+          type: Boolean,
+          default: true,
+        },
         live_invites: {
           type: Boolean,
           default: true,

@@ -8,6 +8,7 @@ import { GroupChat } from '../models/groupChat.model.js';
 import { GroupMessage } from '../models/groupMessage.model.js';
 import { User } from '../models/user.model.js';
 import { encryptMessage } from '../utils/encryption.js';
+import { sendMessagePushNotification, sendPushNotification } from '../services/firebase.service.js';
 import logger from '../utils/logger.js';
 
 export default function groupSocket(io, socket, userId) {
@@ -138,20 +139,53 @@ export default function groupSocket(io, socket, userId) {
             groupAvatar: group.avatar,
             message: decryptedMessage,
           });
+
+          // FCM push for group messages on mobile
+          sendMessagePushNotification(member.user.toString(), {
+            senderId: userId,
+            senderName: populatedMessage.senderId
+              ? `${populatedMessage.senderId.firstName} ${populatedMessage.senderId.lastName}`
+              : 'Unknown',
+            senderAvatar: populatedMessage.senderId?.avatar || '',
+            threadId: groupId,
+            messagePreview: text?.slice(0, 100) || 'New message',
+            messageType,
+            isGroupMessage: true,
+            groupName: group.name,
+          }).catch(() => { });
         }
       });
 
-      // Handle mentions
+      // Handle mentions — emit socket + send FCM push
       if (mentions.length > 0) {
-        mentions.forEach((mentionedUserId) => {
-          io.to(mentionedUserId.toString()).emit('mentioned', {
+        const sender = populatedMessage.senderId;
+        const senderName = sender
+          ? `${sender.firstName} ${sender.lastName}`
+          : 'Someone';
+
+        for (const mentionedUserId of mentions) {
+          const mentionId = mentionedUserId.toString();
+          if (mentionId === userId) continue; // Don't notify self
+
+          io.to(mentionId).emit('mentioned', {
             type: 'group',
             groupId,
             messageId: message._id,
             by: userId,
             groupName: group.name,
           });
-        });
+
+          // FCM push for mentioned users
+          sendPushNotification(mentionId, {
+            type: 'mention',
+            title: `${senderName} mentioned you`,
+            message: `in ${group.name}: ${text?.slice(0, 80) || 'a message'}`,
+            thumbnail: sender?.avatar || '',
+            reference_id: groupId,
+            action_url: `/chat/group/${groupId}`,
+            sender_id: userId,
+          }).catch(() => { });
+        }
       }
 
       // Confirm to sender

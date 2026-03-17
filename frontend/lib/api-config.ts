@@ -129,6 +129,8 @@ export const API_ENDPOINTS = {
     GET_UNREAD_COUNT: '/notifications/unread-count',
     GET_SETTINGS: '/notifications/settings',
     UPDATE_SETTINGS: '/notifications/settings/update',
+    REGISTER_FCM_TOKEN: '/notifications/register-token',
+    UNREGISTER_FCM_TOKEN: '/notifications/unregister-token',
   },
 
   SEARCH: {

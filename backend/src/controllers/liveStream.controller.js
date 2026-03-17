@@ -7,6 +7,10 @@ import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import { uploadFile } from '../utils/localStorage.js';
+import logger from '../utils/logger.js';
+
+// Max age for a live stream before it's considered stale (24 hours)
+const MAX_LIVE_STREAM_AGE_MS = 24 * 60 * 60 * 1000;
 
 // ==================== 1. CREATE LIVE STREAM ====================
 export const createLiveStream = asyncHandler(async (req, res) => {
@@ -106,6 +110,26 @@ export const endLiveStream = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, liveStream, 'Live stream ended successfully'));
 });
 
+
+
+// Transform populated streamerId into a streamer field for frontend compatibility
+const formatLiveStream = (stream) => {
+  const obj = stream.toObject ? stream.toObject() : { ...stream };
+  if (obj.streamerId && typeof obj.streamerId === 'object') {
+    obj.streamer = {
+      _id: obj.streamerId._id,
+      username: obj.streamerId.username,
+      fullName: `${obj.streamerId.firstName || ''} ${obj.streamerId.lastName || ''}`.trim(),
+      firstName: obj.streamerId.firstName,
+      lastName: obj.streamerId.lastName,
+      profilePicture: obj.streamerId.profilePicture || obj.streamerId.avatar,
+      avatar: obj.streamerId.avatar,
+    };
+    obj.streamerId = obj.streamer._id;
+  }
+  return obj;
+};
+
 // ==================== 4. GET LIVE STREAM DETAILS ====================
 export const getLiveStreamDetails = asyncHandler(async (req, res) => {
   const { streamId } = req.params;
@@ -121,32 +145,47 @@ export const getLiveStreamDetails = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, liveStream, 'Live stream details fetched successfully'));
+    .json(new ApiResponse(200, formatLiveStream(liveStream), 'Live stream details fetched successfully'));
 });
 
-// ==================== 5. GET ACTIVE LIVE STREAMS (FROM FOLLOWED USERS) ====================
+
+
+// ==================== 5. GET ACTIVE LIVE STREAMS (FROM FOLLOWED + FOLLOWERS) ====================
 export const getActiveLiveStreams = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
-  // Get list of users that the current user follows
+  // Get users the current user follows
   const following = await Followers.find({
     follower_id: userId,
     status: 'accepted',
   }).select('following_id');
 
-  const followingIds = following.map((f) => f.following_id);
+  // Get users who follow the current user (friends/followers)
+  const followers = await Followers.find({
+    following_id: userId,
+    status: 'accepted',
+  }).select('follower_id');
 
-  // Find active live streams from followed users
+  // Combine both lists (following + followers) and deduplicate
+  const followingIds = following.map((f) => f.following_id.toString());
+  const followerIds = followers.map((f) => f.follower_id.toString());
+  const connectedUserIds = [...new Set([...followingIds, ...followerIds])];
+
+  // Find active live streams from connected users (exclude stale streams)
+  const staleThreshold = new Date(Date.now() - MAX_LIVE_STREAM_AGE_MS);
   const liveStreams = await LiveStream.find({
-    streamerId: { $in: followingIds },
+    streamerId: { $in: connectedUserIds },
     status: 'live',
+    startedAt: { $gte: staleThreshold },
   })
     .populate('streamerId', 'firstName lastName username profilePicture avatar')
     .sort({ startedAt: -1 });
 
+  const formatted = liveStreams.map(formatLiveStream);
+
   return res
     .status(200)
-    .json(new ApiResponse(200, liveStreams, 'Active live streams fetched successfully'));
+    .json(new ApiResponse(200, formatted, 'Active live streams fetched successfully'));
 });
 
 // ==================== 6. GET ALL LIVE STREAMS (PUBLIC) ====================
@@ -155,19 +194,25 @@ export const getAllLiveStreams = asyncHandler(async (req, res) => {
 
   const skip = (page - 1) * limit;
 
-  const liveStreams = await LiveStream.find({ status: 'live' })
+  // Exclude streams older than 24h — they are stale/zombie streams
+  const staleThreshold = new Date(Date.now() - MAX_LIVE_STREAM_AGE_MS);
+  const liveQuery = { status: 'live', startedAt: { $gte: staleThreshold } };
+
+  const liveStreams = await LiveStream.find(liveQuery)
     .populate('streamerId', 'firstName lastName username profilePicture avatar')
     .sort({ viewerCount: -1, startedAt: -1 })
     .skip(skip)
     .limit(parseInt(limit));
 
-  const total = await LiveStream.countDocuments({ status: 'live' });
+  const formatted = liveStreams.map(formatLiveStream);
+
+  const total = await LiveStream.countDocuments(liveQuery);
 
   return res.status(200).json(
     new ApiResponse(
       200,
       {
-        liveStreams,
+        liveStreams: formatted,
         pagination: {
           total,
           page: parseInt(page),
@@ -195,29 +240,35 @@ export const joinLiveStream = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Stream is not currently live');
   }
 
-  // Check if viewer already exists
-  let viewer = await LiveStreamViewer.findOne({
-    liveStreamId: streamId,
-    userId: userId,
-  });
+  // Don't count the broadcaster as a viewer
+  const isBroadcaster = liveStream.streamerId.toString() === userId.toString();
 
-  if (!viewer) {
-    // Create new viewer record
-    viewer = await LiveStreamViewer.create({
+  let viewer = null;
+  if (!isBroadcaster) {
+    // Check if viewer already exists
+    viewer = await LiveStreamViewer.findOne({
       liveStreamId: streamId,
       userId: userId,
-      joinedAt: new Date(),
     });
 
-    // Increment viewer count (atomic)
-    await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
-  } else if (viewer.leftAt) {
-    // Viewer rejoining
-    viewer.leftAt = null;
-    viewer.joinedAt = new Date();
-    await viewer.save();
+    if (!viewer) {
+      // Create new viewer record
+      viewer = await LiveStreamViewer.create({
+        liveStreamId: streamId,
+        userId: userId,
+        joinedAt: new Date(),
+      });
 
-    await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
+      // Increment viewer count (atomic)
+      await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
+    } else if (viewer.leftAt) {
+      // Viewer rejoining
+      viewer.leftAt = null;
+      viewer.joinedAt = new Date();
+      await viewer.save();
+
+      await LiveStream.updateOne({ _id: streamId }, { $inc: { viewerCount: 1 } });
+    }
   }
 
   // Re-fetch for response
@@ -406,3 +457,46 @@ export const deleteLiveStream = asyncHandler(async (req, res) => {
 
   return res.status(200).json(new ApiResponse(200, null, 'Live stream deleted successfully'));
 });
+
+// ==================== STALE STREAM CLEANUP ====================
+
+/**
+ * Clean up stale/zombie live streams that were never properly ended.
+ * This handles cases where the server restarts or the broadcaster
+ * disconnects without the socket disconnect handler firing.
+ */
+export const cleanupStaleLiveStreams = async () => {
+  try {
+    const staleThreshold = new Date(Date.now() - MAX_LIVE_STREAM_AGE_MS);
+
+    const staleStreams = await LiveStream.updateMany(
+      { status: 'live', startedAt: { $lt: staleThreshold } },
+      { status: 'ended', endedAt: new Date() }
+    );
+
+    if (staleStreams.modifiedCount > 0) {
+      logger.info(`[LiveStream Cleanup] Ended ${staleStreams.modifiedCount} stale live stream(s)`);
+
+      // Also mark their viewers as left
+      await LiveStreamViewer.updateMany(
+        { leftAt: null },
+        { leftAt: new Date() }
+      );
+    }
+  } catch (error) {
+    logger.error('[LiveStream Cleanup] Error cleaning up stale streams', { error: error.message });
+  }
+};
+
+/**
+ * Start periodic cleanup job for stale live streams.
+ * Runs every 30 minutes.
+ */
+export const startLiveStreamCleanupJob = () => {
+  // Run immediately on startup to clean up streams from before the restart
+  cleanupStaleLiveStreams();
+
+  // Then run every 30 minutes
+  setInterval(cleanupStaleLiveStreams, 30 * 60 * 1000);
+  logger.info('[LiveStream Cleanup] Stale stream cleanup job started (every 30 min)');
+};

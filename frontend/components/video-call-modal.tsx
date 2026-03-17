@@ -159,14 +159,14 @@ export default function VideoCallModal({
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setCallStatus('active');
         // Apply bitrate caps once connected
-        applyBitrateCap(pc, BITRATE_LIMITS.video1to1).catch(() => {});
-        applyAudioBitrateCap(pc).catch(() => {});
+        applyBitrateCap(pc, BITRATE_LIMITS.video1to1).catch(() => { });
+        applyAudioBitrateCap(pc).catch(() => { });
         if (iceRestartTimeoutRef.current) {
           clearTimeout(iceRestartTimeoutRef.current);
           iceRestartTimeoutRef.current = null;
         }
       } else if (pc.iceConnectionState === 'disconnected') {
-        // Grace period — attempt ICE restart before giving up
+        // Grace period - attempt ICE restart before giving up
         iceRestartTimeoutRef.current = setTimeout(async () => {
           if (pc.iceConnectionState === 'disconnected') {
             const targetId = incomingFlag ? callerId || recipientId : recipientId;
@@ -178,7 +178,7 @@ export default function VideoCallModal({
         }, ICE_RECONNECT_TIMEOUT_MS);
       } else if (pc.iceConnectionState === 'failed') {
         // Attempt ICE restart before giving up
-        console.log('[VideoCall] ICE failed — attempting restart before ending call');
+        console.log('[VideoCall] ICE failed - attempting restart before ending call');
         iceRestartTimeoutRef.current = setTimeout(async () => {
           if (pc.iceConnectionState === 'failed') {
             try {
@@ -189,7 +189,7 @@ export default function VideoCallModal({
                 // Give the restart 10s to work
                 setTimeout(() => {
                   if (pc.iceConnectionState === 'failed') {
-                    console.log('[VideoCall] ICE restart failed — ending call');
+                    console.log('[VideoCall] ICE restart failed - ending call');
                     handleEndCall();
                   }
                 }, 10000);
@@ -838,8 +838,8 @@ export default function VideoCallModal({
               )}
               <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white/20 bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500">
                 {recipientAvatar?.startsWith('http') ||
-                recipientAvatar?.startsWith('/') ||
-                recipientAvatar?.startsWith('uploads') ? (
+                  recipientAvatar?.startsWith('/') ||
+                  recipientAvatar?.startsWith('uploads') ? (
                   <img
                     src={getMediaUrl(recipientAvatar)}
                     alt={recipientName}
@@ -870,6 +870,7 @@ export default function VideoCallModal({
           playsInline
           muted
           className="w-full h-full object-cover"
+          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
         />
         {isVideoOff && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-800">

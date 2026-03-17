@@ -107,11 +107,15 @@ import {
   offLiveStreamIceCandidate,
   offLiveStreamOffer,
   offViewerCountUpdate,
+  offViewerJoined,
+  offViewerLeft,
   onLiveComment,
   onLiveStreamEnded,
   onLiveStreamIceCandidate,
   onLiveStreamOffer,
   onViewerCountUpdate,
+  onViewerJoined,
+  onViewerLeft,
 } from '@/lib/socket';
 import { cn } from '@/lib/utils';
 import { LiveComment, LiveStream } from '@/types/live';
@@ -625,6 +629,11 @@ export default function WatchLivePage() {
       }
     });
 
+    const handleBeforeUnload = () => {
+      emitLeaveLiveStream(streamId);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
@@ -633,6 +642,7 @@ export default function WatchLivePage() {
     return () => {
       emitLeaveLiveStream(streamId);
       cleanupPeerConnection(peerConnectionRef.current);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, [streamId]);
