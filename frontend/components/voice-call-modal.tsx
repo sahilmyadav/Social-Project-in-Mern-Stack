@@ -39,7 +39,7 @@ import {
   isGroupCallSignal,
   registerBeforeUnloadCleanup,
 } from '@/lib/webrtc';
-import { Mic, MicOff, Phone, PhoneOff, User, Volume2, VolumeX, X } from 'lucide-react';
+import { Mic, MicOff, Phone, PhoneOff, User, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 interface VoiceCallModalProps {
@@ -717,14 +717,6 @@ export default function VoiceCallModal({
   return (
     <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
       <div className="absolute inset-0 bg-gradient-to-b from-slate-900/50 via-black to-black pointer-events-none" />
-
-      <button
-        onClick={onClose}
-        className="absolute top-6 right-6 p-3 rounded-full bg-white/10 hover:bg-white/20 transition z-50 cursor-pointer"
-        title="Close call"
-      >
-        <X size={24} className="text-white" />
-      </button>
 
       <div className="relative flex flex-col items-center justify-center w-full h-full max-w-md">
         <div className="flex flex-col items-center mb-12">

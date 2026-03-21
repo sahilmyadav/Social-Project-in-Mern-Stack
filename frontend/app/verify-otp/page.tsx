@@ -286,9 +286,8 @@ export default function VerifyOtpPage() {
                       key={index}
                       src={img}
                       alt={`Post ${index + 1}`}
-                      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${
-                        currentImage === index ? 'opacity-100' : 'opacity-0'
-                      }`}
+                      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${currentImage === index ? 'opacity-100' : 'opacity-0'
+                        }`}
                     />
                   ))}
                   <div className="absolute inset-0 flex items-center justify-center">
@@ -300,9 +299,8 @@ export default function VerifyOtpPage() {
                     {images.map((_, i) => (
                       <div
                         key={i}
-                        className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                          currentImage === i ? 'bg-blue-500' : 'bg-white/50'
-                        }`}
+                        className={`w-1.5 h-1.5 rounded-full transition-colors ${currentImage === i ? 'bg-blue-500' : 'bg-white/50'
+                          }`}
                       ></div>
                     ))}
                   </div>

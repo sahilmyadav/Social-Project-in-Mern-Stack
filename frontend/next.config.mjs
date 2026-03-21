@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone', // Required for Docker
+  generateBuildId: () => Date.now().toString(),
   typescript: {
     ignoreBuildErrors: false,
   },

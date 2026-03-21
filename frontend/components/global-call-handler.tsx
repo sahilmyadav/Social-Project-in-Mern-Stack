@@ -45,6 +45,9 @@ export default function GlobalCallHandler() {
   const [isGroupVideoCallOpen, setIsGroupVideoCallOpen] = useState(false);
   const listenersAttached = useRef(false);
 
+  // Track the socket instance so we detect when reconnectSocket() replaces it
+  const lastSocketRef = useRef<ReturnType<typeof getSocket>>(null);
+
   // Track whether any call modal is currently open (via ref for non-stale reads in callbacks)
   const isAnyModalOpenRef = useRef(false);
 
@@ -106,10 +109,10 @@ export default function GlobalCallHandler() {
         isGroupCall,
         groupInfo: isGroupCall
           ? {
-              groupId: groupInfo?.groupId || (d.threadId as string),
-              groupName: groupInfo?.groupName || 'Group Call',
-              groupAvatar: groupInfo?.groupAvatar || '👥',
-            }
+            groupId: groupInfo?.groupId || (d.threadId as string),
+            groupName: groupInfo?.groupName || 'Group Call',
+            groupAvatar: groupInfo?.groupAvatar || '👥',
+          }
           : undefined,
       };
 
@@ -208,6 +211,8 @@ export default function GlobalCallHandler() {
       return;
     }
 
+    lastSocketRef.current = socket;
+
     if (socket.connected) {
       console.log('[CallHandler] Socket already connected, attaching listeners');
       attachListeners(socket);
@@ -251,8 +256,20 @@ export default function GlobalCallHandler() {
   useEffect(() => {
     const interval = setInterval(() => {
       const socket = getSocket();
+      // Detect socket instance change (reconnectSocket() creates a new one)
+      if (socket && socket !== lastSocketRef.current) {
+        console.log('[CallHandler] Socket instance changed, re-attaching listeners');
+        listenersAttached.current = false;
+        lastSocketRef.current = socket;
+        // Listen for connect on the new socket too
+        socket.on('connect', () => {
+          console.log('[CallHandler] New socket connected, re-attaching listeners');
+          listenersAttached.current = false;
+          attachListeners(socket);
+        });
+      }
       if (socket?.connected && !listenersAttached.current) attachListeners(socket);
-    }, 5000);
+    }, 1000);
     return () => clearInterval(interval);
   }, [attachListeners]);
 
