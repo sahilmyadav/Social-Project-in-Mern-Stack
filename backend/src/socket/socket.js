@@ -980,6 +980,19 @@ export const initializeSocket = async (server) => {
         }
 
         for (const memberId of memberIds) {
+          // MOVED FIX: FCM push for group call ALWAYS goes out (this wakes up killed apps!)
+          sendCallPushNotification(memberId, {
+            callerId: userId,
+            callerName,
+            callerAvatar: callerUser?.profilePicture || callerUser?.avatar || '',
+            callType,
+            threadId: groupId,
+            isGroupCall: true,
+            groupId,
+            groupName: group.name,
+          }).catch((err) => logger.error('[GroupCall] FCM push failed:', { error: err.message }));
+
+          // ONLY AFTER sending the push do we check if they are online for socket emissions
           if (!memberOnlineMap.get(memberId)) continue;
 
           onlineMembersCount++;
@@ -1001,23 +1014,6 @@ export const initializeSocket = async (server) => {
             timestamp: new Date(),
             name: `${callerName} (${group.name})`,
           });
-
-          // FCM push for group call on mobile
-          sendCallPushNotification(memberId, {
-            callerId: userId,
-            callerName,
-            callerAvatar: callerUser?.profilePicture || callerUser?.avatar || '',
-            callType,
-            threadId: groupId,
-            isGroupCall: true,
-            groupId,
-            groupName: group.name,
-          }).catch((err) => logger.error('[GroupCall] FCM push failed:', { error: err.message }));
-        }
-
-        if (onlineMembersCount === 0) {
-          socket.emit('callFailed', { groupId, reason: 'No group members are online' });
-          return;
         }
       } catch (error) {
         logger.error('Error initiating group call', { error: error.message });
