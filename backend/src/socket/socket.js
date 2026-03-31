@@ -785,8 +785,9 @@ export const initializeSocket = async (server) => {
           await setActiveCallPeer(userId, recipientIdStr);
 
           // Create call log
+          let callId;
           try {
-            const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             await CallLog.create({
               callId,
               callType: callType === 'video' ? 'video' : 'audio',
@@ -805,6 +806,7 @@ export const initializeSocket = async (server) => {
             callerName,
             callerAvatar: caller?.profilePicture || caller?.avatar || '',
             callType,
+            callId: callId || '',
             threadId,
           }).catch((err) => logger.error('[Call] FCM push to offline user failed:', { error: err.message }));
 
@@ -848,8 +850,9 @@ export const initializeSocket = async (server) => {
         logger.info(`[Call] Set active call peer: ${userId} <-> ${recipientIdStr}`);
 
         // Create call log entry
+        let callId;
         try {
-          const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           await CallLog.create({
             callId,
             callType: callType === 'video' ? 'video' : 'audio',
@@ -905,6 +908,7 @@ export const initializeSocket = async (server) => {
           callerName,
           callerAvatar: caller?.profilePicture || caller?.avatar || '',
           callType,
+          callId: callId || '',
           threadId,
         }).catch((err) => logger.error('[Call] FCM push failed:', { error: err.message }));
 
@@ -980,6 +984,19 @@ export const initializeSocket = async (server) => {
         }
 
         for (const memberId of memberIds) {
+          // MOVED FIX: FCM push for group call ALWAYS goes out (this wakes up killed apps!)
+          sendCallPushNotification(memberId, {
+            callerId: userId,
+            callerName,
+            callerAvatar: callerUser?.profilePicture || callerUser?.avatar || '',
+            callType,
+            threadId: groupId,
+            isGroupCall: true,
+            groupId,
+            groupName: group.name,
+          }).catch((err) => logger.error('[GroupCall] FCM push failed:', { error: err.message }));
+
+          // ONLY AFTER sending the push do we check if they are online for socket emissions
           if (!memberOnlineMap.get(memberId)) continue;
 
           onlineMembersCount++;
@@ -1001,23 +1018,6 @@ export const initializeSocket = async (server) => {
             timestamp: new Date(),
             name: `${callerName} (${group.name})`,
           });
-
-          // FCM push for group call on mobile
-          sendCallPushNotification(memberId, {
-            callerId: userId,
-            callerName,
-            callerAvatar: callerUser?.profilePicture || callerUser?.avatar || '',
-            callType,
-            threadId: groupId,
-            isGroupCall: true,
-            groupId,
-            groupName: group.name,
-          }).catch((err) => logger.error('[GroupCall] FCM push failed:', { error: err.message }));
-        }
-
-        if (onlineMembersCount === 0) {
-          socket.emit('callFailed', { groupId, reason: 'No group members are online' });
-          return;
         }
       } catch (error) {
         logger.error('Error initiating group call', { error: error.message });

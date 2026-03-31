@@ -240,10 +240,12 @@ export const sendCallPushNotification = async (userId, callData) => {
       caller_name: callData.callerName || 'Unknown',
       caller_avatar: callData.callerAvatar || '',
       call_type: callData.callType || 'audio',
+      call_id: callData.callId || '',
       thread_id: callData.threadId?.toString() || '',
       is_group_call: callData.isGroupCall ? 'true' : 'false',
       group_id: callData.groupId?.toString() || '',
       group_name: callData.groupName || '',
+      navigation_screen: 'incoming_call',
       uuid: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       timestamp: new Date().toISOString(),
     };
@@ -315,7 +317,37 @@ export const sendCallPushNotification = async (userId, callData) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-//  3. CALL EVENT PUSH (end, reject, missed — dismiss call UI)
+//  3. GROUP CALL PUSH
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Send group call notification to all group members except the caller.
+ *
+ * @param {string[]} memberUserIds   - All group member user IDs
+ * @param {string}   callerUserId    - The user who started the call (excluded)
+ * @param {object}   callData        - { callerId, callerName, callerAvatar, callType, groupId, groupName, threadId }
+ */
+export const sendGroupCallPushNotification = async (memberUserIds, callerUserId, callData) => {
+  const results = await Promise.allSettled(
+    memberUserIds
+      .filter((uid) => uid.toString() !== callerUserId.toString())
+      .map((uid) =>
+        sendCallPushNotification(uid.toString(), {
+          ...callData,
+          isGroupCall: true,
+        })
+      )
+  );
+
+  const successCount = results.filter((r) => r.status === 'fulfilled' && r.value).length;
+  const failCount = results.filter((r) => r.status === 'rejected').length;
+  logger.info(`[FCM] Group call push: ${successCount} sent, ${failCount} failed, caller excluded`);
+
+  return results;
+};
+
+// ═══════════════════════════════════════════════════════════════════
+//  4. CALL EVENT PUSH (end, reject, missed — dismiss call UI)
 // ═══════════════════════════════════════════════════════════════════
 
 /**
@@ -370,28 +402,35 @@ export const sendCallEventPush = async (userId, callerId, event) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-//  4. CHAT MESSAGE PUSH (all platforms)
+//  5. CHAT MESSAGE PUSH
+//
+//  FIX: Mobile now sends DATA-ONLY (no notification{} key).
+//
+//  WHY THIS MATTERS:
+//  When a message has BOTH notification{} and data{} keys:
+//  - Background: Android shows the notification automatically ✓
+//    but does NOT wake the Dart isolate → background handler never fires
+//  - Killed: Android shows notification automatically ✓
+//    but Dart isolate is NEVER started → background handler never fires
+//
+//  With DATA-ONLY on mobile:
+//  - Background: Android wakes the Dart isolate → background handler fires
+//    → _showMessageNotification() shows the notification ✓
+//  - Killed: Android wakes the Dart isolate → background handler fires ✓
+//    AND the native ClickMeFirebaseMessagingService.kt also fires as backup ✓
+//
+//  Web still gets notification + data (browsers require it for visibility).
 // ═══════════════════════════════════════════════════════════════════
 
-/**
- * Send chat message notification to ALL user devices (web + mobile).
- * Uses smart body formatting for media types.
- */
 export const sendMessagePushNotification = async (userId, msgData) => {
   try {
     if (!firebaseApp) return null;
-
     const tokenData = await getUserTokens(userId);
     if (!tokenData) return null;
-
-    const { settings, allTokens } = tokenData;
+    const { settings, mobileTokens, webTokens } = tokenData;
 
     if (!settings.preferences?.push?.enabled) return null;
-
-    // Check message-specific preference
     if (settings.preferences?.push?.messages === false) return null;
-
-    // Check DND
     if (isDNDActive(settings)) return null;
 
     const title = msgData.isGroupMessage
@@ -399,13 +438,13 @@ export const sendMessagePushNotification = async (userId, msgData) => {
       : msgData.senderName || 'New Message';
 
     const body =
-      msgData.messageType === 'image' ? '📷 Photo'
-        : msgData.messageType === 'video' ? '🎥 Video'
-          : msgData.messageType === 'audio' ? '🎵 Voice message'
-            : msgData.messageType === 'file' ? '📎 File'
-              : msgData.messageType === 'location' ? '📍 Location'
-                : msgData.messageType === 'sticker' ? '🎨 Sticker'
-                  : msgData.messagePreview || 'New message';
+      msgData.messageType === 'image' ? '📷 Photo' :
+        msgData.messageType === 'video' ? '🎥 Video' :
+          msgData.messageType === 'audio' ? '🎵 Voice message' :
+            msgData.messageType === 'file' ? '📎 File' :
+              msgData.messageType === 'location' ? '📍 Location' :
+                msgData.messageType === 'sticker' ? '🎨 Sticker' :
+                  msgData.messagePreview || 'New message';
 
     const threadId = msgData.threadId?.toString() || '';
     const chatUrl = msgData.isGroupMessage ? `/chat/group/${threadId}` : `/chat/${threadId}`;
@@ -424,49 +463,66 @@ export const sendMessagePushNotification = async (userId, msgData) => {
       timestamp: new Date().toISOString(),
     };
 
-    const message = {
-      data: dataPayload,
-      notification: {
-        title,
-        body,
-      },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'chat_messages',
-          sound: settings.preferences?.in_app?.sound ? 'default' : undefined,
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+    const results = [];
+
+    // ── Mobile: DATA-ONLY ─────────────────────────────────────────────────
+    // No notification{} key AND no android.notification{} — both would make
+    // FCM treat this as a notification message, preventing the Dart isolate
+    // from starting in killed state. Channel and tag are passed via data{}
+    // so the Flutter background handler can use them when showing the
+    // notification manually via flutter_local_notifications.
+    if (mobileTokens.length > 0) {
+      results.push(sendMulticast(userId, {
+        data: {
+          ...dataPayload,
+          channel_id: 'chat_messages',
           tag: `chat_${threadId}`,
         },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: settings.preferences?.in_app?.sound ? 'default' : undefined,
-            badge: 1,
-            'mutable-content': 1,
-            'thread-id': `chat_${threadId}`,
+        android: {
+          priority: 'high',
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+            'apns-push-type': 'background',
+          },
+          payload: {
+            aps: {
+              'content-available': 1,
+              sound: settings.preferences?.in_app?.sound ? 'default' : undefined,
+              badge: 1,
+              'mutable-content': 1,
+              'thread-id': `chat_${threadId}`,
+            },
           },
         },
-      },
-      webpush: {
-        notification: {
-          title,
-          body,
-          icon: msgData.senderAvatar || '/icon-192x192.png',
-          badge: '/badge-72x72.png',
-          tag: `chat_${threadId}`,
-          renotify: true,
-          data: { url: chatUrl },
-        },
-        fcmOptions: {
-          link: chatUrl,
-        },
-      },
-      tokens: allTokens,
-    };
+        tokens: mobileTokens,
+      }));
+    }
 
-    return await sendMulticast(userId, message);
+    // ── Web: notification + data (browser requires notification key) ──────
+    if (webTokens.length > 0) {
+      results.push(sendMulticast(userId, {
+        data: dataPayload,
+        notification: { title, body },
+        webpush: {
+          notification: {
+            title,
+            body,
+            icon: msgData.senderAvatar || '/icon-192x192.png',
+            badge: '/badge-72x72.png',
+            tag: `chat_${threadId}`,
+            renotify: true,
+            data: { url: chatUrl },
+          },
+          fcmOptions: { link: chatUrl },
+        },
+        tokens: webTokens,
+      }));
+    }
+
+    const responses = await Promise.all(results);
+    return responses.filter(Boolean);
   } catch (error) {
     logger.error('[FCM] Error sending message push:', { error: error.message });
     return null;
@@ -474,7 +530,7 @@ export const sendMessagePushNotification = async (userId, msgData) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-//  5. LIVE STREAM PUSH (all platforms)
+//  6. LIVE STREAM PUSH
 // ═══════════════════════════════════════════════════════════════════
 
 /**
@@ -549,7 +605,7 @@ export const sendLiveStreamPush = async (userId, streamData) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-//  6. TOKEN MANAGEMENT
+//  7. TOKEN MANAGEMENT
 // ═══════════════════════════════════════════════════════════════════
 
 /**

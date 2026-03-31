@@ -6,6 +6,7 @@ import { VideoProvider } from '@/contexts/video-context';
 import GlobalCallHandler from './global-call-handler';
 import GlobalSocketHandler from './global-socket-handler';
 import { ThemeProvider } from './theme-provider';
+import VersionChecker from './version-checker';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -15,6 +16,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <VideoProvider>
             <GlobalSocketHandler />
             <GlobalCallHandler />
+            <VersionChecker />
             {children}
           </VideoProvider>
         </CallProvider>

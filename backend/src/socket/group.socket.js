@@ -8,7 +8,12 @@ import { GroupChat } from '../models/groupChat.model.js';
 import { GroupMessage } from '../models/groupMessage.model.js';
 import { User } from '../models/user.model.js';
 import { encryptMessage } from '../utils/encryption.js';
-import { sendMessagePushNotification, sendPushNotification } from '../services/firebase.service.js';
+import {
+  sendMessagePushNotification,
+  sendPushNotification,
+  sendGroupCallPushNotification,
+  sendCallEventPush,
+} from '../services/firebase.service.js';
 import logger from '../utils/logger.js';
 
 export default function groupSocket(io, socket, userId) {
@@ -314,6 +319,88 @@ export default function groupSocket(io, socket, userId) {
   });
 
   // ==================== GROUP CALLS ====================
+
+  /**
+   * Initiate a group call.
+   *
+   * FIX: sendGroupCallPushNotification() is now called here.
+   * Previously this was completely missing — group call FCM was NEVER sent,
+   * meaning members in background/killed state never received any notification.
+   */
+  socket.on('initiateGroupCall', async (data) => {
+    try {
+      const { groupId, callType = 'voice' } = data;
+
+      const group = await GroupChat.findOne({
+        _id: groupId,
+        'members.user': userId,
+        isDeleted: false,
+      });
+      if (!group) {
+        socket.emit('groupCallError', { error: 'Group not found or not a member', groupId });
+        return;
+      }
+
+      const caller = await User.findById(userId).select('firstName lastName avatar').lean();
+      const callerName = caller ? `${caller.firstName} ${caller.lastName}` : 'Unknown';
+      const callerAvatar = caller?.avatar || '';
+
+      // Emit to all online group members (socket layer)
+      socket.to(`group:${groupId}`).emit('incomingGroupCall', {
+        groupId,
+        callType,
+        callerId: userId,
+        callerName,
+        callerAvatar,
+        groupName: group.name,
+        groupAvatar: group.avatar || '',
+      });
+
+      logger.info(`[GroupCall] ${userId} initiated ${callType} call in group ${groupId}`);
+
+      // Send FCM push to ALL members (covers offline/background/killed devices)
+      const memberIds = group.members
+        .filter((m) => !m.isRemoved && !m.isLeft)
+        .map((m) => m.user.toString());
+
+      sendGroupCallPushNotification(memberIds, userId, {
+        callerId: userId,
+        callerName,
+        callerAvatar,
+        callType,
+        groupId: groupId.toString(),
+        groupName: group.name,
+        threadId: groupId.toString(),
+      }).catch((err) => {
+        logger.warn('[GroupCall] FCM push failed (non-fatal):', err.message);
+      });
+    } catch (error) {
+      logger.error('Error initiating group call', { error: error.message });
+      socket.emit('groupCallError', { error: 'Failed to initiate group call', details: error.message });
+    }
+  });
+
+  /**
+   * End a group call — notify all members and send FCM dismiss events.
+   */
+  socket.on('endGroupCall', async ({ groupId, callId }) => {
+    try {
+      socket.to(`group:${groupId}`).emit('groupCallEnded', { groupId, callId, endedBy: userId });
+
+      const group = await GroupChat.findOne({ _id: groupId, 'members.user': userId }).lean();
+      if (group) {
+        const memberIds = group.members
+          .filter((m) => !m.isRemoved && !m.isLeft && m.user.toString() !== userId)
+          .map((m) => m.user.toString());
+
+        await Promise.allSettled(
+          memberIds.map((uid) => sendCallEventPush(uid, userId, 'call_ended'))
+        );
+      }
+    } catch (error) {
+      logger.error('Error ending group call', { error: error.message });
+    }
+  });
 
   /**
    * Join group call room

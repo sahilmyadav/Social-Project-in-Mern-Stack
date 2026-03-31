@@ -65,6 +65,7 @@ import {
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
 import { formatCallDuration } from '@/lib/webrtc';
+import { isToday, isYesterday, format } from 'date-fns';
 import {
   Ban,
   Flag,
@@ -111,6 +112,7 @@ interface Message {
   sender: string;
   content: string;
   timestamp: string;
+  createdAt?: string;
   isSent: boolean;
   status?: 'sent' | 'delivered' | 'seen';
   isEdited?: boolean;
@@ -144,6 +146,13 @@ interface Message {
     senderName: string;
   };
   isForwarded?: boolean;
+}
+
+function getDateLabel(dateStr: string): string {
+  const date = new Date(dateStr);
+  if (isToday(date)) return 'Today';
+  if (isYesterday(date)) return 'Yesterday';
+  return format(date, 'MMMM d, yyyy');
 }
 
 function ChatPageContent() {
@@ -329,9 +338,9 @@ function ChatPageContent() {
               otherParticipant?.firstName && otherParticipant?.lastName
                 ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
                 : otherParticipant?.firstName ||
-                  otherParticipant?.fullName ||
-                  otherParticipant?.username ||
-                  'Unknown';
+                otherParticipant?.fullName ||
+                otherParticipant?.username ||
+                'Unknown';
 
             const conversationObj = {
               id: thread._id,
@@ -345,9 +354,9 @@ function ChatPageContent() {
               lastMessage: displayMessage,
               timestamp: thread.lastMessageAt
                 ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
                 : 'Just now',
               unread: (thread.unreadCount || 0) > 0,
               unreadCount: thread.unreadCount || 0,
@@ -388,9 +397,9 @@ function ChatPageContent() {
             lastMessage: group.lastMessage?.text || '',
             timestamp: group.lastMessageAt
               ? new Date(group.lastMessageAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
+                hour: '2-digit',
+                minute: '2-digit',
+              })
               : 'Just now',
             unread: (group.unreadCount || 0) > 0,
             unreadCount: group.unreadCount || 0,
@@ -442,18 +451,19 @@ function ChatPageContent() {
               hour: '2-digit',
               minute: '2-digit',
             }),
+            createdAt: data.message.createdAt || new Date().toISOString(),
             isSent: isOwnMessage,
             media: data.message.media || [],
             isForwarded: data.message.isForwarded || false,
             replyTo: data.message.replyTo
               ? {
-                  _id: data.message.replyTo._id,
-                  content: data.message.replyTo.text || '',
-                  senderName:
-                    data.message.replyTo.senderName ||
-                    data.message.replyTo.senderId?.firstName ||
-                    'Unknown',
-                }
+                _id: data.message.replyTo._id,
+                content: data.message.replyTo.text || '',
+                senderName:
+                  data.message.replyTo.senderName ||
+                  data.message.replyTo.senderId?.firstName ||
+                  'Unknown',
+              }
               : undefined,
           };
 
@@ -513,8 +523,8 @@ function ChatPageContent() {
                 data.message.senderId?.firstName && data.message.senderId?.lastName
                   ? `${data.message.senderId.firstName} ${data.message.senderId.lastName}`
                   : data.message.senderId?.firstName ||
-                    data.message.senderId?.username ||
-                    'Unknown';
+                  data.message.senderId?.username ||
+                  'Unknown';
               const newConv: Conversation = {
                 id: threadId,
                 participantId: data.message.senderId._id,
@@ -592,8 +602,8 @@ function ChatPageContent() {
                 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSqBzvLZiTYIG2m98OWhUBALUKnn77RgGgU7k9nx0HwqBiZzxvDdk0MLFmS36OyrWRQLR6Hf8bllHgU0gtDy2Ik2CBxqvfDoqlQQDFGp6O+zYBoFOpPY8dF8KgYmcsXv3ZNDC'
               );
               audio.volume = 0.3;
-              audio.play().catch(() => {});
-            } catch (e) {}
+              audio.play().catch(() => { });
+            } catch (e) { }
 
             if (Notification.permission === 'granted') {
               new Notification(data.message.senderId?.firstName || 'New Message', {
@@ -759,9 +769,9 @@ function ChatPageContent() {
               data.participant.firstName && data.participant.lastName
                 ? `${data.participant.firstName} ${data.participant.lastName}`
                 : data.participant.firstName ||
-                  data.participant.fullName ||
-                  data.participant.username ||
-                  'Unknown';
+                data.participant.fullName ||
+                data.participant.username ||
+                'Unknown';
 
             const newConv: Conversation = {
               id: data.threadId,
@@ -816,10 +826,10 @@ function ChatPageContent() {
           isGroupCall,
           groupInfo: isGroupCall
             ? {
-                groupId: groupInfo?.groupId || threadId,
-                groupName: groupInfo?.groupName || 'Group Call',
-                groupAvatar: groupInfo?.groupAvatar || '👥',
-              }
+              groupId: groupInfo?.groupId || threadId,
+              groupName: groupInfo?.groupName || 'Group Call',
+              groupAvatar: groupInfo?.groupAvatar || '👥',
+            }
             : undefined,
         });
 
@@ -835,6 +845,7 @@ function ChatPageContent() {
             sender: 'System',
             content: callType === 'video' ? 'Incoming video call' : 'Incoming voice call',
             timestamp: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
             isSent: false,
             type: 'system',
             senderId: 'system',
@@ -880,6 +891,7 @@ function ChatPageContent() {
             sender: 'System',
             content: 'Call was not answered',
             timestamp: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
             isSent: false,
             type: 'system',
             senderId: 'system',
@@ -916,6 +928,7 @@ function ChatPageContent() {
                 ? `Call ended • Duration: ${formatCallDuration(duration)}`
                 : 'Call ended',
             timestamp: endedAt.toISOString(),
+            createdAt: endedAt.toISOString(),
             isSent: false,
             type: 'system',
             senderId: 'system',
@@ -949,6 +962,7 @@ function ChatPageContent() {
             sender: 'System',
             content: data.reason || 'Call failed',
             timestamp: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
             isSent: false,
             type: 'system',
             senderId: 'system',
@@ -1003,17 +1017,18 @@ function ChatPageContent() {
               hour: '2-digit',
               minute: '2-digit',
             }),
+            createdAt: message.createdAt || new Date().toISOString(),
             status: 'sent' as const,
             media: message.media,
             location: message.location,
             sharedContent: message.sharedContent,
             replyTo: message.replyTo
               ? {
-                  _id: message.replyTo._id,
-                  content: message.replyTo.text || message.replyTo.content || '',
-                  senderName:
-                    message.replyTo.senderName || message.replyTo.senderId?.firstName || 'Unknown',
-                }
+                _id: message.replyTo._id,
+                content: message.replyTo.text || message.replyTo.content || '',
+                senderName:
+                  message.replyTo.senderName || message.replyTo.senderId?.firstName || 'Unknown',
+              }
               : undefined,
           };
 
@@ -1331,7 +1346,7 @@ function ChatPageContent() {
             setSelectedThreadId(null);
             setMessages([]);
           }
-        } catch (error: any) {}
+        } catch (error: any) { }
       },
     });
   };
@@ -1376,15 +1391,16 @@ function ChatPageContent() {
       senderName: user?.firstName || 'You',
       content: '',
       timestamp: 'Sending...',
+      createdAt: new Date().toISOString(),
       isSent: true,
       type: 'audio',
       media: [{ type: 'audio', url: URL.createObjectURL(audioFile) }],
       replyTo: replyingTo
         ? {
-            _id: replyingTo.id?.toString() || '',
-            content: replyingTo.content || '',
-            senderName: replyingTo.sender || '',
-          }
+          _id: replyingTo.id?.toString() || '',
+          content: replyingTo.content || '',
+          senderName: replyingTo.sender || '',
+        }
         : undefined,
     };
 
@@ -1411,14 +1427,14 @@ function ChatPageContent() {
           prev.map((msg) =>
             msg.id === tempMessage.id
               ? {
-                  ...msg,
-                  id: response.data._id,
-                  timestamp: new Date().toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }),
-                  media: response.data.media || msg.media,
-                }
+                ...msg,
+                id: response.data._id,
+                timestamp: new Date().toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+                media: response.data.media || msg.media,
+              }
               : msg
           )
         );
@@ -1472,26 +1488,27 @@ function ChatPageContent() {
       sender: 'You',
       content: messageInput,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
       isSent: true,
       media: selectedFile
         ? [
-            {
-              url: previewUrl || '',
-              type: selectedFile.type.startsWith('video')
-                ? 'video'
-                : selectedFile.type.startsWith('image')
-                  ? 'image'
-                  : 'document',
-              fileName: selectedFile.name,
-            },
-          ]
+          {
+            url: previewUrl || '',
+            type: selectedFile.type.startsWith('video')
+              ? 'video'
+              : selectedFile.type.startsWith('image')
+                ? 'image'
+                : 'document',
+            fileName: selectedFile.name,
+          },
+        ]
         : undefined,
       replyTo: replyingTo
         ? {
-            _id: replyingTo.id.toString(),
-            content: replyingTo.content,
-            senderName: replyingTo.sender,
-          }
+          _id: replyingTo.id.toString(),
+          content: replyingTo.content,
+          senderName: replyingTo.sender,
+        }
         : undefined,
     };
 
@@ -1543,10 +1560,10 @@ function ChatPageContent() {
           prev.map((msg) =>
             msg.id === tempMessage.id
               ? {
-                  ...msg,
-                  id: response.data._id,
-                  media: response.data.media || msg.media,
-                }
+                ...msg,
+                id: response.data._id,
+                media: response.data.media || msg.media,
+              }
               : msg
           )
         );
@@ -1555,17 +1572,17 @@ function ChatPageContent() {
           const updated = prev.map((conv) =>
             conv.id === selectedConversation?.id
               ? {
-                  ...conv,
-                  lastMessage: fileToSend
-                    ? fileToSend.type.startsWith('image')
-                      ? '📷 Image'
-                      : fileToSend.type.startsWith('video')
-                        ? 'Video'
-                        : '📄 Document'
-                    : messageText,
-                  timestamp: 'Now',
-                  unread: false,
-                }
+                ...conv,
+                lastMessage: fileToSend
+                  ? fileToSend.type.startsWith('image')
+                    ? '📷 Image'
+                    : fileToSend.type.startsWith('video')
+                      ? 'Video'
+                      : '📄 Document'
+                  : messageText,
+                timestamp: 'Now',
+                unread: false,
+              }
               : conv
           );
           const updatedConv = updated.find((c) => c.id === selectedConversation?.id);
@@ -1702,7 +1719,7 @@ function ChatPageContent() {
 
       setEditingMessageId(null);
       setEditingMessageText('');
-    } catch (error) {}
+    } catch (error) { }
   };
 
   const handleDeleteMessage = async (messageId: string, deleteFor: 'me' | 'everyone') => {
@@ -1870,7 +1887,7 @@ function ChatPageContent() {
         } else {
         }
       }
-    } catch (error) {}
+    } catch (error) { }
   };
 
   const markThreadAsRead = async (threadId: string, userId: string, isGroup: boolean = false) => {
@@ -1894,7 +1911,7 @@ function ChatPageContent() {
           )
         );
       }
-    } catch {}
+    } catch { }
   };
 
   const loadMessages = async (threadId: string, isGroup: boolean = false, cursor?: string) => {
@@ -1935,6 +1952,7 @@ function ChatPageContent() {
             hour: '2-digit',
             minute: '2-digit',
           }),
+          createdAt: msg.createdAt || new Date().toISOString(),
           isEdited: msg.isEdited || false,
           isDeleted: msg.isDeleted || false,
           isSent: msg.senderId?._id === user?._id,
@@ -1947,19 +1965,19 @@ function ChatPageContent() {
           isForwarded: msg.isForwarded || false,
           location: msg.location
             ? {
-                latitude: msg.location.coordinates?.[1] || msg.location.latitude,
-                longitude: msg.location.coordinates?.[0] || msg.location.longitude,
-                address: msg.location.address,
-                name: msg.location.name,
-                isLiveLocation: msg.location.isLive,
-              }
+              latitude: msg.location.coordinates?.[1] || msg.location.latitude,
+              longitude: msg.location.coordinates?.[0] || msg.location.longitude,
+              address: msg.location.address,
+              name: msg.location.name,
+              isLiveLocation: msg.location.isLive,
+            }
             : undefined,
           replyTo: msg.replyTo
             ? {
-                _id: msg.replyTo._id,
-                content: msg.replyTo.text || '',
-                senderName: msg.replyTo.senderName || msg.replyTo.senderId?.firstName || 'Unknown',
-              }
+              _id: msg.replyTo._id,
+              content: msg.replyTo.text || '',
+              senderName: msg.replyTo.senderName || msg.replyTo.senderId?.firstName || 'Unknown',
+            }
             : undefined,
         }));
 
@@ -2110,16 +2128,15 @@ function ChatPageContent() {
                       >
                         <div className="relative">
                           <div
-                            className={`w-14 h-14 rounded-full p-[2px] ${
-                              friend.hasStory
+                            className={`w-14 h-14 rounded-full p-[2px] ${friend.hasStory
                                 ? 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400'
                                 : 'bg-border'
-                            }`}
+                              }`}
                           >
                             <div className="w-full h-full rounded-full bg-background p-[2px]">
                               <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center">
                                 {friend.avatar?.startsWith('http') ||
-                                friend.avatar?.startsWith('/') ? (
+                                  friend.avatar?.startsWith('/') ? (
                                   <img
                                     src={getMediaUrl(friend.avatar)}
                                     alt={friend.name}
@@ -2136,9 +2153,8 @@ function ChatPageContent() {
                           )}
                         </div>
                         <p
-                          className={`text-[11px] font-medium truncate w-14 text-center ${
-                            friend.online ? 'text-foreground' : 'text-muted-foreground'
-                          }`}
+                          className={`text-[11px] font-medium truncate w-14 text-center ${friend.online ? 'text-foreground' : 'text-muted-foreground'
+                            }`}
                         >
                           {friend.name?.split(' ')[0]}
                         </p>
@@ -2169,9 +2185,8 @@ function ChatPageContent() {
                       handleGetThread(conversation.id.toString());
                     }
                   }}
-                  className={`flex-1 p-4 flex items-start gap-3 text-left cursor-pointer ${
-                    selectedConversation?.id === conversation.id ? 'bg-muted' : ''
-                  }`}
+                  className={`flex-1 p-4 flex items-start gap-3 text-left cursor-pointer ${selectedConversation?.id === conversation.id ? 'bg-muted' : ''
+                    }`}
                 >
                   <div className="relative flex-shrink-0">
                     <div
@@ -2179,12 +2194,11 @@ function ChatPageContent() {
                         e.stopPropagation();
                         !conversation.isGroup && handleOpenProfile(conversation.participantId);
                       }}
-                      className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${
-                        conversation.isGroup ? 'text-2xl' : ''
-                      } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                      className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${conversation.isGroup ? 'text-2xl' : ''
+                        } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                     >
                       {conversation.avatar?.startsWith('http') ||
-                      conversation.avatar?.startsWith('/') ? (
+                        conversation.avatar?.startsWith('/') ? (
                         <img
                           src={getMediaUrl(conversation.avatar)}
                           alt={conversation.name}
@@ -2213,9 +2227,8 @@ function ChatPageContent() {
                           e.stopPropagation();
                           !conversation.isGroup && handleOpenProfile(conversation.participantId);
                         }}
-                        className={`font-semibold text-foreground ${
-                          conversation.unread ? 'font-bold' : ''
-                        } ${!conversation.isGroup ? 'cursor-pointer hover:text-primary transition' : ''}`}
+                        className={`font-semibold text-foreground ${conversation.unread ? 'font-bold' : ''
+                          } ${!conversation.isGroup ? 'cursor-pointer hover:text-primary transition' : ''}`}
                       >
                         {conversation.name}
                       </p>
@@ -2471,12 +2484,11 @@ function ChatPageContent() {
                         ? setIsGroupInfoOpen(true)
                         : handleOpenProfile(selectedConversation.participantId)
                     }
-                    className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${
-                      selectedConversation.isGroup ? 'text-2xl' : ''
-                    } overflow-hidden cursor-pointer hover:opacity-80 transition`}
+                    className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${selectedConversation.isGroup ? 'text-2xl' : ''
+                      } overflow-hidden cursor-pointer hover:opacity-80 transition`}
                   >
                     {selectedConversation.avatar?.startsWith('http') ||
-                    selectedConversation.avatar?.startsWith('/') ? (
+                      selectedConversation.avatar?.startsWith('/') ? (
                       <img
                         src={getMediaUrl(selectedConversation.avatar)}
                         alt={selectedConversation.name}
@@ -2551,6 +2563,7 @@ function ChatPageContent() {
                           sender: 'System',
                           content: 'Starting group voice call',
                           timestamp: new Date().toISOString(),
+                          createdAt: new Date().toISOString(),
                           isSent: true,
                           type: 'system',
                           senderId: 'system',
@@ -2571,6 +2584,7 @@ function ChatPageContent() {
                           sender: 'System',
                           content: 'Outgoing voice call',
                           timestamp: new Date().toISOString(),
+                          createdAt: new Date().toISOString(),
                           isSent: true,
                           type: 'system',
                           senderId: 'system',
@@ -2631,6 +2645,7 @@ function ChatPageContent() {
                           sender: 'System',
                           content: 'Starting group video call',
                           timestamp: new Date().toISOString(),
+                          createdAt: new Date().toISOString(),
                           isSent: true,
                           type: 'system',
                           senderId: 'system',
@@ -2651,6 +2666,7 @@ function ChatPageContent() {
                           sender: 'System',
                           content: 'Outgoing video call',
                           timestamp: new Date().toISOString(),
+                          createdAt: new Date().toISOString(),
                           isSent: true,
                           type: 'system',
                           senderId: 'system',
@@ -2743,44 +2759,59 @@ function ChatPageContent() {
                       </button>
                     </div>
                   )}
-                  {messages.map((message, msgIndex) => (
-                    <ChatMessageBubble
-                      key={`msg-${message.id}-${msgIndex}`}
-                      message={message}
-                      msgIndex={msgIndex}
-                      isGroup={!!selectedConversation?.isGroup}
-                      editingMessageId={editingMessageId}
-                      editingMessageText={editingMessageText}
-                      onEditTextChange={setEditingMessageText}
-                      onEditSave={handleEditMessage}
-                      onEditCancel={() => {
-                        setEditingMessageId(null);
-                        setEditingMessageText('');
-                      }}
-                      onReply={setReplyingTo}
-                      onForward={(msg) => {
-                        setMessageToForward(msg);
-                        setIsForwardModalOpen(true);
-                      }}
-                      onEditStart={(id, content) => {
-                        setEditingMessageId(id);
-                        setEditingMessageText(content);
-                      }}
-                      onDeleteForMe={(id) => handleDeleteMessage(id, 'me')}
-                      onDeleteForEveryone={(id) => handleDeleteMessage(id, 'everyone')}
-                      isSelecting={isSelecting}
-                      isSelected={selectedMessageIds.has(message.id.toString())}
-                      onToggleSelect={toggleMessageSelect}
-                      onLongPress={enterSelectionMode}
-                    />
-                  ))}
+                  {messages.map((message, msgIndex) => {
+                    const prevMessage = messages[msgIndex - 1];
+                    const currentDate = message.createdAt ? new Date(message.createdAt).toDateString() : '';
+                    const prevDate = prevMessage?.createdAt ? new Date(prevMessage.createdAt).toDateString() : '';
+                    const showDateSeparator = currentDate && currentDate !== prevDate;
+
+                    return (
+                      <div key={`msg-${message.id}-${msgIndex}`}>
+                        {showDateSeparator && (
+                          <div className="flex items-center justify-center my-4">
+                            <div className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-full shadow-sm">
+                              {getDateLabel(message.createdAt!)}
+                            </div>
+                          </div>
+                        )}
+                        <ChatMessageBubble
+                          message={message}
+                          msgIndex={msgIndex}
+                          isGroup={!!selectedConversation?.isGroup}
+                          editingMessageId={editingMessageId}
+                          editingMessageText={editingMessageText}
+                          onEditTextChange={setEditingMessageText}
+                          onEditSave={handleEditMessage}
+                          onEditCancel={() => {
+                            setEditingMessageId(null);
+                            setEditingMessageText('');
+                          }}
+                          onReply={setReplyingTo}
+                          onForward={(msg) => {
+                            setMessageToForward(msg);
+                            setIsForwardModalOpen(true);
+                          }}
+                          onEditStart={(id, content) => {
+                            setEditingMessageId(id);
+                            setEditingMessageText(content);
+                          }}
+                          onDeleteForMe={(id) => handleDeleteMessage(id, 'me')}
+                          onDeleteForEveryone={(id) => handleDeleteMessage(id, 'everyone')}
+                          isSelecting={isSelecting}
+                          isSelected={selectedMessageIds.has(message.id.toString())}
+                          onToggleSelect={toggleMessageSelect}
+                          onLongPress={enterSelectionMode}
+                        />
+                      </div>
+                    );
+                  })}
 
                   {isOtherUserTyping && (
                     <div className="flex justify-start mb-4">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
                           {selectedConversation?.avatar?.startsWith('http') ||
-                          selectedConversation?.avatar?.startsWith('/') ? (
+                            selectedConversation?.avatar?.startsWith('/') ? (
                             <img
                               src={getMediaUrl(selectedConversation.avatar)}
                               alt={selectedConversation.name}
@@ -3006,9 +3037,9 @@ function ChatPageContent() {
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
                       unreadCount: thread.unreadCount || 0,
@@ -3033,9 +3064,9 @@ function ChatPageContent() {
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
                       unreadCount: thread.unreadCount || 0,
@@ -3050,7 +3081,7 @@ function ChatPageContent() {
                   setSelectedConversation(updatedConv);
                 }
               }
-            } catch (error) {}
+            } catch (error) { }
           };
           loadConvs();
         }}
@@ -3073,9 +3104,9 @@ function ChatPageContent() {
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
                       unreadCount: thread.unreadCount || 0,
@@ -3100,9 +3131,9 @@ function ChatPageContent() {
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
                       unreadCount: thread.unreadCount || 0,
@@ -3113,7 +3144,7 @@ function ChatPageContent() {
                 });
                 setConversations(convList);
               }
-            } catch (error) {}
+            } catch (error) { }
           };
           loadConvs();
         }}
@@ -3209,8 +3240,8 @@ function ChatPageContent() {
                     conv.name.toLowerCase().includes(forwardSearchQuery.toLowerCase()) &&
                     conv.id !== selectedConversation?.id
                 ).length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">No conversations found</p>
-                )}
+                    <p className="text-center text-muted-foreground py-8">No conversations found</p>
+                  )}
               </div>
             </ScrollArea>
           </div>

@@ -20,7 +20,7 @@ services:
       - CLUSTER_WORKERS=10
       - UV_THREADPOOL_SIZE=24
       - GOOGLE_APPLICATION_CREDENTIALS=/app/.gcloud/application_default_credentials.json
-      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-clickme-2026}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-clickme-2b55d}
     ports:
       - '5000:5000'
     volumes:
