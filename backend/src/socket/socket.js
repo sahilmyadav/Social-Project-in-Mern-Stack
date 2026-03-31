@@ -785,8 +785,9 @@ export const initializeSocket = async (server) => {
           await setActiveCallPeer(userId, recipientIdStr);
 
           // Create call log
+          let callId;
           try {
-            const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             await CallLog.create({
               callId,
               callType: callType === 'video' ? 'video' : 'audio',
@@ -805,6 +806,7 @@ export const initializeSocket = async (server) => {
             callerName,
             callerAvatar: caller?.profilePicture || caller?.avatar || '',
             callType,
+            callId: callId || '',
             threadId,
           }).catch((err) => logger.error('[Call] FCM push to offline user failed:', { error: err.message }));
 
@@ -848,8 +850,9 @@ export const initializeSocket = async (server) => {
         logger.info(`[Call] Set active call peer: ${userId} <-> ${recipientIdStr}`);
 
         // Create call log entry
+        let callId;
         try {
-          const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           await CallLog.create({
             callId,
             callType: callType === 'video' ? 'video' : 'audio',
@@ -905,6 +908,7 @@ export const initializeSocket = async (server) => {
           callerName,
           callerAvatar: caller?.profilePicture || caller?.avatar || '',
           callType,
+          callId: callId || '',
           threadId,
         }).catch((err) => logger.error('[Call] FCM push failed:', { error: err.message }));
 
