@@ -257,6 +257,9 @@ export const sendCallPushNotification = async (userId, callData) => {
         android: {
           priority: 'high',
           ttl: 30000,
+          fcm_options: {
+            analytics_label: 'incoming_call',
+          },
         },
         apns: {
           headers: {
@@ -475,21 +478,24 @@ export const sendMessagePushNotification = async (userId, msgData) => {
       results.push(sendMulticast(userId, {
         data: {
           ...dataPayload,
+          title,
+          body,
           channel_id: 'chat_messages',
           tag: `chat_${threadId}`,
         },
         android: {
           priority: 'high',
+          ttl: 60000,
         },
         apns: {
           headers: {
             'apns-priority': '10',
-            'apns-push-type': 'background',
+            'apns-push-type': 'alert',
           },
           payload: {
             aps: {
-              'content-available': 1,
-              sound: settings.preferences?.in_app?.sound ? 'default' : undefined,
+              alert: { title, body },
+              sound: settings.preferences?.in_app?.sound ? 'default' : 'default',
               badge: 1,
               'mutable-content': 1,
               'thread-id': `chat_${threadId}`,
