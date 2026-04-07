@@ -100,6 +100,52 @@ function setCallRingingTimeout(callerId, recipientId, io, socket) {
       sendCallEventPush(recipientId, callerId, 'call_missed').catch(() => { });
       sendCallEventPush(callerId, recipientId, 'call_missed').catch(() => { });
 
+      // Update call log to missed status and save chat message
+      CallLog.findOneAndUpdate(
+        {
+          callerId,
+          receiverId: recipientId,
+          status: { $in: ['initiated', 'ringing'] },
+        },
+        { status: 'missed', endedAt: new Date(), endReason: 'no_answer' },
+        { sort: { createdAt: -1 }, new: true }
+      ).then(async (missedLog) => {
+        if (missedLog?.threadId) {
+          const callTypeLabel = missedLog.callType === 'video' ? 'Missed video call' : 'Missed voice call';
+          const savedMsg = await ChatMessage.create({
+            threadId: missedLog.threadId,
+            senderId: missedLog.callerId,
+            receiverId: missedLog.receiverId,
+            messageType: 'system',
+            systemMessageType: 'call_missed',
+            encryptedContent: encryptMessage(callTypeLabel),
+            callData: {
+              callId: missedLog.callId,
+              callType: missedLog.callType,
+              duration: 0,
+              endReason: 'no_answer',
+            },
+            status: 'sent',
+          });
+
+          const callSysMsg = {
+            threadId: missedLog.threadId.toString(),
+            message: {
+              _id: savedMsg._id,
+              text: callTypeLabel,
+              messageType: 'system',
+              systemMessageType: 'call_missed',
+              senderId: { _id: missedLog.callerId.toString() },
+              createdAt: savedMsg.createdAt,
+              status: 'sent',
+              callData: savedMsg.callData,
+            },
+          };
+          io.to(callerId).emit('newMessage', callSysMsg);
+          io.to(recipientId).emit('newMessage', callSysMsg);
+        }
+      }).catch((e) => logger.warn(`[Call] Failed to update missed call log: ${e.message}`));
+
       logger.info(`[Call] Ringing timeout: ${callerId} -> ${recipientId} (no answer after ${CALL_RINGING_TIMEOUT / 1000}s)`);
     }
   }, CALL_RINGING_TIMEOUT);
@@ -1353,13 +1399,47 @@ export const initializeSocket = async (server) => {
       await removeActiveCallPeer(userId);
       await removeActiveCallPeer(callerIdStr);
 
-      // Log rejected call
+      // Log rejected call and save chat message
       try {
-        await CallLog.findOneAndUpdate(
+        const rejectedLog = await CallLog.findOneAndUpdate(
           { callerId: callerIdStr, receiverId: userId, status: { $in: ['initiated', 'ringing'] } },
           { status: 'rejected', endedAt: new Date(), endReason: 'declined' },
-          { sort: { createdAt: -1 } }
+          { sort: { createdAt: -1 }, new: true }
         );
+        if (rejectedLog?.threadId) {
+          const callTypeLabel = rejectedLog.callType === 'video' ? 'Missed video call' : 'Missed voice call';
+          const savedMsg = await ChatMessage.create({
+            threadId: rejectedLog.threadId,
+            senderId: rejectedLog.callerId,
+            receiverId: rejectedLog.receiverId,
+            messageType: 'system',
+            systemMessageType: 'call_rejected',
+            encryptedContent: encryptMessage(callTypeLabel),
+            callData: {
+              callId: rejectedLog.callId,
+              callType: rejectedLog.callType,
+              duration: 0,
+              endReason: 'declined',
+            },
+            status: 'sent',
+          });
+
+          const callSysMsg = {
+            threadId: rejectedLog.threadId.toString(),
+            message: {
+              _id: savedMsg._id,
+              text: callTypeLabel,
+              messageType: 'system',
+              systemMessageType: 'call_rejected',
+              senderId: { _id: rejectedLog.callerId.toString() },
+              createdAt: savedMsg.createdAt,
+              status: 'sent',
+              callData: savedMsg.callData,
+            },
+          };
+          io.to(callerIdStr).emit('newMessage', callSysMsg);
+          io.to(userId).emit('newMessage', callSysMsg);
+        }
       } catch (e) {
         logger.error('Error updating call log on reject', { error: e.message });
       }
@@ -1437,6 +1517,64 @@ export const initializeSocket = async (server) => {
         );
       } catch (e) {
         logger.error('Error updating call log on end', { error: e.message });
+      }
+
+      // Save call event as a chat message (visible in conversation like WhatsApp)
+      try {
+        const callLog = await CallLog.findOne({
+          $or: [
+            { callerId: userId, receiverId: recipientIdStr },
+            { callerId: recipientIdStr, receiverId: userId },
+          ],
+          status: 'ended',
+        }).sort({ createdAt: -1 }).lean();
+
+        if (callLog && callLog.threadId) {
+          const isCaller = callLog.callerId.toString() === userId;
+          const callTypeLabel = callLog.callType === 'video' ? 'Video call' : 'Voice call';
+          const durationSec = callLog.duration || 0;
+          const durationLabel = durationSec > 0
+            ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+            : '';
+          const content = durationLabel
+            ? `${callTypeLabel} • ${durationLabel}`
+            : callTypeLabel;
+
+          const savedMsg = await ChatMessage.create({
+            threadId: callLog.threadId,
+            senderId: callLog.callerId,
+            receiverId: callLog.receiverId,
+            messageType: 'system',
+            systemMessageType: 'call_ended',
+            encryptedContent: encryptMessage(content),
+            callData: {
+              callId: callLog.callId,
+              callType: callLog.callType,
+              duration: durationSec,
+              endReason: callLog.endReason,
+            },
+            status: 'sent',
+          });
+
+          // Emit to both parties so the message appears in real-time
+          const callSysMsg = {
+            threadId: callLog.threadId.toString(),
+            message: {
+              _id: savedMsg._id,
+              text: content,
+              messageType: 'system',
+              systemMessageType: 'call_ended',
+              senderId: { _id: callLog.callerId.toString() },
+              createdAt: savedMsg.createdAt,
+              status: 'sent',
+              callData: savedMsg.callData,
+            },
+          };
+          io.to(userId).emit('newMessage', callSysMsg);
+          io.to(recipientIdStr).emit('newMessage', callSysMsg);
+        }
+      } catch (e) {
+        logger.warn('[Call] Failed to save call chat message:', e.message);
       }
 
       io.to(recipientIdStr).emit('callEnded', {

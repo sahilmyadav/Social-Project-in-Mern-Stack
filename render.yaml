@@ -48,3 +48,5 @@ services:
         value: '587'
       - key: REDIS_URL
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false # JSON string of Firebase service account key

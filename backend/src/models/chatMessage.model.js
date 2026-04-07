@@ -30,8 +30,27 @@ const chatMessageSchema = new mongoose.Schema(
         'shared_post',
         'shared_reel',
         'location',
+        'system',
       ],
       default: 'text',
+    },
+    // System message sub-type (only when messageType = 'system')
+    systemMessageType: {
+      type: String,
+      enum: [
+        'call_outgoing',
+        'call_incoming',
+        'call_missed',
+        'call_rejected',
+        'call_ended',
+      ],
+    },
+    // Call metadata (only for call system messages)
+    callData: {
+      callId: String,
+      callType: { type: String, enum: ['audio', 'video'] },
+      duration: Number, // seconds
+      endReason: String,
     },
     // Encrypted message content
     encryptedContent: {

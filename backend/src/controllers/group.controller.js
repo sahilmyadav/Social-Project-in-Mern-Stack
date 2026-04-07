@@ -6,6 +6,7 @@ import { Reel } from '../models/reel.model.js';
 import { Story } from '../models/story.model.js';
 import { User } from '../models/user.model.js';
 import { getIO } from '../socket/socket.js';
+import { sendMessagePushNotification } from '../services/firebase.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
@@ -174,9 +175,9 @@ export const getMyGroups = asyncHandler(async (req, res) => {
       isMuted: member?.isMuted || false,
       lastMessage: group.lastMessage
         ? {
-            ...group.lastMessage,
-            text: lastMessageText,
-          }
+          ...group.lastMessage,
+          text: lastMessageText,
+        }
         : null,
     };
   });
@@ -1001,6 +1002,26 @@ export const sendGroupMessage = asyncHandler(async (req, res) => {
     }
   }
 
+  // Send FCM push to all group members except sender (background/killed state)
+  const senderName = populatedMessage.senderId
+    ? `${populatedMessage.senderId.firstName || ''} ${populatedMessage.senderId.lastName || ''}`.trim()
+    : 'Unknown';
+  const previewText = text?.slice(0, 100) || (mediaData.length > 0 ? `📎 ${mediaData[0].type}` : 'New message');
+  group.members.forEach((member) => {
+    if (member.user.toString() !== userId.toString()) {
+      sendMessagePushNotification(member.user.toString(), {
+        senderId: userId,
+        senderName,
+        senderAvatar: populatedMessage.senderId?.avatar || populatedMessage.senderId?.profileImage || '',
+        threadId: group._id,
+        messagePreview: previewText,
+        messageType: messageData.messageType || 'text',
+        isGroupMessage: true,
+        groupName: group.name,
+      }).catch((err) => logger.error('[GroupMsgPush] FCM push failed:', { error: err.message, memberId: member.user.toString() }));
+    }
+  });
+
   return res.status(201).json(new ApiResponse(201, populatedMessage, 'Message sent'));
 });
 
@@ -1494,13 +1515,13 @@ export const voteOnPoll = asyncHandler(async (req, res) => {
         messageId,
         poll: message.poll.isAnonymous
           ? {
-              ...message.poll.toObject(),
-              options: message.poll.options.map((o) => ({
-                ...o.toObject(),
-                voteCount: o.votes.length,
-                votes: [], // Hide voters for anonymous
-              })),
-            }
+            ...message.poll.toObject(),
+            options: message.poll.options.map((o) => ({
+              ...o.toObject(),
+              voteCount: o.votes.length,
+              votes: [], // Hide voters for anonymous
+            })),
+          }
           : message.poll,
       });
     });

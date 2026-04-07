@@ -1,4 +1,6 @@
 import admin from 'firebase-admin';
+import { readFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
 import { NotificationSettings } from '../models/notificationSettings.model.js';
 import logger from '../utils/logger.js';
 
@@ -6,26 +8,79 @@ import logger from '../utils/logger.js';
 //  Firebase Admin SDK — Advanced FCM for Web + Android + iOS
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * Read and validate a service account JSON file.
+ * Returns the parsed object if valid, or null.
+ */
+function loadServiceAccountFile(filePath) {
+  try {
+    if (!existsSync(filePath)) return null;
+    const content = readFileSync(filePath, 'utf8').trim();
+    if (!content) return null;
+    const parsed = JSON.parse(content);
+    if (parsed.type !== 'service_account') {
+      logger.warn(`[FCM] ${filePath} has type "${parsed.type}" — expected "service_account". Skipping.`);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 let firebaseApp;
 
 try {
+  let serviceAccount = null;
+  let source = '';
+
+  // Priority 1: FIREBASE_SERVICE_ACCOUNT env var (JSON string)
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    // Option 1: Explicit service account JSON from environment
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    if (parsed.type === 'service_account') {
+      serviceAccount = parsed;
+      source = 'FIREBASE_SERVICE_ACCOUNT env var';
+    } else {
+      logger.warn(`[FCM] FIREBASE_SERVICE_ACCOUNT has type "${parsed.type}" — expected "service_account".`);
+    }
+  }
+
+  // Priority 2: GOOGLE_APPLICATION_CREDENTIALS file path
+  if (!serviceAccount && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    serviceAccount = loadServiceAccountFile(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+    if (serviceAccount) source = `GOOGLE_APPLICATION_CREDENTIALS (${process.env.GOOGLE_APPLICATION_CREDENTIALS})`;
+  }
+
+  // Priority 3: firebase-key.json in project root (Docker mount or local dev)
+  if (!serviceAccount) {
+    const candidates = [
+      resolve('firebase-key.json'),           // working dir (inside Docker: /app)
+      resolve('../../firebase-key.json'),      // dev: backend/src → project root
+    ];
+    for (const candidate of candidates) {
+      serviceAccount = loadServiceAccountFile(candidate);
+      if (serviceAccount) {
+        source = candidate;
+        break;
+      }
+    }
+  }
+
+  // Initialize Firebase Admin SDK
+  if (serviceAccount) {
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
+      projectId: serviceAccount.project_id,
     });
-    logger.info('[FCM] Firebase Admin SDK initialized with service account key');
-  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_CLOUD_PROJECT) {
-    // Option 2: Application Default Credentials (ADC)
-    // Works with: gcloud auth application-default login, GCE metadata, Workload Identity
-    firebaseApp = admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      projectId: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
-    });
-    logger.info('[FCM] Firebase Admin SDK initialized with Application Default Credentials');
+    logger.info(`[FCM] Firebase Admin SDK initialized from ${source} (project: ${serviceAccount.project_id})`);
   } else {
-    logger.warn('[FCM] Firebase not configured. Set FIREBASE_SERVICE_ACCOUNT or GOOGLE_APPLICATION_CREDENTIALS. Push notifications disabled.');
+    logger.warn(
+      '[FCM] Firebase not configured. Provide one of: ' +
+      '(1) FIREBASE_SERVICE_ACCOUNT env var with JSON, ' +
+      '(2) GOOGLE_APPLICATION_CREDENTIALS pointing to a service_account JSON file, ' +
+      '(3) firebase-key.json in the project root. ' +
+      'Push notifications are DISABLED.'
+    );
   }
 } catch (error) {
   logger.error('[FCM] Firebase initialization error:', { error: error.message });
@@ -404,37 +459,30 @@ export const sendCallEventPush = async (userId, callerId, event) => {
   }
 };
 
-// ═══════════════════════════════════════════════════════════════════
-//  5. CHAT MESSAGE PUSH
-//
-//  FIX: Mobile now sends DATA-ONLY (no notification{} key).
-//
-//  WHY THIS MATTERS:
-//  When a message has BOTH notification{} and data{} keys:
-//  - Background: Android shows the notification automatically ✓
-//    but does NOT wake the Dart isolate → background handler never fires
-//  - Killed: Android shows notification automatically ✓
-//    but Dart isolate is NEVER started → background handler never fires
-//
-//  With DATA-ONLY on mobile:
-//  - Background: Android wakes the Dart isolate → background handler fires
-//    → _showMessageNotification() shows the notification ✓
-//  - Killed: Android wakes the Dart isolate → background handler fires ✓
-//    AND the native ClickMeFirebaseMessagingService.kt also fires as backup ✓
-//
-//  Web still gets notification + data (browsers require it for visibility).
-// ═══════════════════════════════════════════════════════════════════
-
 export const sendMessagePushNotification = async (userId, msgData) => {
   try {
     if (!firebaseApp) return null;
     const tokenData = await getUserTokens(userId);
-    if (!tokenData) return null;
+    if (!tokenData) {
+      logger.info('[MsgPush] Skipped: no FCM tokens for user', { userId });
+      return null;
+    }
     const { settings, mobileTokens, webTokens } = tokenData;
 
-    if (!settings.preferences?.push?.enabled) return null;
-    if (settings.preferences?.push?.messages === false) return null;
-    if (isDNDActive(settings)) return null;
+    logger.info(`[MsgPush] User ${userId}: ${mobileTokens.length} mobile, ${webTokens.length} web tokens`);
+
+    if (!settings.preferences?.push?.enabled) {
+      logger.info('[MsgPush] Skipped: push notifications disabled for user', { userId });
+      return null;
+    }
+    if (settings.preferences?.push?.messages === false) {
+      logger.info('[MsgPush] Skipped: message push preference disabled for user', { userId });
+      return null;
+    }
+    if (isDNDActive(settings)) {
+      logger.info('[MsgPush] Skipped: DND active for user', { userId });
+      return null;
+    }
 
     const title = msgData.isGroupMessage
       ? `${msgData.senderName} in ${msgData.groupName}`
@@ -459,7 +507,7 @@ export const sendMessagePushNotification = async (userId, msgData) => {
       sender_avatar: msgData.senderAvatar || '',
       thread_id: threadId,
       message_preview: body,
-      message_type: msgData.messageType || 'text',
+      msg_type: msgData.messageType || 'text',
       is_group_message: msgData.isGroupMessage ? 'true' : 'false',
       group_name: msgData.groupName || '',
       click_action: 'FLUTTER_NOTIFICATION_CLICK',
@@ -468,14 +516,22 @@ export const sendMessagePushNotification = async (userId, msgData) => {
 
     const results = [];
 
-    // ── Mobile: DATA-ONLY ─────────────────────────────────────────────────
-    // No notification{} key AND no android.notification{} — both would make
-    // FCM treat this as a notification message, preventing the Dart isolate
-    // from starting in killed state. Channel and tag are passed via data{}
-    // so the Flutter background handler can use them when showing the
-    // notification manually via flutter_local_notifications.
+    // ── Mobile: notification + data ──────────────────────────────────────
+    // Include top-level notification{} so the OS shows the notification
+    // automatically when the app is killed. Data-only messages are blocked
+    // on many Android OEMs (Xiaomi, Oppo, Samsung, etc.) in killed state
+    // due to aggressive battery optimization. Notification messages bypass
+    // this restriction because they go through the FCM system channel.
+    //
+    // - Killed:     OS shows notification from notification{} key automatically
+    // - Background: OS shows notification, onBackgroundMessage fires
+    // - Foreground: onMessage fires, Flutter can suppress duplicate display
     if (mobileTokens.length > 0) {
       results.push(sendMulticast(userId, {
+        notification: {
+          title,
+          body,
+        },
         data: {
           ...dataPayload,
           title,
@@ -486,6 +542,12 @@ export const sendMessagePushNotification = async (userId, msgData) => {
         android: {
           priority: 'high',
           ttl: 60000,
+          notification: {
+            channelId: 'chat_messages',
+            sound: 'default',
+            tag: `chat_${threadId}`,
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          },
         },
         apns: {
           headers: {
@@ -495,7 +557,7 @@ export const sendMessagePushNotification = async (userId, msgData) => {
           payload: {
             aps: {
               alert: { title, body },
-              sound: settings.preferences?.in_app?.sound ? 'default' : 'default',
+              sound: 'default',
               badge: 1,
               'mutable-content': 1,
               'thread-id': `chat_${threadId}`,

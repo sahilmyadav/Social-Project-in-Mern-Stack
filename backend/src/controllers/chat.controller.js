@@ -5,14 +5,15 @@ import { Post } from '../models/post.model.js';
 import { Reel } from '../models/reel.model.js';
 import { User } from '../models/user.model.js';
 import { getIO } from '../socket/socket.js';
+import { sendMessagePushNotification } from '../services/firebase.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import {
-    decryptMessage,
-    encryptMediaUrl,
-    encryptMessage,
-    generateSessionKey,
+  decryptMessage,
+  encryptMediaUrl,
+  encryptMessage,
+  generateSessionKey,
 } from '../utils/encryption.js';
 import { uploadFile } from '../utils/localStorage.js';
 import logger from '../utils/logger.js';
@@ -98,12 +99,12 @@ export const getAllThreads = asyncHandler(async (req, res) => {
       participant: otherParticipant,
       lastMessage: lastMessage
         ? {
-            text: lastMessageText,
-            media: lastMessage.media,
-            createdAt: lastMessage.createdAt,
-            senderId: lastMessage.senderId,
-            isDeleted: lastMessage.isDeleted,
-          }
+          text: lastMessageText,
+          media: lastMessage.media,
+          createdAt: lastMessage.createdAt,
+          senderId: lastMessage.senderId,
+          isDeleted: lastMessage.isDeleted,
+        }
         : null,
       lastMessageAt: thread.lastMessageAt,
       unreadCount,
@@ -464,6 +465,20 @@ export const sendMessage = asyncHandler(async (req, res) => {
     // Delivery is confirmed when the receiver's socket emits 'messageDelivered'
     // after actually receiving the message, which is handled in socket.js.
   }
+
+  // Send FCM push for mobile devices (background/killed state)
+  const plainText = text || (messageData.encryptedContent ? decryptMessage(messageData.encryptedContent) : '');
+  const senderName = message.senderId
+    ? `${message.senderId.firstName || ''} ${message.senderId.lastName || ''}`.trim()
+    : 'Unknown';
+  sendMessagePushNotification(receiverId.toString(), {
+    senderId: userId,
+    senderName,
+    senderAvatar: message.senderId?.profilePicture || '',
+    threadId,
+    messagePreview: plainText.slice(0, 100),
+    messageType: messageData.messageType || 'text',
+  }).catch((err) => logger.error('[MsgPush] FCM push failed:', { error: err.message }));
 
   // Return response with decrypted text
   return res.status(201).json(new ApiResponse(201, messageForSocket, 'Message sent successfully'));
@@ -892,6 +907,75 @@ export const endCall = asyncHandler(async (req, res) => {
   }
 
   return res.status(200).json(new ApiResponse(200, callLog, 'Call ended successfully'));
+});
+
+// 9b. Get call history for the logged-in user
+export const getCallHistory = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { limit = 30, skip = 0 } = req.query;
+
+  const calls = await CallLog.find({
+    $or: [{ callerId: userId }, { receiverId: userId }],
+    isDeleted: false,
+  })
+    .populate('callerId', 'firstName lastName username profilePicture avatar')
+    .populate('receiverId', 'firstName lastName username profilePicture avatar')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip(parseInt(skip))
+    .lean();
+
+  const total = await CallLog.countDocuments({
+    $or: [{ callerId: userId }, { receiverId: userId }],
+    isDeleted: false,
+  });
+
+  const formattedCalls = calls.map((call) => {
+    const isCaller = call.callerId?._id?.toString() === userId.toString();
+    return {
+      callId: call.callId,
+      callType: call.callType,
+      caller: call.callerId,
+      receiver: call.receiverId,
+      direction: isCaller ? 'outgoing' : 'incoming',
+      status: call.status,
+      duration: call.duration || 0,
+      startedAt: call.startedAt,
+      endedAt: call.endedAt,
+      endReason: call.endReason,
+      createdAt: call.createdAt,
+      threadId: call.threadId,
+    };
+  });
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      calls: formattedCalls,
+      total,
+      hasMore: parseInt(skip) + parseInt(limit) < total,
+    }, 'Call history fetched')
+  );
+});
+
+// 9c. Delete (soft) a call log entry
+export const deleteCallLog = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { callId } = req.params;
+
+  const callLog = await CallLog.findOneAndUpdate(
+    {
+      callId,
+      $or: [{ callerId: userId }, { receiverId: userId }],
+    },
+    { isDeleted: true },
+    { new: true }
+  );
+
+  if (!callLog) {
+    throw new ApiError(404, 'Call log not found');
+  }
+
+  return res.status(200).json(new ApiResponse(200, null, 'Call log deleted'));
 });
 
 // 10. Delete thread

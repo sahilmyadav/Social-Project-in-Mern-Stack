@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import {
   createOrGetThread,
+  deleteCallLog,
   deleteMessage,
   deleteThread,
   editMessage,
   endCall,
   getAllThreads,
+  getCallHistory,
   getMessages,
   getUnreadCount,
   markMessagesAsSeen,
@@ -54,5 +56,7 @@ router.route('/media/upload').post(uploadMultiple, handleUploadError, uploadChat
 // Call routes
 router.route('/call/request/:receiverId').post(requestCall);
 router.route('/call/end/:callId').post(endCall);
+router.route('/call/history').get(getCallHistory);
+router.route('/call/delete/:callId').delete(deleteCallLog);
 
 export default router;

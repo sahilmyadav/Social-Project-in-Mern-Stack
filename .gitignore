@@ -76,6 +76,12 @@ backups/
 *.md
 
 # ===================
+# Firebase Service Account Keys
+# ===================
+firebase-key.json
+clickme-2b55d-*.json
+
+# ===================
 # Flutter App
 # ===================
 ClickMe-back/

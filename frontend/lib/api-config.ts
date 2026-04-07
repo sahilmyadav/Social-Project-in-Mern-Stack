@@ -120,6 +120,10 @@ export const API_ENDPOINTS = {
     DELETE_THREAD: (threadId: string) => `/chat/thread/delete/${threadId}`,
     UPLOAD_MEDIA: '/chat/media/upload',
     GET_UNREAD_COUNT: '/chat/unread-count',
+    CALL_HISTORY: '/chat/call/history',
+    DELETE_CALL_LOG: (callId: string) => `/chat/call/delete/${callId}`,
+    REQUEST_CALL: (receiverId: string) => `/chat/call/request/${receiverId}`,
+    END_CALL: (callId: string) => `/chat/call/end/${callId}`,
   },
 
   NOTIFICATIONS: {

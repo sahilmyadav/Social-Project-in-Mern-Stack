@@ -64,7 +64,6 @@ import {
   onUserOnline,
 } from '@/lib/socket';
 import { showToast } from '@/lib/toast';
-import { formatCallDuration } from '@/lib/webrtc';
 import { isToday, isYesterday, format } from 'date-fns';
 import {
   Ban,
@@ -441,11 +440,13 @@ function ChatPageContent() {
       const handleNewMessage = (data: any) => {
         if (data.threadId && data.message) {
           const isOwnMessage = data.message.senderId?._id === parsedUser._id;
+          const isSystemMsg = data.message.messageType === 'system';
 
           const newMessage: Message = {
             id: data.message._id,
-            sender:
-              data.message.senderId?.firstName || data.message.senderId?.username || 'Unknown',
+            sender: isSystemMsg
+              ? 'System'
+              : data.message.senderId?.firstName || data.message.senderId?.username || 'Unknown',
             content: data.message.text || '',
             timestamp: new Date(data.message.createdAt).toLocaleTimeString([], {
               hour: '2-digit',
@@ -455,6 +456,13 @@ function ChatPageContent() {
             isSent: isOwnMessage,
             media: data.message.media || [],
             isForwarded: data.message.isForwarded || false,
+            ...(isSystemMsg && {
+              type: 'system',
+              senderId: 'system',
+              senderName: 'System',
+              isSystemMessage: true,
+              systemMessageType: data.message.systemMessageType,
+            }),
             replyTo: data.message.replyTo
               ? {
                 _id: data.message.replyTo._id,
@@ -469,7 +477,19 @@ function ChatPageContent() {
 
           setSelectedThreadId((currentThreadId) => {
             if (currentThreadId === data.threadId) {
-              if (!isOwnMessage) {
+              if (isSystemMsg) {
+                // System messages (call events): show for both parties, replace any local temp call messages
+                setMessages((prev) => {
+                  const messageExists = prev.some((msg) => msg.id === data.message._id);
+                  if (messageExists) return prev;
+                  // Remove any local temp call messages (call-initiated-*, call-ended-*, etc.)
+                  const filtered = prev.filter((msg) => {
+                    if (typeof msg.id === 'string' && (msg.id as string).startsWith('call-')) return false;
+                    return true;
+                  });
+                  return [...filtered, newMessage];
+                });
+              } else if (!isOwnMessage) {
                 setMessages((prev) => {
                   const messageExists = prev.some((msg) => msg.id === data.message._id);
                   if (messageExists) {
@@ -840,10 +860,11 @@ function ChatPageContent() {
           threadId === selectedThreadIdRef.current ||
           threadId === selectedConversationRef.current?.threadId
         ) {
+          // Local "Incoming call" indicator — will be replaced by backend system message
           const callMessage: Message = {
             id: `call-incoming-${Date.now()}`,
             sender: 'System',
-            content: callType === 'video' ? 'Incoming video call' : 'Incoming voice call',
+            content: callType === 'video' ? 'Incoming video call...' : 'Incoming voice call...',
             timestamp: new Date().toISOString(),
             createdAt: new Date().toISOString(),
             isSent: false,
@@ -881,33 +902,10 @@ function ChatPageContent() {
         setIsGroupVoiceCallOpen(false);
         setIsGroupVideoCallOpen(false);
         // NOTE: Don't call releaseCall() — the call modal manages its own lock.
-
-        if (
-          data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversationRef.current?.threadId
-        ) {
-          const systemMessage: Message = {
-            id: `call-rejected-${Date.now()}`,
-            sender: 'System',
-            content: 'Call was not answered',
-            timestamp: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            isSent: false,
-            type: 'system',
-            senderId: 'system',
-            senderName: 'System',
-            status: 'sent' as const,
-            isSystemMessage: true,
-            systemMessageType: 'call-rejected',
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-        }
+        // System message will arrive via newMessage from backend
       };
 
       const handleCallEnded = (data: any) => {
-        const endedAt = data.endedAt ? new Date(data.endedAt) : new Date();
-        const duration = data.duration || 0;
-
         setIncomingCall(null);
         // Close chat page's own call modals (the button is disabled while any is open)
         setIsVoiceCallOpen(false);
@@ -915,30 +913,7 @@ function ChatPageContent() {
         setIsGroupVoiceCallOpen(false);
         setIsGroupVideoCallOpen(false);
         // NOTE: Don't call releaseCall() — the call modal manages its own lock.
-
-        if (
-          data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversationRef.current?.threadId
-        ) {
-          const systemMessage: Message = {
-            id: `call-ended-${Date.now()}`,
-            sender: 'System',
-            content:
-              duration > 0
-                ? `Call ended • Duration: ${formatCallDuration(duration)}`
-                : 'Call ended',
-            timestamp: endedAt.toISOString(),
-            createdAt: endedAt.toISOString(),
-            isSent: false,
-            type: 'system',
-            senderId: 'system',
-            senderName: 'System',
-            status: 'sent' as const,
-            isSystemMessage: true,
-            systemMessageType: 'call-ended',
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-        }
+        // System message will arrive via newMessage from backend
       };
 
       const handleCallFailed = (data: any) => {
@@ -951,28 +926,7 @@ function ChatPageContent() {
         // NOTE: Don't call releaseCall() — the call modal manages its own lock.
 
         showToast.error('Call Failed', data.reason || 'Unable to connect the call');
-
-        if (
-          data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversationRef.current?.threadId ||
-          data.recipientId
-        ) {
-          const systemMessage: Message = {
-            id: `call-failed-${Date.now()}`,
-            sender: 'System',
-            content: data.reason || 'Call failed',
-            timestamp: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            isSent: false,
-            type: 'system',
-            senderId: 'system',
-            senderName: 'System',
-            status: 'sent' as const,
-            isSystemMessage: true,
-            systemMessageType: 'call-failed',
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-        }
+        // System message will arrive via newMessage from backend (for missed/rejected)
       };
 
       onNewMessage(handleNewMessage);
@@ -2129,8 +2083,8 @@ function ChatPageContent() {
                         <div className="relative">
                           <div
                             className={`w-14 h-14 rounded-full p-[2px] ${friend.hasStory
-                                ? 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400'
-                                : 'bg-border'
+                              ? 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400'
+                              : 'bg-border'
                               }`}
                           >
                             <div className="w-full h-full rounded-full bg-background p-[2px]">
@@ -2558,42 +2512,12 @@ function ChatPageContent() {
                       }
 
                       if (selectedConversation?.isGroup && selectedConversation?.id) {
-                        const callMessage: Message = {
-                          id: `call-initiated-${Date.now()}`,
-                          sender: 'System',
-                          content: 'Starting group voice call',
-                          timestamp: new Date().toISOString(),
-                          createdAt: new Date().toISOString(),
-                          isSent: true,
-                          type: 'system',
-                          senderId: 'system',
-                          senderName: 'System',
-                          status: 'sent' as const,
-                          isSystemMessage: true,
-                          systemMessageType: 'call-initiated',
-                        };
-                        setMessages((prev) => [...prev, callMessage]);
                         emitInitiateGroupCall(selectedConversation.id, 'voice');
                         setIsGroupVoiceCallOpen(true);
                       } else if (
                         selectedConversation?.participantId &&
                         selectedConversation?.threadId
                       ) {
-                        const callMessage: Message = {
-                          id: `call-initiated-${Date.now()}`,
-                          sender: 'System',
-                          content: 'Outgoing voice call',
-                          timestamp: new Date().toISOString(),
-                          createdAt: new Date().toISOString(),
-                          isSent: true,
-                          type: 'system',
-                          senderId: 'system',
-                          senderName: 'System',
-                          status: 'sent' as const,
-                          isSystemMessage: true,
-                          systemMessageType: 'call-initiated',
-                        };
-                        setMessages((prev) => [...prev, callMessage]);
                         emitInitiateCall(
                           selectedConversation.participantId,
                           selectedConversation.threadId,
@@ -2640,42 +2564,12 @@ function ChatPageContent() {
                       }
 
                       if (selectedConversation?.isGroup && selectedConversation?.id) {
-                        const callMessage: Message = {
-                          id: `call-initiated-${Date.now()}`,
-                          sender: 'System',
-                          content: 'Starting group video call',
-                          timestamp: new Date().toISOString(),
-                          createdAt: new Date().toISOString(),
-                          isSent: true,
-                          type: 'system',
-                          senderId: 'system',
-                          senderName: 'System',
-                          status: 'sent' as const,
-                          isSystemMessage: true,
-                          systemMessageType: 'call-initiated',
-                        };
-                        setMessages((prev) => [...prev, callMessage]);
                         emitInitiateGroupCall(selectedConversation.id, 'video');
                         setIsGroupVideoCallOpen(true);
                       } else if (
                         selectedConversation?.participantId &&
                         selectedConversation?.threadId
                       ) {
-                        const callMessage: Message = {
-                          id: `call-initiated-${Date.now()}`,
-                          sender: 'System',
-                          content: 'Outgoing video call',
-                          timestamp: new Date().toISOString(),
-                          createdAt: new Date().toISOString(),
-                          isSent: true,
-                          type: 'system',
-                          senderId: 'system',
-                          senderName: 'System',
-                          status: 'sent' as const,
-                          isSystemMessage: true,
-                          systemMessageType: 'call-initiated',
-                        };
-                        setMessages((prev) => [...prev, callMessage]);
                         emitInitiateCall(
                           selectedConversation.participantId,
                           selectedConversation.threadId,

@@ -157,7 +157,7 @@ export default function groupSocket(io, socket, userId) {
             messageType,
             isGroupMessage: true,
             groupName: group.name,
-          }).catch(() => { });
+          }).catch((err) => logger.error('[GroupMsgPush] FCM push failed:', { error: err.message, memberId: member.user.toString() }));
         }
       });
 
@@ -189,7 +189,7 @@ export default function groupSocket(io, socket, userId) {
             reference_id: groupId,
             action_url: `/chat/group/${groupId}`,
             sender_id: userId,
-          }).catch(() => { });
+          }).catch((err) => logger.error('[GroupMentionPush] FCM push failed:', { error: err.message, mentionId }));
         }
       }
 
@@ -345,9 +345,33 @@ export default function groupSocket(io, socket, userId) {
       const callerName = caller ? `${caller.firstName} ${caller.lastName}` : 'Unknown';
       const callerAvatar = caller?.avatar || '';
 
+      const memberIds = group.members
+        .filter((m) => !m.isRemoved && !m.isLeft)
+        .map((m) => m.user.toString());
+
+      // Create GroupCall log entry
+      const callId = `gcall_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const participants = memberIds.map((uid) => ({
+        user: uid,
+        status: uid === userId ? 'joined' : 'ringing',
+        invitedAt: new Date(),
+        ...(uid === userId ? { joinedAt: new Date(), role: 'host' } : {}),
+      }));
+
+      await GroupCall.create({
+        callId,
+        groupId,
+        callType: callType === 'video' ? 'video' : 'audio',
+        initiator: userId,
+        participants,
+        status: 'ringing',
+        startedAt: new Date(),
+      }).catch((e) => logger.warn(`[GroupCall] Failed to create call log: ${e.message}`));
+
       // Emit to all online group members (socket layer)
       socket.to(`group:${groupId}`).emit('incomingGroupCall', {
         groupId,
+        callId,
         callType,
         callerId: userId,
         callerName,
@@ -356,13 +380,9 @@ export default function groupSocket(io, socket, userId) {
         groupAvatar: group.avatar || '',
       });
 
-      logger.info(`[GroupCall] ${userId} initiated ${callType} call in group ${groupId}`);
+      logger.info(`[GroupCall] ${userId} initiated ${callType} call (${callId}) in group ${groupId}`);
 
       // Send FCM push to ALL members (covers offline/background/killed devices)
-      const memberIds = group.members
-        .filter((m) => !m.isRemoved && !m.isLeft)
-        .map((m) => m.user.toString());
-
       sendGroupCallPushNotification(memberIds, userId, {
         callerId: userId,
         callerName,
@@ -386,6 +406,29 @@ export default function groupSocket(io, socket, userId) {
   socket.on('endGroupCall', async ({ groupId, callId }) => {
     try {
       socket.to(`group:${groupId}`).emit('groupCallEnded', { groupId, callId, endedBy: userId });
+
+      // Update GroupCall log
+      if (callId) {
+        const now = new Date();
+        GroupCall.findOneAndUpdate(
+          { callId, status: { $in: ['initiating', 'ringing', 'ongoing'] } },
+          [
+            {
+              $set: {
+                status: 'ended',
+                endedAt: now,
+                duration: {
+                  $cond: {
+                    if: { $ne: ['$startedAt', null] },
+                    then: { $floor: { $divide: [{ $subtract: [now, '$startedAt'] }, 1000] } },
+                    else: 0,
+                  },
+                },
+              },
+            },
+          ]
+        ).catch((e) => logger.warn(`[GroupCall] Failed to update call log: ${e.message}`));
+      }
 
       const group = await GroupChat.findOne({ _id: groupId, 'members.user': userId }).lean();
       if (group) {

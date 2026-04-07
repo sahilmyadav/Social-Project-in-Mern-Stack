@@ -222,20 +222,24 @@ export default function GlobalSocketHandler() {
     const handleNewMessage = (data: any) => {
       const isOnChatPage = pathname?.startsWith('/chat');
       if (!isOnChatPage) {
-        const senderName = data.sender?.firstName
-          ? `${data.sender.firstName} ${data.sender.lastName || ''}`.trim()
-          : data.sender?.username || 'Someone';
+        // Backend emits { threadId, message: { senderId: { firstName, lastName, ... }, text } }
+        const sender = data.message?.senderId || data.sender;
+        const senderName = sender?.firstName
+          ? `${sender.firstName} ${sender.lastName || ''}`.trim()
+          : sender?.username || 'Someone';
+        const content = data.message?.text || data.content || '';
+        const threadId = data.threadId;
 
         toast.message(`New message from ${senderName}`, {
-          description: data.content?.substring(0, 50) || 'Sent you a message',
-          action: { label: 'View', onClick: () => router.push(`/chat?thread=${data.threadId}`) },
+          description: content.substring(0, 50) || 'Sent you a message',
+          action: { label: 'View', onClick: () => router.push(`/chat?thread=${threadId}`) },
           duration: 5000,
         });
 
         showBrowserNotification(`${senderName}`, {
-          body: data.content?.substring(0, 100) || 'Sent you a message',
-          tag: `message-${data.threadId}`,
-          onClick: () => router.push(`/chat?thread=${data.threadId}`),
+          body: content.substring(0, 100) || 'Sent you a message',
+          tag: `message-${threadId}`,
+          onClick: () => router.push(`/chat?thread=${threadId}`),
         });
       }
     };

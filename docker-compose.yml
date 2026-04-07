@@ -19,13 +19,13 @@ services:
       - ENABLE_CLUSTER=true
       - CLUSTER_WORKERS=10
       - UV_THREADPOOL_SIZE=24
-      - GOOGLE_APPLICATION_CREDENTIALS=/app/.gcloud/application_default_credentials.json
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-key.json
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-clickme-2b55d}
     ports:
       - '5000:5000'
     volumes:
       - ./backend/uploads:/app/uploads
-      - /home/clickme/.config/gcloud:/app/.gcloud:ro
+      - ./firebase-key.json:/app/firebase-key.json:ro
     depends_on:
       mongo:
         condition: service_healthy
