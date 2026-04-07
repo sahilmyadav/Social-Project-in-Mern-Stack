@@ -1487,9 +1487,12 @@ export const initializeSocket = async (server) => {
       await removeActiveCallPeer(recipientIdStr);
 
       // Update call log with end time — atomic findOneAndUpdate (was find+save race)
+      // Use { new: true } so only the FIRST party to update gets a result back.
+      // This prevents duplicate ChatMessage creation when both parties emit endCall.
+      let endedCallLog = null;
       try {
         const now = new Date();
-        await CallLog.findOneAndUpdate(
+        endedCallLog = await CallLog.findOneAndUpdate(
           {
             $or: [
               { callerId: userId, receiverId: recipientIdStr },
@@ -1513,26 +1516,17 @@ export const initializeSocket = async (server) => {
               },
             },
           ],
-          { sort: { createdAt: -1 } }
+          { sort: { createdAt: -1 }, new: true }
         );
       } catch (e) {
         logger.error('Error updating call log on end', { error: e.message });
       }
 
-      // Save call event as a chat message (visible in conversation like WhatsApp)
-      try {
-        const callLog = await CallLog.findOne({
-          $or: [
-            { callerId: userId, receiverId: recipientIdStr },
-            { callerId: recipientIdStr, receiverId: userId },
-          ],
-          status: 'ended',
-        }).sort({ createdAt: -1 }).lean();
-
-        if (callLog && callLog.threadId) {
-          const isCaller = callLog.callerId.toString() === userId;
-          const callTypeLabel = callLog.callType === 'video' ? 'Video call' : 'Voice call';
-          const durationSec = callLog.duration || 0;
+      // Save call event as a chat message — only if WE updated the log (prevents duplicates)
+      if (endedCallLog?.threadId) {
+        try {
+          const callTypeLabel = endedCallLog.callType === 'video' ? 'Video call' : 'Voice call';
+          const durationSec = endedCallLog.duration || 0;
           const durationLabel = durationSec > 0
             ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
             : '';
@@ -1541,30 +1535,30 @@ export const initializeSocket = async (server) => {
             : callTypeLabel;
 
           const savedMsg = await ChatMessage.create({
-            threadId: callLog.threadId,
-            senderId: callLog.callerId,
-            receiverId: callLog.receiverId,
+            threadId: endedCallLog.threadId,
+            senderId: endedCallLog.callerId,
+            receiverId: endedCallLog.receiverId,
             messageType: 'system',
             systemMessageType: 'call_ended',
             encryptedContent: encryptMessage(content),
             callData: {
-              callId: callLog.callId,
-              callType: callLog.callType,
+              callId: endedCallLog.callId,
+              callType: endedCallLog.callType,
               duration: durationSec,
-              endReason: callLog.endReason,
+              endReason: endedCallLog.endReason,
             },
             status: 'sent',
           });
 
           // Emit to both parties so the message appears in real-time
           const callSysMsg = {
-            threadId: callLog.threadId.toString(),
+            threadId: endedCallLog.threadId.toString(),
             message: {
               _id: savedMsg._id,
               text: content,
               messageType: 'system',
               systemMessageType: 'call_ended',
-              senderId: { _id: callLog.callerId.toString() },
+              senderId: { _id: endedCallLog.callerId.toString() },
               createdAt: savedMsg.createdAt,
               status: 'sent',
               callData: savedMsg.callData,
@@ -1572,9 +1566,9 @@ export const initializeSocket = async (server) => {
           };
           io.to(userId).emit('newMessage', callSysMsg);
           io.to(recipientIdStr).emit('newMessage', callSysMsg);
+        } catch (e) {
+          logger.warn('[Call] Failed to save call chat message:', e.message);
         }
-      } catch (e) {
-        logger.warn('[Call] Failed to save call chat message:', e.message);
       }
 
       io.to(recipientIdStr).emit('callEnded', {

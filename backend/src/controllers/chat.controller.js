@@ -1,6 +1,7 @@
 import { CallLog } from '../models/callLog.model.js';
 import { ChatMessage } from '../models/chatMessage.model.js';
 import { ChatThread } from '../models/chatThread.model.js';
+import { GroupCall } from '../models/groupCall.model.js';
 import { Post } from '../models/post.model.js';
 import { Reel } from '../models/reel.model.js';
 import { User } from '../models/user.model.js';
@@ -909,28 +910,47 @@ export const endCall = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, callLog, 'Call ended successfully'));
 });
 
-// 9b. Get call history for the logged-in user
+// 9b. Get call history for the logged-in user (1:1 + group calls)
 export const getCallHistory = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { limit = 30, skip = 0 } = req.query;
+  const lim = parseInt(limit);
+  const sk = parseInt(skip);
 
-  const calls = await CallLog.find({
-    $or: [{ callerId: userId }, { receiverId: userId }],
-    isDeleted: false,
-  })
-    .populate('callerId', 'firstName lastName username profilePicture avatar')
-    .populate('receiverId', 'firstName lastName username profilePicture avatar')
-    .sort({ createdAt: -1 })
-    .limit(parseInt(limit))
-    .skip(parseInt(skip))
-    .lean();
+  // 1:1 calls
+  const [oneToOneCalls, oneToOneTotal] = await Promise.all([
+    CallLog.find({
+      $or: [{ callerId: userId }, { receiverId: userId }],
+      isDeleted: false,
+    })
+      .populate('callerId', 'firstName lastName username profilePicture avatar')
+      .populate('receiverId', 'firstName lastName username profilePicture avatar')
+      .sort({ createdAt: -1 })
+      .lean(),
+    CallLog.countDocuments({
+      $or: [{ callerId: userId }, { receiverId: userId }],
+      isDeleted: false,
+    }),
+  ]);
 
-  const total = await CallLog.countDocuments({
-    $or: [{ callerId: userId }, { receiverId: userId }],
-    isDeleted: false,
-  });
+  // Group calls
+  const [groupCalls, groupCallTotal] = await Promise.all([
+    GroupCall.find({
+      'participants.user': userId,
+      status: { $in: ['ringing', 'ongoing', 'ended', 'failed', 'cancelled'] },
+    })
+      .populate('initiator', 'firstName lastName username profilePicture avatar')
+      .populate('groupId', 'name avatar')
+      .sort({ createdAt: -1 })
+      .lean(),
+    GroupCall.countDocuments({
+      'participants.user': userId,
+      status: { $in: ['ringing', 'ongoing', 'ended', 'failed', 'cancelled'] },
+    }),
+  ]);
 
-  const formattedCalls = calls.map((call) => {
+  // Format 1:1 calls
+  const formatted1v1 = oneToOneCalls.map((call) => {
     const isCaller = call.callerId?._id?.toString() === userId.toString();
     return {
       callId: call.callId,
@@ -945,14 +965,58 @@ export const getCallHistory = asyncHandler(async (req, res) => {
       endReason: call.endReason,
       createdAt: call.createdAt,
       threadId: call.threadId,
+      isGroupCall: false,
     };
   });
 
+  // Format group calls
+  const formattedGroup = groupCalls.map((call) => {
+    const isCaller = call.initiator?._id?.toString() === userId.toString();
+    const myParticipant = call.participants?.find((p) => p.user?.toString() === userId.toString());
+    // Map group call status to match 1:1 format
+    let status = call.status;
+    if (status === 'ongoing') status = 'answered';
+    if (status === 'cancelled') status = 'missed';
+    if (myParticipant?.status === 'missed' || myParticipant?.status === 'declined') status = 'missed';
+
+    return {
+      callId: call.callId,
+      callType: call.callType,
+      caller: call.initiator,
+      receiver: {
+        _id: call.groupId?._id || call.groupId,
+        firstName: call.groupId?.name || 'Group',
+        lastName: '',
+        username: call.groupId?.name || 'Group',
+        profilePicture: call.groupId?.avatar || '',
+        avatar: call.groupId?.avatar || '',
+      },
+      direction: isCaller ? 'outgoing' : 'incoming',
+      status,
+      duration: call.duration || 0,
+      startedAt: call.startedAt,
+      endedAt: call.endedAt,
+      endReason: call.endReason,
+      createdAt: call.createdAt,
+      threadId: call.groupId?._id || call.groupId,
+      isGroupCall: true,
+      groupName: call.groupId?.name,
+      groupAvatar: call.groupId?.avatar,
+    };
+  });
+
+  // Merge and sort by date
+  const allCalls = [...formatted1v1, ...formattedGroup]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(sk, sk + lim);
+
+  const total = oneToOneTotal + groupCallTotal;
+
   return res.status(200).json(
     new ApiResponse(200, {
-      calls: formattedCalls,
+      calls: allCalls,
       total,
-      hasMore: parseInt(skip) + parseInt(limit) < total,
+      hasMore: sk + lim < total,
     }, 'Call history fetched')
   );
 });

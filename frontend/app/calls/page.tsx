@@ -31,6 +31,9 @@ interface CallRecord {
   endReason: string | null
   createdAt: string
   threadId: string
+  isGroupCall?: boolean
+  groupName?: string
+  groupAvatar?: string
 }
 
 export default function CallsPage() {
@@ -131,6 +134,7 @@ export default function CallsPage() {
   }
 
   const getOtherUser = (call: CallRecord): CallUser => {
+    if (call.isGroupCall) return call.receiver
     return call.direction === "outgoing" ? call.receiver : call.caller
   }
 
@@ -138,7 +142,8 @@ export default function CallsPage() {
     return u.profilePicture || u.avatar || ""
   }
 
-  const getUserName = (u: CallUser) => {
+  const getUserName = (u: CallUser, call?: CallRecord) => {
+    if (call?.isGroupCall && call.groupName) return call.groupName
     return `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username || "Unknown"
   }
 
@@ -175,9 +180,9 @@ export default function CallsPage() {
             <div className="w-full max-w-md bg-card rounded-3xl border border-border shadow-2xl overflow-hidden">
               <div className="bg-gradient-to-r from-primary to-secondary p-8 text-center text-white">
                 <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-white/20 flex items-center justify-center text-3xl font-bold">
-                  {getUserName(getOtherUser(activeCall)).charAt(0).toUpperCase()}
+                  {getUserName(getOtherUser(activeCall), activeCall).charAt(0).toUpperCase()}
                 </div>
-                <h2 className="text-2xl font-bold mb-2">{getUserName(getOtherUser(activeCall))}</h2>
+                <h2 className="text-2xl font-bold mb-2">{getUserName(getOtherUser(activeCall), activeCall)}</h2>
                 <p className="text-lg opacity-90">{formatDuration(callDuration)}</p>
               </div>
 
@@ -242,7 +247,7 @@ export default function CallsPage() {
                     {calls.map((call) => {
                       const otherUser = getOtherUser(call)
                       const avatar = getUserAvatar(otherUser)
-                      const name = getUserName(otherUser)
+                      const name = getUserName(otherUser, call)
                       const status = getCallStatus(call)
                       const isMissed = status === "missed" || status === "cancelled"
 
@@ -279,6 +284,9 @@ export default function CallsPage() {
                                 {status === "cancelled" && <PhoneOutgoing size={12} className="text-red-500" />}
                                 {call.callType === "video" && (
                                   <Video size={12} />
+                                )}
+                                {call.isGroupCall && (
+                                  <span className="text-purple-500 font-medium">Group</span>
                                 )}
                                 <span className={isMissed ? "text-red-500/70" : ""}>
                                   {getCallStatusLabel(call)}
