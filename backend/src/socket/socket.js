@@ -7,6 +7,7 @@ import { ChatMessage } from '../models/chatMessage.model.js';
 import { ChatThread } from '../models/chatThread.model.js';
 import { GroupCall } from '../models/groupCall.model.js';
 import { GroupChat } from '../models/groupChat.model.js';
+import { GroupMessage } from '../models/groupMessage.model.js';
 import { User } from '../models/user.model.js';
 import { encryptMessage } from '../utils/encryption.js';
 import logger from '../utils/logger.js';
@@ -1270,6 +1271,42 @@ export const initializeSocket = async (server) => {
                   (Date.now() - groupCallRecord.startedAt.getTime()) / 1000
                 );
               }
+
+              // Create system message in group chat (like 1:1 call logs)
+              try {
+                const callTypeLabel = groupCallRecord.callType === 'video' ? 'Video call' : 'Voice call';
+                const durationSec = groupCallRecord.duration || 0;
+                const durationLabel = durationSec > 0
+                  ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+                  : '';
+                const content = durationLabel
+                  ? `${callTypeLabel} • ${durationLabel}`
+                  : callTypeLabel;
+
+                const sysMsg = await GroupMessage.create({
+                  groupId,
+                  senderId: groupCallRecord.initiator,
+                  messageType: 'system',
+                  systemMessage: content,
+                  systemMessageType: 'call_ended',
+                });
+
+                const populatedMsg = await GroupMessage.findById(sysMsg._id)
+                  .populate('senderId', 'firstName lastName username profileImage avatar')
+                  .lean();
+
+                const group = await GroupChat.findById(groupId).select('members').lean();
+                if (group) {
+                  group.members.forEach((member) => {
+                    io.to(member.user.toString()).emit('groupMessage', {
+                      groupId,
+                      message: { ...populatedMsg, text: content },
+                    });
+                  });
+                }
+              } catch (msgErr) {
+                logger.error('Error creating group call ended message', { error: msgErr.message });
+              }
             }
             await groupCallRecord.save();
           }
@@ -1306,8 +1343,9 @@ export const initializeSocket = async (server) => {
     socket.on('endGroupCall', async ({ groupId }) => {
       try {
         // Update GroupCall record
+        let endedCallRecord = null;
         try {
-          await GroupCall.findOneAndUpdate(
+          endedCallRecord = await GroupCall.findOneAndUpdate(
             { groupId, status: { $in: ['initiating', 'ringing', 'ongoing'] } },
             {
               status: 'ended',
@@ -1320,10 +1358,51 @@ export const initializeSocket = async (server) => {
             },
             {
               arrayFilters: [{ 'elem.status': 'joined' }],
+              new: true,
             }
           );
         } catch (dbErr) {
           logger.error('Error updating GroupCall record on end', { error: dbErr.message });
+        }
+
+        // Create system message in group chat (like 1:1 call logs)
+        if (endedCallRecord) {
+          try {
+            const durationSec = endedCallRecord.startedAt
+              ? Math.floor((Date.now() - endedCallRecord.startedAt.getTime()) / 1000)
+              : 0;
+            const callTypeLabel = endedCallRecord.callType === 'video' ? 'Video call' : 'Voice call';
+            const durationLabel = durationSec > 0
+              ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+              : '';
+            const content = durationLabel
+              ? `${callTypeLabel} • ${durationLabel}`
+              : callTypeLabel;
+
+            const sysMsg = await GroupMessage.create({
+              groupId,
+              senderId: endedCallRecord.initiator,
+              messageType: 'system',
+              systemMessage: content,
+              systemMessageType: 'call_ended',
+            });
+
+            const populatedMsg = await GroupMessage.findById(sysMsg._id)
+              .populate('senderId', 'firstName lastName username profileImage avatar')
+              .lean();
+
+            const group = await GroupChat.findById(groupId).select('members').lean();
+            if (group) {
+              group.members.forEach((member) => {
+                io.to(member.user.toString()).emit('groupMessage', {
+                  groupId,
+                  message: { ...populatedMsg, text: content },
+                });
+              });
+            }
+          } catch (msgErr) {
+            logger.error('Error creating group call ended message', { error: msgErr.message });
+          }
         }
 
         // Notify all participants

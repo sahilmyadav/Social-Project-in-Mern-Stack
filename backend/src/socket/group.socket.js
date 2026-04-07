@@ -382,6 +382,33 @@ export default function groupSocket(io, socket, userId) {
 
       logger.info(`[GroupCall] ${userId} initiated ${callType} call (${callId}) in group ${groupId}`);
 
+      // Create system message in group chat (like 1:1 call logs)
+      try {
+        const callTypeLabel = callType === 'video' ? 'Video call' : 'Voice call';
+        const content = `${callerName} started a ${callTypeLabel.toLowerCase()}`;
+
+        const sysMsg = await GroupMessage.create({
+          groupId,
+          senderId: userId,
+          messageType: 'system',
+          systemMessage: content,
+          systemMessageType: 'call_started',
+        });
+
+        const populatedMsg = await GroupMessage.findById(sysMsg._id)
+          .populate('senderId', 'firstName lastName username profileImage avatar')
+          .lean();
+
+        group.members.forEach((member) => {
+          io.to(member.user.toString()).emit('groupMessage', {
+            groupId,
+            message: { ...populatedMsg, text: content },
+          });
+        });
+      } catch (msgErr) {
+        logger.warn('[GroupCall] Failed to create call_started system message:', msgErr.message);
+      }
+
       // Send FCM push to ALL members (covers offline/background/killed devices)
       sendGroupCallPushNotification(memberIds, userId, {
         callerId: userId,
@@ -408,9 +435,10 @@ export default function groupSocket(io, socket, userId) {
       socket.to(`group:${groupId}`).emit('groupCallEnded', { groupId, callId, endedBy: userId });
 
       // Update GroupCall log
+      let endedCallRecord = null;
       if (callId) {
         const now = new Date();
-        GroupCall.findOneAndUpdate(
+        endedCallRecord = await GroupCall.findOneAndUpdate(
           { callId, status: { $in: ['initiating', 'ringing', 'ongoing'] } },
           [
             {
@@ -426,12 +454,50 @@ export default function groupSocket(io, socket, userId) {
                 },
               },
             },
-          ]
-        ).catch((e) => logger.warn(`[GroupCall] Failed to update call log: ${e.message}`));
+          ],
+          { new: true }
+        ).catch((e) => {
+          logger.warn(`[GroupCall] Failed to update call log: ${e.message}`);
+          return null;
+        });
       }
 
       const group = await GroupChat.findOne({ _id: groupId, 'members.user': userId }).lean();
+
+      // Create system message in group chat (like 1:1 call logs)
       if (group) {
+        try {
+          const durationSec = endedCallRecord?.duration || 0;
+          const callTypeLabel = endedCallRecord?.callType === 'video' ? 'Video call' : 'Voice call';
+          const durationLabel = durationSec > 0
+            ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`
+            : '';
+          const content = durationLabel
+            ? `${callTypeLabel} \u2022 ${durationLabel}`
+            : callTypeLabel;
+
+          const sysMsg = await GroupMessage.create({
+            groupId,
+            senderId: endedCallRecord?.initiator || userId,
+            messageType: 'system',
+            systemMessage: content,
+            systemMessageType: 'call_ended',
+          });
+
+          const populatedMsg = await GroupMessage.findById(sysMsg._id)
+            .populate('senderId', 'firstName lastName username profileImage avatar')
+            .lean();
+
+          group.members.forEach((member) => {
+            io.to(member.user.toString()).emit('groupMessage', {
+              groupId,
+              message: { ...populatedMsg, text: content },
+            });
+          });
+        } catch (msgErr) {
+          logger.warn('[GroupCall] Failed to create call_ended system message:', msgErr.message);
+        }
+
         const memberIds = group.members
           .filter((m) => !m.isRemoved && !m.isLeft && m.user.toString() !== userId)
           .map((m) => m.user.toString());

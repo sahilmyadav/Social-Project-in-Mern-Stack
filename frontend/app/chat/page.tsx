@@ -986,7 +986,7 @@ function ChatPageContent() {
               : undefined,
           };
 
-          if (!isOwnMessage) {
+          if (!isOwnMessage || isSystemMsg) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === newMessage.id)) return prev;
               return [...prev, newMessage];
