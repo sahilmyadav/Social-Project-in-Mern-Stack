@@ -1,10 +1,10 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
 const reelSchema = new mongoose.Schema(
   {
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
       index: true,
     },
@@ -25,10 +25,21 @@ const reelSchema = new mongoose.Schema(
     music_id: {
       type: String, // Reference to music/audio library
     },
+    music: {
+      trackId: String,
+      trackName: String,
+      artistName: String,
+      albumArt: String,
+      previewUrl: String,
+      startTime: {
+        type: Number,
+        default: 0,
+      },
+    },
     tags: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
+        ref: 'User',
       },
     ],
     likes_count: {
@@ -59,5 +70,7 @@ const reelSchema = new mongoose.Schema(
 reelSchema.index({ user_id: 1, createdAt: -1 });
 reelSchema.index({ createdAt: -1 });
 reelSchema.index({ views_count: -1 });
+reelSchema.index({ is_deleted: 1, createdAt: -1 }); // Feed queries
+reelSchema.index({ user_id: 1, is_deleted: 1 }); // User reel count
 
-export const Reel = mongoose.model("Reel", reelSchema);
+export const Reel = mongoose.model('Reel', reelSchema);

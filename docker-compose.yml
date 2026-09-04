@@ -1,125 +1,163 @@
+# Social App - Docker Compose (Production)
+# Domain: clikkme.in
+# VPS: 12 cores / 46GB RAM / 1.6TB disk — FULL UTILIZATION MODE
+# Usage: sudo docker compose down && sudo docker compose up -d --build
+
 services:
-  # MongoDB Database
-  mongodb:
-    image: mongo:7
-    container_name: social-media-mongodb
-    restart: always
-    ports:
-      - '27017:27017'
-    volumes:
-      - mongodb_data:/data/db
-    environment:
-      - MONGO_INITDB_DATABASE=social_media_app
-    networks:
-      - social-network
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: social-media-redis
-    restart: always
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis_data:/data
-    networks:
-      - social-network
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # Backend API
+  # Backend API — Cluster mode, 10 workers, access to ALL 12 cores
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: social-media-backend
-    restart: always
-    ports:
-      - '3333:3333'
+    build: ./backend
+    container_name: social-backend
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
-      - PORT=3333
-      - DB_NAME=social_media_app
-      - MONGO_URL=mongodb://mongodb:27017/social_media_app
+      - PORT=5000
       - REDIS_URL=redis://redis:6379
-      - CORS_ORIGIN=*
-      - FRONTEND_URL=http://frontend:3000
-      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
-      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
-      - CLOUDINARY_SECRET_KEY=${CLOUDINARY_SECRET_KEY}
-      - SMTP_FROM=${SMTP_FROM}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PASS=${SMTP_PASS}
-      - SMTP_PORT=${SMTP_PORT}
-      - ACCESS_TOKEN_SECRET=${ACCESS_TOKEN_SECRET}
-      - REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET}
-      - RESET_SECRET=${RESET_SECRET}
-      - ACCESS_TOKEN_EXPIRY=1d
-      - REFRESH_TOKEN_EXPIRY=7d
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - MONGO_URL=mongodb://mongo:27017/${DB_NAME:-social_media_app}
+      - ENABLE_CLUSTER=true
+      - CLUSTER_WORKERS=10
+      - UV_THREADPOOL_SIZE=24
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-key.json
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-clickme-2b55d}
+    ports:
+      - '5000:5000'
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./firebase-key.json:/app/firebase-key.json:ro
     depends_on:
-      mongodb:
+      mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
     networks:
       - social-network
+    deploy:
+      resources:
+        limits:
+          cpus: '12'
+          memory: 16G
+        reservations:
+          cpus: '4'
+          memory: 4G
+    command: [ "node", "src/cluster.js" ]
     healthcheck:
-      test: wget --no-verbose --tries=1 --spider http://localhost:3333/health-check || exit 1
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:5000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 30s
       timeout: 10s
+      retries: 3
       start_period: 30s
-      retries: 5
 
-  # Frontend Next.js
+  # Frontend Next.js — access to ALL cores for SSR
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
       args:
-        - BACKEND_INTERNAL_URL=http://backend:3333
-        - NEXT_PUBLIC_API_BASE_URL=/api/v1
-        - NEXT_PUBLIC_SOCKET_URL=
-        - NEXT_PUBLIC_ENV=production
-    container_name: social-media-frontend
-    restart: always
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set NEXT_PUBLIC_API_BASE_URL in .env}
+        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:?Set NEXT_PUBLIC_SOCKET_URL in .env}
+        NEXT_PUBLIC_ENCRYPTION_KEY: ${NEXT_PUBLIC_ENCRYPTION_KEY:?Set NEXT_PUBLIC_ENCRYPTION_KEY in .env}
+        NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: ${NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME:-}
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:-}
+        NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_FIREBASE_VAPID_KEY: ${NEXT_PUBLIC_FIREBASE_VAPID_KEY:-}
+    container_name: social-frontend
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+      - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-}
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
+      - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-}
+      - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}
+      - NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID:-}
+      - NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:-}
+      - NEXT_PUBLIC_FIREBASE_VAPID_KEY=${NEXT_PUBLIC_FIREBASE_VAPID_KEY:-}
     ports:
       - '3000:3000'
-    environment:
-      - NODE_ENV=production
-      - BACKEND_INTERNAL_URL=http://backend:3333
-      - NEXT_PUBLIC_ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     networks:
       - social-network
+    deploy:
+      resources:
+        limits:
+          cpus: '12'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 1G
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3000/').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  # Cloudflare Tunnel for Frontend (serves both frontend and API via proxy)
-  cloudflared-frontend:
-    image: cloudflare/cloudflared:latest
-    container_name: social-media-cloudflared-frontend
-    restart: always
-    command: tunnel --no-autoupdate --url http://frontend:3000
+  # MongoDB — 12GB WiredTiger cache, access to ALL cores
+  mongo:
+    image: mongo:7
+    container_name: social-mongo
+    restart: unless-stopped
+    command: >
+      mongod --wiredTigerCacheSizeGB 12 --wiredTigerCollectionBlockCompressor zstd --wiredTigerJournalCompressor zstd --setParameter diagnosticDataCollectionEnabled=false
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - '27017:27017'
     networks:
       - social-network
-    depends_on:
-      - frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '12'
+          memory: 18G
+        reservations:
+          cpus: '2'
+          memory: 6G
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Redis — in-memory store for Socket.IO adapter & online user tracking
+  redis:
+    image: redis:7-alpine
+    container_name: social-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - '6379:6379'
+    networks:
+      - social-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 networks:
   social-network:
     driver: bridge
 
 volumes:
-  mongodb_data:
-  redis_data:
+  mongo-data:
+  redis-data:

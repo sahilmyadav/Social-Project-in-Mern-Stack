@@ -1,34 +1,87 @@
+# Root .gitignore for Social App
+
+# ===================
+# Environment Files
+# ===================
+# .env files are tracked intentionally
+!.env.example
+!backend/.env.example
+
+# ===================
 # Dependencies
+# ===================
 node_modules/
 .pnpm-store/
 
-# Environment files (keep .env.production as template)
-.env.local
-.env.*.local
-
-# Build outputs
-.next/
-out/
+# ===================
+# Build Outputs
+# ===================
 dist/
 build/
+.next/
+out/
 
-# Debug logs
+# ===================
+# IDE & Editors
+# ===================
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# ===================
+# OS Files
+# ===================
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# ===================
+# SSL Certificates
+# ===================
+certbot/
+
+# ===================
+# Docker
+# ===================
+# Keep docker-compose files
+!docker-compose*.yml
+
+# ===================
+# Logs
+# ===================
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
+# ===================
+# Test & Coverage
+# ===================
+coverage/
+.nyc_output/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# TypeScript
-*.tsbuildinfo
-
+# ===================
 # Misc
-*.log
+# ===================
+*.tsbuildinfo
+.eslintcache
+backups/
+*.md
+
+# ===================
+# Firebase Service Account Keys
+# ===================
+firebase-key.json
+clickme-2b55d-*.json
+
+# ===================
+# Flutter App
+# ===================
+ClickMe-back/

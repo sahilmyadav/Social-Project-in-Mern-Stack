@@ -1,0 +1,85 @@
+# Docker Compose for Local Development
+# Usage: cp .env.development.example .env.development && docker compose -f docker-compose.dev.yml up --build
+
+services:
+  # ===========
+  # Backend API
+  # ===========
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: social-backend-dev
+    restart: unless-stopped
+    ports:
+      - '5000:5000'
+    env_file:
+      - .env.development
+    environment:
+      - NODE_ENV=development
+      - PORT=5000
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src:ro # Hot reload source files
+    networks:
+      - social-network-dev
+
+  # ================
+  # Frontend Next.js
+  # ================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        - NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
+    container_name: social-frontend-dev
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env.development
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - backend
+    networks:
+      - social-network-dev
+
+  # =====
+  # Redis
+  # =====
+  redis:
+    image: redis:7-alpine
+    container_name: social-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - '6380:6379' # Use 6380 on host to avoid conflict with host Redis
+    volumes:
+      - redis-data-dev:/data
+    networks:
+      - social-network-dev
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# ===========
+# Networks
+# ===========
+networks:
+  social-network-dev:
+    driver: bridge
+
+# ===========
+# Volumes
+# ===========
+volumes:
+  redis-data-dev:
+    driver: local

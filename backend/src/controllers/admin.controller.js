@@ -1,16 +1,15 @@
-import { User } from "../models/user.model.js";
-import { Post } from "../models/post.model.js";
-import { Reel } from "../models/reel.model.js";
-import { Story } from "../models/story.model.js";
-import { Report } from "../models/report.model.js";
-import { AdminLog } from "../models/adminLog.model.js";
-import { Notification } from "../models/notification.model.js";
-import ApiError from "../utils/ApiError.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import asyncHandler from "../utils/asyncHandler.js";
-import jwt from "jsonwebtoken";
-import { sendPushNotification } from "../services/firebase.service.js";
-import { getIO } from "../socket/socket.js";
+import { AdminLog } from '../models/adminLog.model.js';
+import { Notification } from '../models/notification.model.js';
+import { Post } from '../models/post.model.js';
+import { Reel } from '../models/reel.model.js';
+import { Report } from '../models/report.model.js';
+import { Story } from '../models/story.model.js';
+import { User } from '../models/user.model.js';
+import { sendPushNotification } from '../services/firebase.service.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import logger from '../utils/logger.js';
 
 // Helper: Log admin actions
 const logAdminAction = async (adminId, action, targetType, targetId, details, req) => {
@@ -21,11 +20,11 @@ const logAdminAction = async (adminId, action, targetType, targetId, details, re
       target_type: targetType,
       target_id: targetId,
       details,
-      ip_address: req.headers["x-forwarded-for"] || req.connection.remoteAddress,
-      user_agent: req.headers["user-agent"],
+      ip_address: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      user_agent: req.headers['user-agent'],
     });
   } catch (error) {
-    console.error("Failed to log admin action:", error);
+    logger.error('Failed to log admin action:', { error: error.message });
   }
 };
 
@@ -34,26 +33,26 @@ export const adminLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    throw new ApiError(400, "Email and password are required");
+    throw new ApiError(400, 'Email and password are required');
   }
 
   // Find user with admin role
-  const admin = await User.findOne({ email, userType: "admin" }).select("+password");
+  const admin = await User.findOne({ email, userType: 'admin' }).select('+password');
 
   if (!admin) {
-    throw new ApiError(401, "Invalid admin credentials");
+    throw new ApiError(401, 'Invalid admin credentials');
   }
 
   // Verify password
   const isPasswordValid = await admin.isPasswordCorrect(password);
 
   if (!isPasswordValid) {
-    throw new ApiError(401, "Invalid admin credentials");
+    throw new ApiError(401, 'Invalid admin credentials');
   }
 
   // Check if admin account is active
-  if (admin.status !== "active") {
-    throw new ApiError(403, "Admin account is suspended");
+  if (admin.status !== 'active') {
+    throw new ApiError(403, 'Admin account is suspended');
   }
 
   // Generate tokens
@@ -76,7 +75,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
         accessToken,
         refreshToken,
       },
-      "Admin logged in successfully"
+      'Admin logged in successfully'
     )
   );
 });
@@ -85,8 +84,8 @@ export const adminLogin = asyncHandler(async (req, res) => {
 export const getAdminDashboard = asyncHandler(async (req, res) => {
   // Total users
   const totalUsers = await User.countDocuments();
-  const activeUsers = await User.countDocuments({ status: "active" });
-  const bannedUsers = await User.countDocuments({ status: "banned" });
+  const activeUsers = await User.countDocuments({ status: 'active' });
+  const bannedUsers = await User.countDocuments({ status: 'banned' });
   const verifiedUsers = await User.countDocuments({ isVerified: true });
 
   // Today's new users
@@ -102,8 +101,8 @@ export const getAdminDashboard = asyncHandler(async (req, res) => {
   });
 
   // Reports
-  const pendingReports = await Report.countDocuments({ status: "pending" });
-  const resolvedReports = await Report.countDocuments({ status: "resolved" });
+  const pendingReports = await Report.countDocuments({ status: 'pending' });
+  const resolvedReports = await Report.countDocuments({ status: 'resolved' });
 
   // Recent activity (last 7 days)
   const sevenDaysAgo = new Date();
@@ -121,7 +120,7 @@ export const getAdminDashboard = asyncHandler(async (req, res) => {
   // Storage (estimate)
   const storageStats = {
     total_uploads: totalPosts + totalReels + totalStories,
-    estimated_size: "Calculate from Cloudinary or storage service",
+    estimated_size: 'Calculate from storage service',
   };
 
   return res.status(200).json(
@@ -148,21 +147,14 @@ export const getAdminDashboard = asyncHandler(async (req, res) => {
         },
         storage: storageStats,
       },
-      "Dashboard data fetched successfully"
+      'Dashboard data fetched successfully'
     )
   );
 });
 
 // GET /admin/users - Paginated user list with filters
 export const getUsers = asyncHandler(async (req, res) => {
-  const {
-    page = 1,
-    limit = 20,
-    status,
-    isVerified,
-    search,
-    sort = "-createdAt",
-  } = req.query;
+  const { page = 1, limit = 20, status, isVerified, search, sort = '-createdAt' } = req.query;
 
   // Build query
   const query = {};
@@ -172,22 +164,22 @@ export const getUsers = asyncHandler(async (req, res) => {
   }
 
   if (isVerified !== undefined) {
-    query.isVerified = isVerified === "true";
+    query.isVerified = isVerified === 'true';
   }
 
   if (search) {
     query.$or = [
-      { firstName: { $regex: search, $options: "i" } },
-      { lastName: { $regex: search, $options: "i" } },
-      { username: { $regex: search, $options: "i" } },
-      { email: { $regex: search, $options: "i" } },
+      { firstName: { $regex: search, $options: 'i' } },
+      { lastName: { $regex: search, $options: 'i' } },
+      { username: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
     ];
   }
 
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   const users = await User.find(query)
-    .select("-password -refreshToken")
+    .select('-password -refreshToken')
     .sort(sort)
     .skip(skip)
     .limit(parseInt(limit));
@@ -208,7 +200,7 @@ export const getUsers = asyncHandler(async (req, res) => {
           has_more: parseInt(page) < totalPages,
         },
       },
-      "Users fetched successfully"
+      'Users fetched successfully'
     )
   );
 });
@@ -221,25 +213,26 @@ export const verifyUser = asyncHandler(async (req, res) => {
   const user = await User.findById(userId);
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
   user.isVerified = true;
   await user.save();
 
   // Log action
-  await logAdminAction(adminId, "user_verify", "User", userId, {
-    user_email: user.email,
-    username: user.username,
-  }, req);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { user },
-      "User verified successfully"
-    )
+  await logAdminAction(
+    adminId,
+    'user_verify',
+    'User',
+    userId,
+    {
+      user_email: user.email,
+      username: user.username,
+    },
+    req
   );
+
+  return res.status(200).json(new ApiResponse(200, { user }, 'User verified successfully'));
 });
 
 // PUT /admin/user/ban/:userId - Ban user
@@ -249,20 +242,20 @@ export const banUser = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
 
   if (!reason) {
-    throw new ApiError(400, "Ban reason is required");
+    throw new ApiError(400, 'Ban reason is required');
   }
 
   const user = await User.findById(userId);
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
-  if (user.role === "admin") {
-    throw new ApiError(403, "Cannot ban admin users");
+  if (user.role === 'admin') {
+    throw new ApiError(403, 'Cannot ban admin users');
   }
 
-  user.status = "banned";
+  user.status = 'banned';
   user.banReason = reason;
 
   if (duration) {
@@ -274,19 +267,20 @@ export const banUser = asyncHandler(async (req, res) => {
   await user.save();
 
   // Log action
-  await logAdminAction(adminId, "user_ban", "User", userId, {
-    reason,
-    duration,
-    user_email: user.email,
-  }, req);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { user },
-      "User banned successfully"
-    )
+  await logAdminAction(
+    adminId,
+    'user_ban',
+    'User',
+    userId,
+    {
+      reason,
+      duration,
+      user_email: user.email,
+    },
+    req
   );
+
+  return res.status(200).json(new ApiResponse(200, { user }, 'User banned successfully'));
 });
 
 // DELETE /admin/user/delete/:userId - Permanently delete user
@@ -297,11 +291,11 @@ export const deleteUser = asyncHandler(async (req, res) => {
   const user = await User.findById(userId);
 
   if (!user) {
-    throw new ApiError(404, "User not found");
+    throw new ApiError(404, 'User not found');
   }
 
-  if (user.role === "admin") {
-    throw new ApiError(403, "Cannot delete admin users");
+  if (user.role === 'admin') {
+    throw new ApiError(403, 'Cannot delete admin users');
   }
 
   // Delete user's content
@@ -312,21 +306,24 @@ export const deleteUser = asyncHandler(async (req, res) => {
   await Notification.deleteMany({ $or: [{ recipient_id: userId }, { sender_id: userId }] });
 
   // Log action before deletion
-  await logAdminAction(adminId, "user_delete", "User", userId, {
-    user_email: user.email,
-    username: user.username,
-  }, req);
+  await logAdminAction(
+    adminId,
+    'user_delete',
+    'User',
+    userId,
+    {
+      user_email: user.email,
+      username: user.username,
+    },
+    req
+  );
 
   // Delete user
   await User.findByIdAndDelete(userId);
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      null,
-      "User and associated data deleted permanently"
-    )
-  );
+  return res
+    .status(200)
+    .json(new ApiResponse(200, null, 'User and associated data deleted permanently'));
 });
 
 // GET /admin/content - List all content for moderation
@@ -334,7 +331,7 @@ export const getContent = asyncHandler(async (req, res) => {
   const {
     page = 1,
     limit = 20,
-    type = "post", // post, reel, story
+    type = 'post', // post, reel, story
     status,
     reported,
   } = req.query;
@@ -344,30 +341,30 @@ export const getContent = asyncHandler(async (req, res) => {
   let total = 0;
 
   const query = {};
-  if (status === "deleted") {
+  if (status === 'deleted') {
     query.is_deleted = true;
   } else {
     query.is_deleted = false;
   }
 
-  if (type === "post") {
+  if (type === 'post') {
     content = await Post.find(query)
-      .populate("user_id", "firstName lastName username email")
-      .sort("-createdAt")
+      .populate('user_id', 'firstName lastName username email')
+      .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
     total = await Post.countDocuments(query);
-  } else if (type === "reel") {
+  } else if (type === 'reel') {
     content = await Reel.find(query)
-      .populate("user_id", "firstName lastName username email")
-      .sort("-createdAt")
+      .populate('user_id', 'firstName lastName username email')
+      .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
     total = await Reel.countDocuments(query);
-  } else if (type === "story") {
+  } else if (type === 'story') {
     content = await Story.find(query)
-      .populate("user_id", "firstName lastName username email")
-      .sort("-createdAt")
+      .populate('user_id', 'firstName lastName username email')
+      .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
     total = await Story.countDocuments(query);
@@ -388,7 +385,7 @@ export const getContent = asyncHandler(async (req, res) => {
           per_page: parseInt(limit),
         },
       },
-      "Content fetched successfully"
+      'Content fetched successfully'
     )
   );
 });
@@ -400,54 +397,50 @@ export const removeContent = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
 
   if (!type) {
-    throw new ApiError(400, "Content type is required");
+    throw new ApiError(400, 'Content type is required');
   }
 
   let content;
 
-  if (type === "post") {
+  if (type === 'post') {
     content = await Post.findById(contentId);
     if (content) {
       content.is_deleted = true;
       await content.save();
     }
-  } else if (type === "reel") {
+  } else if (type === 'reel') {
     content = await Reel.findById(contentId);
     if (content) {
       content.is_deleted = true;
       await content.save();
     }
-  } else if (type === "story") {
+  } else if (type === 'story') {
     content = await Story.findByIdAndDelete(contentId);
   }
 
   if (!content) {
-    throw new ApiError(404, "Content not found");
+    throw new ApiError(404, 'Content not found');
   }
 
   // Log action
-  await logAdminAction(adminId, "content_remove", type === "post" ? "Post" : type === "reel" ? "Reel" : "Story", contentId, {
-    reason,
-    content_type: type,
-  }, req);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      null,
-      "Content removed successfully"
-    )
+  await logAdminAction(
+    adminId,
+    'content_remove',
+    type === 'post' ? 'Post' : type === 'reel' ? 'Reel' : 'Story',
+    contentId,
+    {
+      reason,
+      content_type: type,
+    },
+    req
   );
+
+  return res.status(200).json(new ApiResponse(200, null, 'Content removed successfully'));
 });
 
 // GET /admin/reports - View reports
 export const getReports = asyncHandler(async (req, res) => {
-  const {
-    page = 1,
-    limit = 20,
-    status,
-    type,
-  } = req.query;
+  const { page = 1, limit = 20, status, type } = req.query;
 
   const query = {};
 
@@ -462,9 +455,9 @@ export const getReports = asyncHandler(async (req, res) => {
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   const reports = await Report.find(query)
-    .populate("user_id", "firstName lastName username email")
-    .populate("target_id")
-    .sort("-createdAt")
+    .populate('user_id', 'firstName lastName username email')
+    .populate('target_id')
+    .sort('-createdAt')
     .skip(skip)
     .limit(parseInt(limit));
 
@@ -483,7 +476,7 @@ export const getReports = asyncHandler(async (req, res) => {
           per_page: parseInt(limit),
         },
       },
-      "Reports fetched successfully"
+      'Reports fetched successfully'
     )
   );
 });
@@ -497,29 +490,30 @@ export const resolveReport = asyncHandler(async (req, res) => {
   const report = await Report.findById(reportId);
 
   if (!report) {
-    throw new ApiError(404, "Report not found");
+    throw new ApiError(404, 'Report not found');
   }
 
-  report.status = action || "resolved";
+  report.status = action || 'resolved';
   report.admin_notes = notes;
   report.resolved_by = adminId;
   report.resolved_at = new Date();
   await report.save();
 
   // Log action
-  await logAdminAction(adminId, "report_resolve", "Report", reportId, {
-    action,
-    notes,
-    report_type: report.reported_type,
-  }, req);
-
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { report },
-      "Report resolved successfully"
-    )
+  await logAdminAction(
+    adminId,
+    'report_resolve',
+    'Report',
+    reportId,
+    {
+      action,
+      notes,
+      report_type: report.reported_type,
+    },
+    req
   );
+
+  return res.status(200).json(new ApiResponse(200, { report }, 'Report resolved successfully'));
 });
 
 // POST /admin/notification/send-global - Send global notification
@@ -528,53 +522,60 @@ export const sendGlobalNotification = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
 
   if (!title || !message) {
-    throw new ApiError(400, "Title and message are required");
+    throw new ApiError(400, 'Title and message are required');
   }
 
   // Build user query based on segment
-  let userQuery = { status: "active" };
+  let userQuery = { status: 'active' };
 
-  if (segment === "verified") {
+  if (segment === 'verified') {
     userQuery.isVerified = true;
-  } else if (segment === "new") {
+  } else if (segment === 'new') {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     userQuery.createdAt = { $gte: sevenDaysAgo };
   }
 
   // Get users
-  const users = await User.find(userQuery).select("_id");
-  const userIds = users.map(u => u._id);
+  const users = await User.find(userQuery).select('_id');
+  const userIds = users.map((u) => u._id);
 
   // Create notifications
-  const notifications = userIds.map(userId => ({
+  const notifications = userIds.map((userId) => ({
     recipient_id: userId,
     sender_id: adminId,
-    type: "mention", // Generic type for global notifications
+    type: 'mention', // Generic type for global notifications
     title,
     message,
-    action_url: action_url || "/",
+    action_url: action_url || '/',
   }));
 
   await Notification.insertMany(notifications);
 
   // Send push notifications (in background)
-  users.forEach(user => {
+  users.forEach((user) => {
     sendPushNotification(user._id, {
-      type: "mention",
+      type: 'mention',
       title,
       message,
-      action_url: action_url || "/",
+      action_url: action_url || '/',
       sender_id: adminId,
     });
   });
 
   // Log action
-  await logAdminAction(adminId, "global_notification", "System", null, {
-    title,
-    segment,
-    user_count: userIds.length,
-  }, req);
+  await logAdminAction(
+    adminId,
+    'global_notification',
+    'System',
+    null,
+    {
+      title,
+      segment,
+      user_count: userIds.length,
+    },
+    req
+  );
 
   return res.status(200).json(
     new ApiResponse(
@@ -583,22 +584,22 @@ export const sendGlobalNotification = asyncHandler(async (req, res) => {
         sent_to: userIds.length,
         segment,
       },
-      "Global notification sent successfully"
+      'Global notification sent successfully'
     )
   );
 });
 
 // GET /admin/analytics - Deep analytics
 export const getAnalytics = asyncHandler(async (req, res) => {
-  const { period = "7d" } = req.query; // 7d, 30d, 90d, 1y
+  const { period = '7d' } = req.query; // 7d, 30d, 90d, 1y
 
   // Calculate date range
   const now = new Date();
   const periodMap = {
-    "7d": 7,
-    "30d": 30,
-    "90d": 90,
-    "1y": 365,
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '1y': 365,
   };
 
   const daysAgo = periodMap[period] || 7;
@@ -611,7 +612,7 @@ export const getAnalytics = asyncHandler(async (req, res) => {
   });
 
   const activeUsers = await User.countDocuments({
-    status: "active",
+    status: 'active',
     lastActive: { $gte: startDate },
   });
 
@@ -627,11 +628,13 @@ export const getAnalytics = asyncHandler(async (req, res) => {
   });
 
   // Engagement (approximate)
-  const totalUsers = await User.countDocuments({ status: "active" });
+  const totalUsers = await User.countDocuments({ status: 'active' });
   const dau = activeUsers; // Daily Active Users (approximate)
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const mau = await User.countDocuments({
-    status: "active",
-    lastActive: { $gte: new Date(now.setDate(now.getDate() - 30)) },
+    status: 'active',
+    lastActive: { $gte: thirtyDaysAgo },
   });
 
   // Retention rate (simplified)
@@ -672,7 +675,7 @@ export const getAnalytics = asyncHandler(async (req, res) => {
           total_actions: adminActions,
         },
       },
-      "Analytics fetched successfully"
+      'Analytics fetched successfully'
     )
   );
 });

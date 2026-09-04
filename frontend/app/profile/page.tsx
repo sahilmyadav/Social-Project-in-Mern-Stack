@@ -1,378 +1,631 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Settings, Edit2, MessageCircle, Share } from "lucide-react"
-import Navigation from "@/components/navigation"
-import FollowersModal from "@/components/followers-modal"
-import PostDetailsModal from "@/components/post-details-modal"
-import ReelCard from "@/components/reel-card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { authService, feedService, followService, postService, reelService } from "@/lib/api-services"
-import { ApiError } from "@/lib/api-client"
-import { toasts, showToast } from "@/lib/toast"
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+
+import Navigation from '@/components/navigation';
+import ReelCard from '@/components/reel-card';
+import { Button } from '@/components/ui/button';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ApiError } from '@/lib/api-client';
+import {
+  authService,
+  feedService,
+  followService,
+  postService,
+  reelService,
+} from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
+import { showToast, toasts } from '@/lib/toast';
+import {
+  Bookmark,
+  Camera,
+  Clapperboard,
+  Edit2,
+  Eye,
+  Film,
+  Grid,
+  Heart,
+  ImageIcon,
+  Link as LinkIcon,
+  LogOut,
+  MessageCircle,
+  Moon,
+  MoreVertical,
+  Settings,
+  Sun,
+  Trash2,
+  User,
+} from 'lucide-react';
+import { useTheme } from 'next-themes';
+import dynamic from 'next/dynamic';
+
+const FollowersModal = dynamic(() => import('@/components/followers-modal'), { ssr: false });
+const PostDetailsModal = dynamic(() => import('@/components/post-details-modal'), { ssr: false });
+const ReelCommentsModal = dynamic(() => import('@/components/reel-comments-modal'), { ssr: false });
+const ProfileImageEditor = dynamic(() => import('@/components/profile-image-editor'), {
+  ssr: false,
+});
 
 export default function ProfilePage() {
-  const [user, setUser] = useState<any>(null)
-  const [showEditModal, setShowEditModal] = useState(false)
-  const [showFollowersModal, setShowFollowersModal] = useState(false)
-  const [showFollowingModal, setShowFollowingModal] = useState(false)
-  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
-  const [showPostDetails, setShowPostDetails] = useState(false)
-  const [selectedPost, setSelectedPost] = useState<any>(null)
-  const [bio, setBio] = useState("")
-  const [editBio, setEditBio] = useState("")
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
+  const [user, setUser] = useState<any>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showProfileImageModal, setShowProfileImageModal] = useState(false);
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+
+  const [showPostDetails, setShowPostDetails] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [bio, setBio] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [userStats, setUserStats] = useState({
     posts: 0,
     followers: 0,
     following: 0,
-  })
+    reels: 0,
+    savedPosts: 0,
+  });
 
-  const [followers, setFollowers] = useState<any[]>([])
-  const [following, setFollowing] = useState<any[]>([])
-  const [followersLoading, setFollowersLoading] = useState(false)
-  const [followingLoading, setFollowingLoading] = useState(false)
-  const [uploadingImage, setUploadingImage] = useState(false)
+  const { confirm, dialogProps } = useConfirmDialog();
 
-  const [posts, setPosts] = useState<any[]>([])
-  const [reels, setReels] = useState<any[]>([])
-  const [reelsLoading, setReelsLoading] = useState(false)
-  const [savedPosts, setSavedPosts] = useState<any[]>([])
-  const [savedPostsLoading, setSavedPostsLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<"posts" | "reels" | "saved">("posts")
-  const [openMenuPostId, setOpenMenuPostId] = useState<string | null>(null)
+  const [followers, setFollowers] = useState<any[]>([]);
+  const [following, setFollowing] = useState<any[]>([]);
+  const [followersLoading, setFollowersLoading] = useState(false);
+  const [followingLoading, setFollowingLoading] = useState(false);
 
-  const router = useRouter()
+  const [isUploadingProfilePic, setIsUploadingProfilePic] = useState(false);
+  const [isUploadingCoverPhoto, setIsUploadingCoverPhoto] = useState(false);
+
+  const [showImageEditor, setShowImageEditor] = useState(false);
+  const [editorImageFile, setEditorImageFile] = useState<File | null>(null);
+  const [editorType, setEditorType] = useState<'profile' | 'cover'>('profile');
+
+  const [posts, setPosts] = useState<any[]>([]);
+  const [reels, setReels] = useState<any[]>([]);
+  const [reelsLoading, setReelsLoading] = useState(false);
+  const [savedPosts, setSavedPosts] = useState<any[]>([]);
+  const [savedPostsLoading, setSavedPostsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'posts' | 'reels' | 'saved'>('posts');
+  const [openMenuPostId, setOpenMenuPostId] = useState<string | null>(null);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const [showReelComments, setShowReelComments] = useState(false);
+  const [selectedReel, setSelectedReel] = useState<any>(null);
+
+  const router = useRouter();
 
   useEffect(() => {
-    loadUserProfile()
-  }, [])
+    loadUserProfile();
+  }, []);
 
-  // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
       if (openMenuPostId) {
         setOpenMenuPostId(null);
       }
+      if (showSettingsMenu) {
+        setShowSettingsMenu(false);
+      }
     };
 
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
-  }, [openMenuPostId])
+  }, [openMenuPostId, showSettingsMenu]);
 
   const loadUserProfile = async () => {
     try {
-      setLoading(true)
+      setLoading(true);
 
-      // Check if user is logged in
-      const token = localStorage.getItem("accessToken")
+      const token = localStorage.getItem('accessToken');
       if (!token) {
-        router.push("/login")
-        return
+        router.push('/login');
+        return;
       }
 
-      // Fetch current user data from API
-      const response = await authService.getCurrentUser()
+      const response = await authService.getCurrentUser();
 
       if (response.success && response.data) {
-        // Handle nested data structure
-        const userData = response.data.data || response.data
-        const followersCount = response.data.followersCount || 0
-        const followingCount = response.data.followingCount || 0
-        const totalPosts = response.data.totalPosts || 0
+        const userData = response.data.data || response.data;
+        const followersCount = response.data.followersCount || 0;
+        const followingCount = response.data.followingCount || 0;
+        const totalPosts = response.data.totalPosts || 0;
+        const totalReels = response.data.totalReels || 0;
+        const totalSavedPosts = response.data.totalSavedPosts || 0;
 
-        setUser(userData)
-        setBio(userData.bio || "Welcome to my profile!")
-        setEditBio(userData.bio || "")
+        setUser(userData);
+        setBio(userData.bio || 'Welcome to my profile!');
+        setEditBio(userData.bio || '');
 
-        // Set user stats from the single API response
         setUserStats({
           posts: totalPosts,
           followers: followersCount,
           following: followingCount,
-        })
+          reels: totalReels,
+          savedPosts: totalSavedPosts,
+        });
 
-        // Update localStorage
-        localStorage.setItem("user", JSON.stringify(userData))
+        localStorage.setItem('user', JSON.stringify(userData));
 
-        // Load user posts
         if (userData._id) {
-          await loadUserPosts(userData._id)
+          await loadUserPosts(userData._id);
         }
       } else {
-        router.push("/login")
+        router.push('/login');
       }
     } catch (err) {
-      const apiError = err as ApiError
-      console.error("Failed to load profile:", apiError)
+      const apiError = err as ApiError;
 
       if (apiError.statusCode === 401) {
-        // Token expired or invalid
-        localStorage.removeItem("accessToken")
-        localStorage.removeItem("refreshToken")
-        localStorage.removeItem("user")
-        router.push("/login")
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        router.push('/login');
       } else {
-        setError("Failed to load profile. Please try again.")
+        setError('Failed to load profile. Please try again.');
       }
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const loadUserPosts = async (userId: string) => {
     try {
-      const postsResponse = await feedService.getUserPosts(userId, { page: 1, limit: 100 })
+      const postsResponse = await feedService.getUserPosts(userId, { page: 1, limit: 100 });
 
       if (postsResponse.success && postsResponse.data) {
-        const userPosts = Array.isArray(postsResponse.data) ? postsResponse.data : postsResponse.data.posts || []
-        setPosts(userPosts)
+        const userPosts = Array.isArray(postsResponse.data)
+          ? postsResponse.data
+          : postsResponse.data.posts || [];
+        setPosts(userPosts);
       } else {
-        setPosts([])
+        setPosts([]);
       }
     } catch (err) {
-      console.error("Failed to fetch user posts:", err)
-      setPosts([])
+      setPosts([]);
     }
-  }
+  };
 
   const loadUserReels = async (userId: string) => {
     try {
-      setReelsLoading(true)
-      const reelsResponse = await reelService.getUserReels(userId, { page: 1, limit: 100 })
+      setReelsLoading(true);
+      const reelsResponse = await reelService.getUserReels(userId, { page: 1, limit: 100 });
 
       if (reelsResponse.success && reelsResponse.data) {
-        const userReels = Array.isArray(reelsResponse.data) ? reelsResponse.data : reelsResponse.data.reels || []
-        setReels(userReels)
+        const userReels = Array.isArray(reelsResponse.data)
+          ? reelsResponse.data
+          : reelsResponse.data.reels || [];
+        setReels(userReels);
       } else {
-        setReels([])
+        setReels([]);
       }
     } catch (err) {
-      console.error("Failed to fetch user reels:", err)
-      setReels([])
+      setReels([]);
     } finally {
-      setReelsLoading(false)
+      setReelsLoading(false);
     }
-  }
+  };
 
   const loadFollowers = async (userId: string) => {
     try {
-      setFollowersLoading(true)
-      const response = await followService.getFollowers(userId, { page: 1, limit: 100 })
+      setFollowersLoading(true);
+      const response = await followService.getFollowers(userId, { page: 1, limit: 100 });
 
       if (response.success && response.data) {
-        const followersList = response.data.followers || []
-        setFollowers(followersList)
+        const followersList = response.data.followers || [];
+        setFollowers(followersList);
       } else {
-        setFollowers([])
+        setFollowers([]);
       }
     } catch (err) {
-      console.error("Failed to load followers:", err)
-      setFollowers([])
+      setFollowers([]);
     } finally {
-      setFollowersLoading(false)
+      setFollowersLoading(false);
     }
-  }
+  };
 
   const loadFollowing = async (userId: string) => {
     try {
-      setFollowingLoading(true)
-      const response = await followService.getFollowing(userId, { page: 1, limit: 100 })
+      setFollowingLoading(true);
+      const response = await followService.getFollowing(userId, { page: 1, limit: 100 });
 
       if (response.success && response.data) {
-        const followingList = response.data.following || []
-        setFollowing(followingList)
+        const followingList = response.data.following || [];
+        setFollowing(followingList);
       } else {
-        setFollowing([])
+        setFollowing([]);
       }
     } catch (err) {
-      console.error("Failed to load following:", err)
-      setFollowing([])
+      setFollowing([]);
     } finally {
-      setFollowingLoading(false)
+      setFollowingLoading(false);
     }
-  }
+  };
 
   const loadSavedPosts = async () => {
     try {
-      setSavedPostsLoading(true)
-      const response = await postService.getSavedPosts({ page: 1, limit: 100 })
+      setSavedPostsLoading(true);
+      const response = await postService.getSavedPosts({ page: 1, limit: 100 });
       if (response.success && response.data) {
-        // Handle different response structures
         const savedPostsList = Array.isArray(response.data)
           ? response.data
-          : response.data.savedPosts || response.data.posts || []
+          : response.data.savedPosts || response.data.posts || [];
 
-        setSavedPosts(savedPostsList)
+        setSavedPosts(savedPostsList);
       } else {
-        setSavedPosts([])
+        setSavedPosts([]);
       }
     } catch (err) {
-      console.error('Failed to fetch saved posts:', err)
-      setSavedPosts([])
+      setSavedPosts([]);
     } finally {
-      setSavedPostsLoading(false)
+      setSavedPostsLoading(false);
     }
-  }
+  };
 
   const handleLogout = async () => {
     try {
-      await authService.logout()
+      await authService.logout();
     } catch (err) {
-      console.error("Logout error:", err)
     } finally {
-      localStorage.removeItem("user")
-      localStorage.removeItem("accessToken")
-      localStorage.removeItem("refreshToken")
-      router.push("/login")
+      localStorage.removeItem('user');
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      router.push('/login');
     }
-  }
+  };
 
   const handleSaveBio = async () => {
     try {
       const response = await authService.updateProfile({
         bio: editBio,
-      })
+      });
 
       if (response.success) {
-        setBio(editBio)
-        setShowEditModal(false)
+        setBio(editBio);
+        setShowEditModal(false);
 
-        // Update user data
         if (user) {
-          const updatedUser = { ...user, bio: editBio }
-          setUser(updatedUser)
-          localStorage.setItem("user", JSON.stringify(updatedUser))
+          const updatedUser = { ...user, bio: editBio };
+          setUser(updatedUser);
+          localStorage.setItem('user', JSON.stringify(updatedUser));
         }
       } else {
-        alert("Failed to update bio. Please try again.")
+        showToast.error('Failed to update bio', 'Please try again.');
       }
     } catch (err) {
-      console.error("Failed to update bio:", err)
-      alert("Failed to update bio. Please try again.")
+      showToast.error('Failed to update bio', 'Please try again.');
     }
-  }
+  };
 
-  const handleFollowChange = async (userId: string, isFollowing: boolean, list: "followers" | "following") => {
+  const handleFollowChange = async (
+    userId: string,
+    isFollowing: boolean,
+    list: 'followers' | 'following'
+  ) => {
     try {
       if (isFollowing) {
-        // Follow the user
-        await followService.followUser(userId)
-      } else {
-        // Unfollow the user
-        await followService.unfollowUser(userId)
-      }
+        const targetUser =
+          list === 'followers'
+            ? followers.find((u) => u._id === userId || u.id === userId)
+            : following.find((u) => u._id === userId || u.id === userId);
 
-      // Update local state
-      if (list === "followers") {
-        setFollowers(followers.map((u) => (u._id === userId || u.id === userId ? { ...u, isFollowing } : u)))
+        const isPrivate = targetUser?.isPrivate || targetUser?.profile_type === 'private';
+
+        if (!isPrivate) {
+          setUserStats((prev) => ({ ...prev, following: prev.following + 1 }));
+        }
+
+        if (list === 'followers') {
+          setFollowers(
+            followers.map((u) =>
+              u._id === userId || u.id === userId
+                ? { ...u, isFollowing: !isPrivate, isPending: isPrivate }
+                : u
+            )
+          );
+        } else {
+          setFollowing(
+            following.map((u) =>
+              u._id === userId || u.id === userId
+                ? { ...u, isFollowing: !isPrivate, isPending: isPrivate }
+                : u
+            )
+          );
+        }
       } else {
-        setFollowing(following.map((u) => (u._id === userId || u.id === userId ? { ...u, isFollowing } : u)))
+        const targetUser =
+          list === 'followers'
+            ? followers.find((u) => u._id === userId || u.id === userId)
+            : following.find((u) => u._id === userId || u.id === userId);
+
+        const wasFollowing = targetUser?.isFollowing;
+
+        if (wasFollowing) {
+          setUserStats((prev) => ({ ...prev, following: Math.max(0, prev.following - 1) }));
+        }
+
+        if (list === 'following') {
+          if (wasFollowing) {
+            setFollowing(following.filter((u) => u._id !== userId && u.id !== userId));
+          } else {
+            setFollowing(
+              following.map((u) =>
+                u._id === userId || u.id === userId
+                  ? { ...u, isFollowing: false, isPending: false }
+                  : u
+              )
+            );
+          }
+        } else {
+          setFollowers(
+            followers.map((u) =>
+              u._id === userId || u.id === userId
+                ? { ...u, isFollowing: false, isPending: false }
+                : u
+            )
+          );
+        }
       }
     } catch (err) {
-      console.error("Failed to update follow status:", err)
+      showToast.error('Failed to update', 'Please try again');
     }
-  }
+  };
 
   const handleProfilePictureUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    console.log("frontend side --->", file)
-    if (!file) return
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast.error('File too large', 'Profile picture must be less than 5MB');
+      return;
+    }
+
+    setEditorImageFile(file);
+    setEditorType('profile');
+    setShowImageEditor(true);
+
+    event.target.value = '';
+  };
+
+  const handleProfileEditorSave = async (blob: Blob, previewUrl: string) => {
+    const previousImage = user?.profileImage || user?.avatar || user?.profilePicture;
 
     try {
-      setUploadingImage(true)
+      setIsUploadingProfilePic(true);
 
-      // Try different FormData approaches
-      const formData = new FormData()
+      setUser((prev: any) => ({
+        ...prev,
+        profileImage: previewUrl,
+        avatar: previewUrl,
+        profilePicture: previewUrl,
+      }));
 
-      // Method 1: Standard append
-      formData.append('file', file)
-      console.log("Method 1 - FormData file entry:", formData.get('file'))
+      const formData = new FormData();
+      formData.append('file', blob, 'profile-photo.jpg');
 
-      // Method 2: Check all FormData entries
-      console.log("All FormData entries:")
-      for (let [key, value] of formData.entries()) {
-        console.log(`${key}:`, value)
-      }
-
-      // Method 3: Create new FormData and test
-      const testFormData = new FormData()
-      testFormData.append('file', file)
-      console.log("Test FormData file entry:", testFormData.get('file'))
-
-      const response = await authService.updateProfilePicture(formData)
-      console.log("API response:", response)
+      const response = await authService.updateProfilePicture(formData);
 
       if (response.success) {
-        // Reload profile to get updated image
-        await loadUserProfile()
-        alert('Profile picture updated successfully!')
+        const newImageUrl =
+          response.data?.profileImage ||
+          response.data?.avatar ||
+          response.data?.user?.profileImage ||
+          previewUrl;
+
+        setUser((prev: any) => {
+          const updatedUser = {
+            ...prev,
+            profileImage: newImageUrl,
+            avatar: newImageUrl,
+            profilePicture: newImageUrl,
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          return updatedUser;
+        });
+
+        showToast.success('Profile picture updated!', 'Your new photo is now live.');
       } else {
-        alert('Failed to update profile picture')
+        setUser((prev: any) => ({
+          ...prev,
+          profileImage: previousImage,
+          avatar: previousImage,
+          profilePicture: previousImage,
+        }));
+        showToast.error('Failed to update profile picture', 'Please try again.');
       }
     } catch (err) {
-      console.error('Error uploading profile picture:', err)
-      alert('Failed to update profile picture')
+      setUser((prev: any) => ({
+        ...prev,
+        profileImage: previousImage,
+        avatar: previousImage,
+        profilePicture: previousImage,
+      }));
+      showToast.error('Failed to update profile picture', 'Please try again.');
     } finally {
-      setUploadingImage(false)
+      setIsUploadingProfilePic(false);
     }
-  }
+  };
 
   const handleCoverPhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      showToast.error('File too large', 'Cover photo must be less than 10MB');
+      return;
+    }
+
+    setEditorImageFile(file);
+    setEditorType('cover');
+    setShowImageEditor(true);
+
+    event.target.value = '';
+  };
+
+  const handleCoverEditorSave = async (blob: Blob, previewUrl: string) => {
+    const previousCover = user?.coverPhoto;
 
     try {
-      setUploadingImage(true)
-      const formData = new FormData()
-      formData.append('coverPhoto', file)
+      setIsUploadingCoverPhoto(true);
 
-      const response = await authService.updateCoverPhoto(formData)
+      setUser((prev: any) => ({
+        ...prev,
+        coverPhoto: previewUrl,
+      }));
+
+      const formData = new FormData();
+      formData.append('coverPhoto', blob, 'cover-photo.jpg');
+
+      const response = await authService.updateCoverPhoto(formData);
 
       if (response.success) {
-        // Reload profile to get updated image
-        await loadUserProfile()
-        alert('Cover photo updated successfully!')
+        const newCoverUrl =
+          response.data?.coverPhoto || response.data?.user?.coverPhoto || previewUrl;
+
+        setUser((prev: any) => {
+          const updatedUser = {
+            ...prev,
+            coverPhoto: newCoverUrl,
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          return updatedUser;
+        });
+
+        showToast.success('Cover photo updated!', 'Your new cover is now live.');
       } else {
-        alert('Failed to update cover photo')
+        setUser((prev: any) => ({
+          ...prev,
+          coverPhoto: previousCover,
+        }));
+        showToast.error('Failed to update cover photo', 'Please try again.');
       }
     } catch (err) {
-      console.error('Error uploading cover photo:', err)
-      alert('Failed to update cover photo')
+      setUser((prev: any) => ({
+        ...prev,
+        coverPhoto: previousCover,
+      }));
+      showToast.error('Failed to update cover photo', 'Please try again.');
     } finally {
-      setUploadingImage(false)
+      setIsUploadingCoverPhoto(false);
     }
-  }
+  };
+
+  const handleImageEditorSave = (blob: Blob, previewUrl: string) => {
+    if (editorType === 'profile') {
+      handleProfileEditorSave(blob, previewUrl);
+    } else {
+      handleCoverEditorSave(blob, previewUrl);
+    }
+  };
+
+  const handleDeleteProfilePicture = () => {
+    confirm({
+      title: 'Delete Profile Picture',
+      message:
+        'Are you sure you want to delete your profile picture? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsUploadingProfilePic(true);
+          const response = await authService.deleteProfilePicture();
+
+          if (response.success) {
+            setUser((prev: any) => {
+              const updatedUser = {
+                ...prev,
+                profileImage: null,
+                avatar: null,
+                profilePicture: null,
+              };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              return updatedUser;
+            });
+            showToast.success('Profile picture deleted!', 'Your profile picture has been removed.');
+          } else {
+            showToast.error('Failed to delete profile picture', 'Please try again.');
+          }
+        } catch (err) {
+          showToast.error('Failed to delete profile picture', 'Please try again.');
+        } finally {
+          setIsUploadingProfilePic(false);
+        }
+      },
+    });
+  };
+
+  const handleDeleteCoverPhoto = () => {
+    confirm({
+      title: 'Delete Cover Photo',
+      message: 'Are you sure you want to delete your cover photo? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsUploadingCoverPhoto(true);
+          const response = await authService.deleteCoverPhoto();
+
+          if (response.success) {
+            setUser((prev: any) => {
+              const updatedUser = {
+                ...prev,
+                coverPhoto: null,
+              };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              return updatedUser;
+            });
+            showToast.success('Cover photo deleted!', 'Your cover photo has been removed.');
+          } else {
+            showToast.error('Failed to delete cover photo', 'Please try again.');
+          }
+        } catch (err) {
+          showToast.error('Failed to delete cover photo', 'Please try again.');
+        } finally {
+          setIsUploadingCoverPhoto(false);
+        }
+      },
+    });
+  };
 
   const handleOpenPostDetails = (post: any) => {
-    setSelectedPost(post)
-    setShowPostDetails(true)
-  }
+    setSelectedPost(post);
+    setShowPostDetails(true);
+  };
 
   const handleClosePostDetails = () => {
-    setShowPostDetails(false)
-    // Refresh saved posts in case user unsaved the post
+    setShowPostDetails(false);
     if (activeTab === 'saved') {
-      loadSavedPosts()
+      loadSavedPosts();
     }
-  }
+  };
 
-  const handleTabChange = (tab: "posts" | "reels" | "saved") => {
-    setActiveTab(tab)
+  const handleTabChange = (tab: 'posts' | 'reels' | 'saved') => {
+    setActiveTab(tab);
 
-    // Load reels only when Reels tab is clicked and reels haven't been loaded yet
-    if (tab === "reels" && reels.length === 0 && !reelsLoading && user?._id) {
-      loadUserReels(user._id)
+    if (tab === 'reels' && reels.length === 0 && !reelsLoading && user?._id) {
+      loadUserReels(user._id);
     }
 
-    // Always reload saved posts when Saved tab is clicked to show newly saved posts
-    if (tab === "saved" && !savedPostsLoading) {
-      loadSavedPosts()
+    if (tab === 'saved' && !savedPostsLoading) {
+      loadSavedPosts();
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -382,7 +635,7 @@ export default function ProfilePage() {
           <p className="text-muted-foreground">Loading profile...</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -393,74 +646,55 @@ export default function ProfilePage() {
           <Button onClick={loadUserProfile}>Retry</Button>
         </div>
       </div>
-    )
+    );
   }
 
   if (!user) {
-    return null
+    return null;
   }
 
   return (
     <main className="min-h-screen bg-background pb-20 lg:pb-0">
+      <ConfirmDialog {...dialogProps} />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-3">
-          {/* Header with gradient background */}
-          <div className="gradient-purple-peach h-48 relative">
-            <div className="absolute top-4 right-4 z-20">
-              <button
-                onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                className="p-2 rounded-full bg-white/20 backdrop-blur hover:bg-white/30 transition"
-                aria-label="Settings menu"
-              >
-                <Settings size={20} className="text-white" />
-              </button>
+          <div className="relative">
+            <div className="h-48 md:h-64 relative bg-muted group overflow-hidden">
+              {user.coverPhoto ? (
+                <img
+                  src={getMediaUrl(user.coverPhoto)}
+                  alt="Cover"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full gradient-purple-peach" />
+              )}
 
-              {showSettingsMenu && (
-                <div className="absolute right-0 top-12 w-56 bg-card rounded-lg border border-border shadow-2xl z-50">
-                  <button
-                    onClick={() => document.getElementById('coverPhotoInput')?.click()}
-                    disabled={uploadingImage}
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground disabled:opacity-50"
-                  >
-                    <span>🖼️</span>
-                    <span>{uploadingImage ? 'Uploading...' : 'Change Cover Photo'}</span>
-                  </button>
-                  <button
-                    onClick={() => document.getElementById('profilePictureInput')?.click()}
-                    disabled={uploadingImage}
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground disabled:opacity-50"
-                  >
-                    <span>📷</span>
-                    <span>{uploadingImage ? 'Uploading...' : 'Change Profile Picture'}</span>
-                  </button>
-                  <a
-                    href="/account-settings"
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground"
-                  >
-                    <span>⚙️</span>
-                    <span>Account Settings</span>
-                  </a>
-                  <button className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground">
-                    <span>🔒</span>
-                    <span>Privacy & Security</span>
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-4 py-3 hover:bg-muted transition flex items-center gap-3 text-red-500"
-                  >
-                    <span>🚪</span>
-                    <span>Logout</span>
-                  </button>
+              {isUploadingCoverPhoto && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
+                  <div className="flex flex-col items-center gap-2 text-white">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                    <span className="text-sm font-medium">Uploading...</span>
+                  </div>
                 </div>
               )}
 
-              {/* Hidden file inputs */}
+              <button
+                onClick={() => document.getElementById('coverPhotoInput')?.click()}
+                className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all duration-300 cursor-pointer"
+                aria-label="Change cover photo"
+                disabled={isUploadingCoverPhoto}
+              >
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center gap-2 text-white">
+                  <Camera size={32} />
+                  <span className="text-sm font-medium">Change Cover Photo</span>
+                </div>
+              </button>
+
               <input
                 id="coverPhotoInput"
                 type="file"
@@ -476,56 +710,229 @@ export default function ProfilePage() {
                 onChange={handleProfilePictureUpload}
               />
             </div>
+
+            <div className="absolute top-2 right-2 md:top-4 md:right-4 z-20">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowSettingsMenu(!showSettingsMenu);
+                }}
+                className="p-2 md:p-3 rounded-full bg-black/40 backdrop-blur-sm hover:bg-black/60 transition cursor-pointer shadow-lg"
+                aria-label="Profile Settings"
+              >
+                <Settings size={20} className="text-white md:w-[22px] md:h-[22px]" />
+              </button>
+
+              {showSettingsMenu && (
+                <div className="absolute top-full mt-2 right-0 bg-card rounded-xl shadow-lg border border-border min-w-[200px] md:min-w-[220px] z-50">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      router.push('/account-settings');
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base rounded-t-xl"
+                  >
+                    <Edit2 size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                    <span>Edit Profile</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      document.getElementById('profilePictureInput')?.click();
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base"
+                  >
+                    <Camera size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                    <span>Change Profile</span>
+                  </button>
+                  {(user?.profileImage || user?.avatar || user?.profilePicture) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSettingsMenu(false);
+                        handleDeleteProfilePicture();
+                      }}
+                      className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base text-red-500"
+                    >
+                      <Trash2 size={16} />
+                      <span>Delete Profile Photo</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      document.getElementById('coverPhotoInput')?.click();
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base"
+                  >
+                    <ImageIcon
+                      size={16}
+                      className="text-muted-foreground md:w-[18px] md:h-[18px]"
+                    />
+                    <span>Change Cover</span>
+                  </button>
+                  {user?.coverPhoto && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSettingsMenu(false);
+                        handleDeleteCoverPhoto();
+                      }}
+                      className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base text-red-500"
+                    >
+                      <Trash2 size={16} />
+                      <span>Delete Cover Photo</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      router.push('/account-settings');
+                    }}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 text-left hover:bg-muted transition flex items-center gap-2 md:gap-3 text-sm md:text-base"
+                  >
+                    <Settings size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                    <span>Settings</span>
+                  </button>
+                  <div className="border-t border-border"></div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTheme(theme === 'dark' ? 'light' : 'dark');
+                    }}
+                    disabled={!mounted}
+                    className="w-full px-3 md:px-4 py-2.5 md:py-3 hover:bg-muted transition flex items-center justify-between text-sm md:text-base rounded-b-xl cursor-pointer disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-2 md:gap-3">
+                      {mounted && theme === 'dark' ? (
+                        <Sun size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                      ) : (
+                        <Moon size={16} className="text-muted-foreground md:w-[18px] md:h-[18px]" />
+                      )}
+                      <span>{mounted && theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</span>
+                    </div>
+                    <div
+                      className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                        mounted && theme === 'dark' ? 'bg-primary' : 'bg-muted-foreground/30'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                          mounted && theme === 'dark' ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </div>
+                  </button>
+                  <div className="border-t border-border lg:hidden"></div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSettingsMenu(false);
+                      handleLogout();
+                    }}
+                    className="w-full px-3 py-2.5 text-left hover:bg-muted transition flex items-center gap-2 text-sm rounded-b-xl text-red-500 lg:hidden"
+                  >
+                    <LogOut size={16} />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Profile Info */}
-          <div className="px-4 pb-8">
-            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4 -mt-16 mb-8 relative z-10">
-              <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-6xl border-4 border-card shadow-lg overflow-hidden">
-                {(user.profilePicture || user.profileImage) ? (
-                  <img
-                    src={user.profilePicture || user.profileImage}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Fallback to emoji if image fails to load
-                      e.currentTarget.style.display = 'none';
-                      e.currentTarget.parentElement!.innerHTML = '<span>👤</span>';
-                    }}
-                  />
-                ) : (
-                  <span>👤</span>
+          <div className="px-3 md:px-4 pb-6 md:pb-8">
+            <div className="flex flex-col items-center -mt-12 md:-mt-20 gap-4 md:gap-6 mb-6 md:mb-8 relative z-10">
+              <div className="relative w-24 h-24 md:w-32 md:h-32 shrink-0 group/avatar">
+                <div
+                  className="w-full h-full cursor-pointer relative"
+                  onClick={() => {
+                    const pp = user.profileImage || user.avatar || user.profilePicture;
+                    if (pp && pp !== '👤' && (pp.startsWith('http') || pp.startsWith('/')))
+                      setShowProfileImageModal(true);
+                  }}
+                >
+                  {(() => {
+                    const pp = user.profileImage || user.avatar || user.profilePicture;
+                    if (pp && pp !== '👤' && (pp.startsWith('http') || pp.startsWith('/'))) {
+                      return (
+                        <img
+                          src={getMediaUrl(pp)}
+                          alt="Profile"
+                          className="w-full h-full rounded-full object-cover border-3 md:border-4 border-card shadow-lg"
+                        />
+                      );
+                    }
+                    return (
+                      <div className="w-full h-full rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center border-3 md:border-4 border-card shadow-lg">
+                        <User size={48} className="text-white" />
+                      </div>
+                    );
+                  })()}
+
+                  {isUploadingProfilePic && (
+                    <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    document.getElementById('profilePictureInput')?.click();
+                  }}
+                  className="absolute bottom-0 left-0 md:bottom-1 md:left-1 w-7 h-7 md:w-9 md:h-9 bg-primary hover:bg-primary/90 rounded-full flex items-center justify-center border-2 border-card shadow-lg cursor-pointer transition-transform hover:scale-110"
+                  title="Change profile picture"
+                >
+                  <Camera size={14} className="text-white md:w-[16px] md:h-[16px]" />
+                </button>
+
+                {user.isVerified && (
+                  <div
+                    className="absolute bottom-0 right-0 md:bottom-1 md:right-1 w-6 h-6 md:w-8 md:h-8 bg-blue-500 rounded-full flex items-center justify-center border-2 border-card z-10"
+                    title="Verified"
+                  >
+                    <span className="text-white text-xs md:text-sm font-bold">✓</span>
+                  </div>
                 )}
               </div>
-              <div className="flex-1">
-                <h1 className="text-4xl font-bold text-foreground">
-                  {user.firstName || user.name || "User"} {user.lastName || ""}
+
+              <div className="text-center w-full">
+                <h1 className="text-2xl md:text-3xl font-bold text-foreground">
+                  {user.firstName || user.name || 'User'} {user.lastName || ''}
                 </h1>
-                <p className="text-lg text-muted-foreground">
-                  @{user.username || ((user.firstName || user.name || user.email || "user") + "").toLowerCase().replace(/\s+/g, "")}
+                <p className="text-base md:text-lg text-muted-foreground">
+                  @
+                  {user.username ||
+                    ((user.firstName || user.name || user.email || 'user') + '')
+                      .toLowerCase()
+                      .replace(/\s+/g, '')}
                 </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => router.push('/chat')}
-                  className="p-2 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground"
-                >
-                  <MessageCircle size={20} />
-                </button>
-                <button className="p-2 rounded-lg bg-secondary hover:bg-secondary/90 text-secondary-foreground">
-                  <Share size={20} />
-                </button>
-                <Button
-                  onClick={() => setShowEditModal(true)}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
-                >
-                  <Edit2 size={18} />
-                  Edit Bio
-                </Button>
+
+                <div className="flex justify-center gap-3 mt-4">
+                  <Button
+                    onClick={() => router.push('/account-settings')}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 cursor-pointer text-sm md:text-base"
+                  >
+                    <Edit2 size={16} className="md:w-[18px] md:h-[18px]" />
+                    Edit Profile
+                  </Button>
+                  <Button
+                    onClick={() => setShowEditModal(true)}
+                    variant="outline"
+                    className="gap-2 cursor-pointer text-sm md:text-base"
+                  >
+                    <Edit2 size={16} className="md:w-[18px] md:h-[18px]" />
+                    Edit Bio
+                  </Button>
+                </div>
               </div>
             </div>
 
-            {/* Bio Section */}
             <div className="bg-card rounded-2xl border border-border p-6 mb-6">
               <p className="text-foreground mb-6 leading-relaxed">{bio}</p>
 
@@ -538,21 +945,23 @@ export default function ProfilePage() {
                   className="text-center p-4 bg-muted rounded-xl hover:bg-muted/80 transition cursor-pointer"
                   onClick={() => {
                     if (user?._id) {
-                      loadFollowers(user._id)
+                      loadFollowers(user._id);
                     }
-                    setShowFollowersModal(true)
+                    setShowFollowersModal(true);
                   }}
                 >
-                  <p className="font-bold text-2xl text-primary">{userStats.followers.toLocaleString()}</p>
+                  <p className="font-bold text-2xl text-primary">
+                    {userStats.followers.toLocaleString()}
+                  </p>
                   <p className="text-sm text-muted-foreground mt-1">Followers</p>
                 </div>
                 <div
                   className="text-center p-4 bg-muted rounded-xl hover:bg-muted/80 transition cursor-pointer"
                   onClick={() => {
                     if (user?._id) {
-                      loadFollowing(user._id)
+                      loadFollowing(user._id);
                     }
-                    setShowFollowingModal(true)
+                    setShowFollowingModal(true);
                   }}
                 >
                   <p className="font-bold text-2xl text-primary">{userStats.following}</p>
@@ -561,19 +970,18 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Posts and Saved Tabs */}
             <div>
-              {/* Tab Headers */}
               <div className="flex border-b border-border mb-6">
                 <button
-                  onClick={() => handleTabChange("posts")}
-                  className={`flex-1 py-3 font-semibold transition ${activeTab === "posts"
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                    }`}
+                  onClick={() => handleTabChange('posts')}
+                  className={`cursor-pointer flex-1 py-3 font-semibold transition ${
+                    activeTab === 'posts'
+                      ? 'text-primary border-b-2 border-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
                 >
                   <div className="flex items-center justify-center gap-2">
-                    <span className="text-xl">📸</span>
+                    <Grid size={20} />
                     <span>Posts</span>
                     {userStats.posts > 0 && (
                       <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
@@ -583,51 +991,52 @@ export default function ProfilePage() {
                   </div>
                 </button>
                 <button
-                  onClick={() => handleTabChange("reels")}
-                  className={`flex-1 py-3 font-semibold transition ${activeTab === "reels"
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                    }`}
+                  onClick={() => handleTabChange('reels')}
+                  className={`cursor-pointer flex-1 py-3 font-semibold transition ${
+                    activeTab === 'reels'
+                      ? 'text-primary border-b-2 border-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
                 >
                   <div className="flex items-center justify-center gap-2">
-                    <span className="text-xl">🎬</span>
+                    <Clapperboard size={20} />
                     <span>Reels</span>
-                    {reels.length > 0 && (
+                    {userStats.reels > 0 && (
                       <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                        {reels.length}
+                        {userStats.reels}
                       </span>
                     )}
                   </div>
                 </button>
                 <button
-                  onClick={() => handleTabChange("saved")}
-                  className={`flex-1 py-3 font-semibold transition ${activeTab === "saved"
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                    }`}
+                  onClick={() => handleTabChange('saved')}
+                  className={` cursor-pointer flex-1 py-3 font-semibold transition ${
+                    activeTab === 'saved'
+                      ? 'text-primary border-b-2 border-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
                 >
                   <div className="flex items-center justify-center gap-2">
-                    <span className="text-xl">🔖</span>
+                    <Bookmark size={20} />
                     <span>Saved</span>
-                    {savedPosts.length > 0 && (
+                    {userStats.savedPosts > 0 && (
                       <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">
-                        {savedPosts.length}
+                        {userStats.savedPosts}
                       </span>
                     )}
                   </div>
                 </button>
               </div>
 
-              {/* Posts Tab Content */}
-              {activeTab === "posts" && (
+              {activeTab === 'posts' && (
                 <div>
                   <h2 className="text-2xl font-bold mb-4">My Posts</h2>
                   {posts.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       {posts.map((post) => {
-                        // Get the first media item (image or video)
-                        const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url
-                        const mediaType = post.media?.[0]?.type
+                        const mediaUrl =
+                          post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url;
+                        const mediaType = post.media?.[0]?.type;
 
                         return (
                           <div
@@ -635,30 +1044,35 @@ export default function ProfilePage() {
                             className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group"
                             onClick={() => handleOpenPostDetails(post)}
                           >
-                            {mediaUrl ? (
-                              mediaType === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                  muted
-                                />
+                            <div className="relative w-full h-48 bg-muted">
+                              {mediaUrl ? (
+                                mediaType === 'video' ? (
+                                  <video
+                                    src={mediaUrl}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300 absolute inset-0"
+                                    muted
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <Image
+                                    src={mediaUrl}
+                                    alt={post.caption || 'Post'}
+                                    fill
+                                    className="object-cover group-hover:scale-105 transition duration-300"
+                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                  />
+                                )
                               ) : (
-                                <img
-                                  src={mediaUrl}
-                                  alt={post.caption || "Post"}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                />
-                              )
-                            ) : (
-                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                                <div className="absolute inset-0 flex items-center justify-center text-5xl opacity-80 group-hover:opacity-100 transition">
-                                  📸
+                                <div className="absolute inset-0 bg-gradient-to-br from-primary to-secondary overflow-hidden group-hover:scale-105 transition duration-300">
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
+                                    <Camera size={48} className="text-white" />
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
                             <div className="p-4">
                               <p className="font-semibold text-foreground line-clamp-2">
-                                {post.caption || post.content || "No caption"}
+                                {post.caption || post.content || 'No caption'}
                               </p>
                               <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                                 <span>❤️ {post.likes_count || 0}</span>
@@ -671,13 +1085,16 @@ export default function ProfilePage() {
                               )}
                             </div>
                           </div>
-                        )
+                        );
                       })}
                     </div>
                   ) : (
                     <div className="text-center py-12 bg-card rounded-xl border border-border">
                       <p className="text-muted-foreground mb-4">No posts yet</p>
-                      <Button onClick={() => router.push("/create")} className="bg-primary hover:bg-primary/90">
+                      <Button
+                        onClick={() => router.push('/create')}
+                        className="bg-primary hover:bg-primary/90"
+                      >
                         Create Your First Post
                       </Button>
                     </div>
@@ -685,8 +1102,7 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* Reels Tab Content */}
-              {activeTab === "reels" && (
+              {activeTab === 'reels' && (
                 <div>
                   <h2 className="text-2xl font-bold mb-4">My Reels</h2>
                   {reelsLoading ? (
@@ -701,17 +1117,26 @@ export default function ProfilePage() {
                           key={reel._id || reel.id}
                           reel={reel}
                           currentUserId={user?._id}
+                          onCommentClick={() => {
+                            setSelectedReel(reel);
+                            setShowReelComments(true);
+                          }}
                         />
                       ))}
                     </div>
                   ) : (
                     <div className="text-center py-12 bg-card rounded-xl border border-border">
-                      <div className="text-6xl mb-4">🎬</div>
-                      <p className="text-muted-foreground mb-2 text-lg font-semibold">No Reels Yet</p>
+                      <Film size={64} className="mx-auto mb-4 text-muted-foreground" />
+                      <p className="text-muted-foreground mb-2 text-lg font-semibold">
+                        No Reels Yet
+                      </p>
                       <p className="text-muted-foreground text-sm mb-4">
                         Create your first reel to share with your followers
                       </p>
-                      <Button onClick={() => router.push("/create")} className="bg-primary hover:bg-primary/90">
+                      <Button
+                        onClick={() => router.push('/create')}
+                        className="bg-primary hover:bg-primary/90"
+                      >
                         Create Your First Reel
                       </Button>
                     </div>
@@ -719,29 +1144,34 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* Saved Tab Content */}
-              {activeTab === "saved" && (
+              {activeTab === 'saved' && (
                 <div>
-                  <h2 className="text-2xl font-bold mb-4">Saved Posts</h2>
+                  <h2 className="text-2xl font-bold mb-4">Saved</h2>
                   {savedPostsLoading ? (
                     <div className="flex items-center justify-center py-8">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                      <p className="ml-3 text-muted-foreground text-sm">Loading saved posts...</p>
+                      <p className="ml-3 text-muted-foreground text-sm">Loading saved items...</p>
                     </div>
                   ) : savedPosts.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       {savedPosts.map((post) => {
-                        // Get the first media item (image or video)
-                        const mediaUrl = post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url
-                        const mediaType = post.media?.[0]?.type
+                        const isReel = post.savedItemType === 'reel';
+                        const mediaUrl =
+                          post.media?.[0]?.url || post.media?.[0]?.thumbnail || post.file_url;
+                        const mediaType = isReel ? 'video' : post.media?.[0]?.type;
 
                         return (
                           <div
                             key={post._id || post.id}
                             className="bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition cursor-pointer group relative"
-                            onClick={() => handleOpenPostDetails(post)}
+                            onClick={() => {
+                              if (isReel) {
+                                router.push(`/reel/${post._id || post.id}`);
+                              } else {
+                                handleOpenPostDetails(post);
+                              }
+                            }}
                           >
-                            {/* 3-Dot Menu Button */}
                             <div className="absolute top-2 right-2 z-20">
                               <button
                                 onClick={(e) => {
@@ -752,22 +1182,25 @@ export default function ProfilePage() {
                                 className="p-2 bg-black/50 backdrop-blur hover:bg-black/70 rounded-full transition"
                                 title="Options"
                               >
-                                <span className="text-white text-lg font-bold">⋮</span>
+                                <MoreVertical className="text-white" size={16} />
                               </button>
 
-                              {/* Dropdown Menu */}
                               {openMenuPostId === (post._id || post.id) && (
                                 <div className="absolute right-0 top-12 w-48 bg-card rounded-lg border border-border shadow-2xl overflow-hidden">
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setOpenMenuPostId(null);
-                                      handleOpenPostDetails(post);
+                                      if (isReel) {
+                                        router.push(`/reel/${post._id || post.id}`);
+                                      } else {
+                                        handleOpenPostDetails(post);
+                                      }
                                     }}
                                     className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground"
                                   >
-                                    <span>👁️</span>
-                                    <span>View Post</span>
+                                    <Eye size={16} />
+                                    <span>{isReel ? 'View Reel' : 'View Post'}</span>
                                   </button>
                                   <button
                                     onClick={async (e) => {
@@ -776,15 +1209,17 @@ export default function ProfilePage() {
                                       try {
                                         const postUrl = `${window.location.origin}/home?post=${post._id || post.id}`;
                                         await navigator.clipboard.writeText(postUrl);
-                                        showToast.success('Link copied!', 'Post link copied to clipboard');
+                                        showToast.success(
+                                          'Link copied!',
+                                          'Post link copied to clipboard'
+                                        );
                                       } catch (err) {
-                                        console.error('Error copying link:', err);
                                         showToast.error('Failed to copy link');
                                       }
                                     }}
                                     className="w-full text-left px-4 py-3 hover:bg-muted transition border-b border-border flex items-center gap-3 text-foreground"
                                   >
-                                    <span>🔗</span>
+                                    <LinkIcon size={16} />
                                     <span>Copy Link</span>
                                   </button>
                                   <button
@@ -795,59 +1230,77 @@ export default function ProfilePage() {
                                         const postId = post._id || post.id;
                                         const response = await postService.unsavePost(postId);
                                         if (response.success) {
-                                          setSavedPosts(savedPosts.filter(p => (p._id || p.id) !== postId));
+                                          setSavedPosts(
+                                            savedPosts.filter((p) => (p._id || p.id) !== postId)
+                                          );
                                           toasts.postUnsaved();
                                         } else {
                                           toasts.saveError();
                                         }
                                       } catch (err) {
-                                        console.error('Error unsaving post:', err);
                                         toasts.saveError();
                                       }
                                     }}
                                     className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-950/20 transition flex items-center gap-3 text-red-500"
                                   >
-                                    <span>🗑️</span>
+                                    <Trash2 size={16} />
                                     <span>Remove from Saved</span>
                                   </button>
                                 </div>
                               )}
                             </div>
 
-                            {/* Saved Badge */}
-                            <div className="absolute top-2 left-2 z-10 bg-primary text-primary-foreground px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
-                              <span>🔖</span>
-                              <span>Saved</span>
+                            <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
+                              <span className="bg-primary text-primary-foreground px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+                                <Bookmark size={12} fill="currentColor" />
+                                <span>Saved</span>
+                              </span>
+                              {isReel && (
+                                <span className="bg-pink-500 text-white px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+                                  <Film size={12} />
+                                  <span>Reel</span>
+                                </span>
+                              )}
                             </div>
 
-                            {mediaUrl ? (
-                              mediaType === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                  muted
-                                />
+                            <div className="relative w-full h-48 bg-muted">
+                              {mediaUrl ? (
+                                mediaType === 'video' ? (
+                                  <video
+                                    src={mediaUrl}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300 absolute inset-0"
+                                    muted
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <Image
+                                    src={mediaUrl}
+                                    alt={post.caption || 'Post'}
+                                    fill
+                                    className="object-cover group-hover:scale-105 transition duration-300"
+                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                                  />
+                                )
                               ) : (
-                                <img
-                                  src={mediaUrl}
-                                  alt={post.caption || "Post"}
-                                  className="w-full h-48 object-cover group-hover:scale-105 transition duration-300"
-                                />
-                              )
-                            ) : (
-                              <div className="w-full h-48 bg-gradient-to-br from-primary to-secondary relative overflow-hidden group-hover:scale-105 transition duration-300">
-                                <div className="absolute inset-0 flex items-center justify-center text-5xl opacity-80 group-hover:opacity-100 transition">
-                                  📸
+                                <div className="absolute inset-0 bg-gradient-to-br from-primary to-secondary overflow-hidden group-hover:scale-105 transition duration-300">
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-80 group-hover:opacity-100 transition">
+                                    <Camera size={48} className="text-white" />
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
                             <div className="p-4">
                               <p className="font-semibold text-foreground line-clamp-2">
-                                {post.caption || post.content || "No caption"}
+                                {post.caption || post.content || 'No caption'}
                               </p>
                               <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                                <span>❤️ {post.likes_count || 0}</span>
-                                <span>💬 {post.comments_count || 0}</span>
+                                <span className="flex items-center gap-1">
+                                  <Heart size={14} className="text-red-500 fill-red-500" />{' '}
+                                  {post.likes_count || 0}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <MessageCircle size={14} /> {post.comments_count || 0}
+                                </span>
                               </div>
                               {post.media && post.media.length > 1 && (
                                 <p className="text-xs text-muted-foreground mt-1">
@@ -856,17 +1309,22 @@ export default function ProfilePage() {
                               )}
                             </div>
                           </div>
-                        )
+                        );
                       })}
                     </div>
                   ) : (
                     <div className="text-center py-12 bg-card rounded-xl border border-border">
-                      <div className="text-6xl mb-4">🔖</div>
-                      <p className="text-muted-foreground mb-2 text-lg font-semibold">No Saved Posts</p>
-                      <p className="text-muted-foreground text-sm mb-4">
-                        Save posts to keep them for later
+                      <Bookmark size={64} className="mx-auto mb-4 text-muted-foreground" />
+                      <p className="text-muted-foreground mb-2 text-lg font-semibold">
+                        No Saved Content
                       </p>
-                      <Button onClick={() => router.push("/home")} className="bg-primary hover:bg-primary/90">
+                      <p className="text-muted-foreground text-sm mb-4">
+                        Save posts and reels to keep them for later
+                      </p>
+                      <Button
+                        onClick={() => router.push('/home')}
+                        className="bg-primary hover:bg-primary/90"
+                      >
                         Explore Posts
                       </Button>
                     </div>
@@ -878,7 +1336,6 @@ export default function ProfilePage() {
         </section>
       </div>
 
-      {/* Edit Bio Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
         <DialogContent>
           <DialogHeader>
@@ -894,10 +1351,17 @@ export default function ProfilePage() {
           />
           <p className="text-xs text-muted-foreground">{editBio.length}/160 characters</p>
           <DialogFooter>
-            <Button onClick={() => setShowEditModal(false)} variant="outline" className="bg-transparent">
+            <Button
+              onClick={() => setShowEditModal(false)}
+              variant="outline"
+              className="bg-transparent"
+            >
               Cancel
             </Button>
-            <Button onClick={handleSaveBio} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            <Button
+              onClick={handleSaveBio}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
               Save Bio
             </Button>
           </DialogFooter>
@@ -910,7 +1374,9 @@ export default function ProfilePage() {
         title="Followers"
         users={followers}
         loading={followersLoading}
-        onFollowChange={(userId, isFollowing) => handleFollowChange(userId, isFollowing, "followers")}
+        onFollowChange={(userId, isFollowing) =>
+          handleFollowChange(userId, isFollowing, 'followers')
+        }
       />
 
       <FollowersModal
@@ -919,16 +1385,59 @@ export default function ProfilePage() {
         title="Following"
         users={following}
         loading={followingLoading}
-        onFollowChange={(userId, isFollowing) => handleFollowChange(userId, isFollowing, "following")}
+        onFollowChange={(userId, isFollowing) =>
+          handleFollowChange(userId, isFollowing, 'following')
+        }
       />
 
-      {/* Post Details Modal */}
       {selectedPost && (
-        <PostDetailsModal isOpen={showPostDetails} onClose={handleClosePostDetails} post={selectedPost} />
+        <PostDetailsModal
+          isOpen={showPostDetails}
+          onClose={handleClosePostDetails}
+          post={selectedPost}
+        />
       )}
 
-      {/* Mobile Navigation */}
+      {selectedReel && (
+        <ReelCommentsModal
+          open={showReelComments}
+          onOpenChange={setShowReelComments}
+          reelId={selectedReel._id}
+          commentsCount={selectedReel.comments_count || 0}
+          currentUserId={user?._id}
+        />
+      )}
+
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
+
+      <Dialog open={showProfileImageModal} onOpenChange={setShowProfileImageModal}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden bg-black/95 border-none sm:max-w-3xl md:max-w-4xl [&>button]:text-white [&>button]:bg-white/10 [&>button]:hover:bg-white/20">
+          <DialogTitle className="sr-only">Profile Picture</DialogTitle>
+          <div className="relative w-full h-[80vh] flex items-center justify-center group">
+            <Image
+              src={getMediaUrl(user.profilePicture || user.profileImage)}
+              alt={user.username || 'Profile Picture'}
+              fill
+              className="object-contain"
+              quality={100}
+              priority
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ProfileImageEditor
+        isOpen={showImageEditor}
+        onClose={() => {
+          setShowImageEditor(false);
+          setEditorImageFile(null);
+        }}
+        imageFile={editorImageFile}
+        type={editorType}
+        onSave={handleImageEditorSave}
+        enableFaceDetection={true}
+        coverAspectRatio={2.5}
+      />
     </main>
-  )
+  );
 }

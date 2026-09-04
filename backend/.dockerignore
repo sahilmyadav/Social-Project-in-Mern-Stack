@@ -1,6 +1,43 @@
+# Dependencies
 node_modules
-.git
-*.log
 npm-debug.log*
-.DS_Store
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files (use Docker secrets or env vars instead)
 .env
+.env.*
+!.env.example
+
+# Development files
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose*.yml
+README.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Test files
+test
+tests
+*.test.js
+*.spec.js
+coverage
+
+# Build artifacts
+dist
+build

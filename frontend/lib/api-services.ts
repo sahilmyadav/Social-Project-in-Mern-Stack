@@ -1,27 +1,25 @@
-import { api, getToken, removeToken, setRefreshToken, setToken } from './api-client';
-import { API_CONFIG, API_ENDPOINTS } from './api-config';
+import { api, removeToken, setRefreshToken, setToken } from './api-client';
+import { API_ENDPOINTS } from './api-config';
 
-// Auth Service
 export const authService = {
-  // Register
   register: async (data: {
     firstName: string;
     lastName: string;
     email?: string;
     phone?: string;
     password: string;
+    gender?: string;
+    dob?: string;
   }) => {
     return api.post(API_ENDPOINTS.AUTH.REGISTER, data);
   },
 
-  // Verify Registration OTP
   verifyRegisterOtp: async (data: {
     email?: string;
     phone?: string;
     userId: string;
     otp: string;
   }) => {
-    // Backend expects 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
       otp: data.otp,
@@ -37,29 +35,22 @@ export const authService = {
     return response;
   },
 
-  // Resend OTP
-  resendOtp: async (data: { email?: string; phone?: string; userId: string }) => {
-    // Backend expects 'identifier' field (email or phone)
-    const payload = {
-      identifier: data.email || data.phone,
-      userId: data.userId,
-    };
+  resendOtp: async (data: { email?: string; phone?: string }) => {
+    const payload: Record<string, string> = {};
+    if (data.email) {
+      payload.email = data.email;
+    }
+    if (data.phone) {
+      payload.phone = data.phone;
+    }
     return api.post(API_ENDPOINTS.AUTH.RESEND_OTP, payload);
   },
 
-  // Login
   login: async (data: { email?: string; phone?: string; password: string }) => {
-    // Send both formats for compatibility
-    const payload: any = {
+    const payload: Record<string, string> = {
       password: data.password,
     };
 
-    // Add identifier
-    if (data.email || data.phone) {
-      payload.identifier = data.email || data.phone;
-    }
-
-    // Also add email/phone directly for backend compatibility
     if (data.email) {
       payload.email = data.email;
     }
@@ -77,9 +68,7 @@ export const authService = {
     return response;
   },
 
-  // Verify Login OTP
   verifyLogin: async (data: { email?: string; phone?: string; userId: string; otp: string }) => {
-    // Backend expects 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
       otp: data.otp,
@@ -95,491 +84,470 @@ export const authService = {
     return response;
   },
 
-  // Logout
   logout: async () => {
     const response = await api.post(API_ENDPOINTS.AUTH.LOGOUT);
     removeToken();
     return response;
   },
 
-  // Get Current User
   getCurrentUser: async () => {
     return api.get(API_ENDPOINTS.AUTH.CURRENT_USER);
   },
 
-  // Get User Profile by ID
   getUserProfile: async (userId: string) => {
     return api.get(API_ENDPOINTS.AUTH.GET_USER_PROFILE(userId));
   },
 
-  // Update Profile Picture
   updateProfilePicture: async (formData: FormData) => {
-    const token = getToken();
-    const response = await fetch(
-      `${API_CONFIG.BASE_URL}${API_ENDPOINTS.AUTH.UPDATE_PROFILE_PICTURE}`,
-      {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          // Don't set Content-Type for FormData - browser will set it automatically
-        },
-        body: formData,
-        credentials: 'include',
-      }
-    );
-
-    return response.json();
+    return api.put(API_ENDPOINTS.AUTH.UPDATE_PROFILE_PICTURE, formData, true);
   },
 
-  // Update Cover Photo
   updateCoverPhoto: async (formData: FormData) => {
     return api.put(API_ENDPOINTS.AUTH.UPDATE_COVER_PHOTO, formData, true);
   },
 
-  // Update Profile
+  deleteProfilePicture: async () => {
+    return api.delete(API_ENDPOINTS.AUTH.DELETE_PROFILE_PICTURE);
+  },
+
+  deleteCoverPhoto: async () => {
+    return api.delete(API_ENDPOINTS.AUTH.DELETE_COVER_PHOTO);
+  },
+
   updateProfile: async (data: {
     firstName?: string;
     lastName?: string;
+    username?: string;
     bio?: string;
     profile_type?: string;
     coverPhoto?: string;
+    dateOfBirth?: string;
   }) => {
     return api.put(API_ENDPOINTS.AUTH.UPDATE_PROFILE, data);
   },
 
-  // Forgot Password
   forgotPassword: async (data: { email?: string; phone?: string }) => {
-    // Backend may expect 'identifier' field (email or phone)
     const payload = {
       identifier: data.email || data.phone,
     };
     return api.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, payload);
   },
 
-  // Reset Password
   resetPassword: async (token: string, newPassword: string) => {
     return api.post(`${API_ENDPOINTS.AUTH.RESET_PASSWORD}?token=${token}`, { newPassword });
   },
 
-  // Change Password
   changePassword: async (data: { currentPassword: string; newPassword: string }) => {
     return api.post(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, data);
   },
 
-  // Update Privacy Settings
-  updatePrivacySettings: async (data: { profile_type: 'private' | 'public' }) => {
+  updatePrivacySettings: async (data: {
+    profile_type?: 'private' | 'public';
+    allowDownloads?: boolean;
+  }) => {
     return api.put(API_ENDPOINTS.AUTH.UPDATE_PROFILE, data);
   },
 
-  // Block User
   blockUser: async (userId: string) => {
-    return api.post(`/users/${userId}/block`);
+    return api.post(API_ENDPOINTS.AUTH.BLOCK_USER(userId));
   },
 
-  // Unblock User
   unblockUser: async (userId: string) => {
-    return api.delete(`/users/${userId}/block`);
+    return api.post(API_ENDPOINTS.AUTH.UNBLOCK_USER(userId));
   },
 
-  // Get Blocked Users
   getBlockedUsers: async () => {
-    return api.get('/users/blocked');
+    return api.get(API_ENDPOINTS.AUTH.GET_BLOCKED_USERS);
+  },
+
+  checkUsername: async (username: string) => {
+    return api.get(API_ENDPOINTS.AUTH.CHECK_USERNAME, { username });
+  },
+
+  completeProfile: async (data: {
+    username: string;
+    bio?: string;
+    profilePicture?: File;
+    coverPhoto?: File;
+    interests?: string[];
+  }) => {
+    const formData = new FormData();
+    formData.append('username', data.username);
+    if (data.bio) formData.append('bio', data.bio);
+    if (data.profilePicture) formData.append('profilePicture', data.profilePicture);
+    if (data.coverPhoto) formData.append('coverPhoto', data.coverPhoto);
+    if (data.interests && data.interests.length > 0) {
+      formData.append('interests', JSON.stringify(data.interests));
+    }
+
+    return api.upload(API_ENDPOINTS.AUTH.COMPLETE_PROFILE, formData);
+  },
+
+  requestEmailChange: async (data: { newEmail: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.REQUEST_EMAIL_CHANGE, data);
+  },
+
+  verifyEmailChange: async (data: { newEmail: string; otp: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.VERIFY_EMAIL_CHANGE, data);
+  },
+
+  requestPhoneChange: async (data: { newPhone: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.REQUEST_PHONE_CHANGE, data);
+  },
+
+  verifyPhoneChange: async (data: { newPhone: string; otp: string }) => {
+    return api.post(API_ENDPOINTS.AUTH.VERIFY_PHONE_CHANGE, data);
+  },
+
+  reportUser: async (userId: string, reason: string) => {
+    return api.post(API_ENDPOINTS.AUTH.REPORT_USER(userId), { reason });
   },
 };
 
-// Post Service
 export const postService = {
-  // Create Post
   createPost: async (formData: FormData) => {
     return api.upload(API_ENDPOINTS.POSTS.CREATE, formData);
   },
 
-  // Delete Post
   deletePost: async (postId: string) => {
     return api.delete(API_ENDPOINTS.POSTS.DELETE(postId));
   },
 
-  // Get Post Details
   getPostDetails: async (postId: string) => {
     return api.get(API_ENDPOINTS.POSTS.GET_DETAILS(postId));
   },
 
-  // Like Post
   likePost: async (postId: string) => {
     return api.post(API_ENDPOINTS.POSTS.LIKE(postId));
   },
 
-  // Unlike Post
   unlikePost: async (postId: string) => {
     return api.delete(API_ENDPOINTS.POSTS.UNLIKE(postId));
   },
 
-  // Comment on Post
   commentOnPost: async (postId: string, data: { text: string; reply_to_comment_id?: string }) => {
     return api.post(API_ENDPOINTS.POSTS.COMMENT(postId), data);
   },
 
-  // Get Post Comments
   getPostComments: async (postId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.POSTS.GET_COMMENTS(postId), params);
   },
 
-  // Save Post
   savePost: async (postId: string) => {
     return api.post(API_ENDPOINTS.POSTS.SAVE(postId));
   },
 
-  // Unsave Post
   unsavePost: async (postId: string) => {
     return api.delete(API_ENDPOINTS.POSTS.UNSAVE(postId));
   },
 
-  // Get Saved Posts
   getSavedPosts: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.POSTS.GET_SAVED_POSTS, params);
   },
 
-  // Share Post
   sharePost: async (postId: string, data?: { target?: string; caption?: string }) => {
     return api.post(API_ENDPOINTS.POSTS.SHARE(postId), data || {});
   },
 
-  // Get Total Post Count
   getTotalPostCount: async () => {
     return api.get(API_ENDPOINTS.POSTS.TOTAL_COUNT);
   },
 
-  // Report Post
   reportPost: async (postId: string, data: { reason: string; additionalInfo?: string }) => {
     return api.post(API_ENDPOINTS.POSTS.REPORT(postId), data);
   },
+
+  getExplorePosts: async (params?: { page?: number; limit?: number }) => {
+    return api.get(API_ENDPOINTS.POSTS.EXPLORE, params);
+  },
+
+  trackView: async (postId: string) => {
+    return api.post(`/post/view/${postId}`);
+  },
+
+  getViewCount: async (postId: string) => {
+    return api.get(`/post/views/${postId}`);
+  },
 };
 
-// Comment Service
 export const commentService = {
-  // Like Comment
   likeComment: async (commentId: string) => {
     return api.post(API_ENDPOINTS.COMMENTS.LIKE(commentId));
   },
 
-  // Unlike Comment
   unlikeComment: async (commentId: string) => {
     return api.delete(API_ENDPOINTS.COMMENTS.UNLIKE(commentId));
   },
 
-  // Reply to Comment
   replyToComment: async (commentId: string, data: { text: string }) => {
     return api.post(API_ENDPOINTS.COMMENTS.REPLY(commentId), data);
   },
 
-  // Get Comment Replies
   getCommentReplies: async (commentId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.COMMENTS.GET_REPLIES(commentId), params);
   },
 
-  // Edit Comment
   editComment: async (commentId: string, data: { text: string }) => {
     return api.put(API_ENDPOINTS.COMMENTS.EDIT(commentId), data);
   },
 
-  // Delete Comment
   deleteComment: async (commentId: string) => {
     return api.delete(API_ENDPOINTS.COMMENTS.DELETE(commentId));
   },
 };
 
-// Reel Service
 export const reelService = {
-  // Upload Reel
   uploadReel: async (formData: FormData) => {
     return api.upload(API_ENDPOINTS.REELS.UPLOAD, formData);
   },
 
-  // Get Reels Feed
   getReelsFeed: async (params?: { limit?: number; page?: number }) => {
-    const queryParams = new URLSearchParams();
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.page) queryParams.append('page', params.page.toString());
-    const queryString = queryParams.toString();
-    return api.get(`${API_ENDPOINTS.REELS.GET_FEED}${queryString ? `?${queryString}` : ''}`);
+    return api.get(API_ENDPOINTS.REELS.GET_FEED, params);
   },
 
-  // Delete Reel
   deleteReel: async (reelId: string) => {
     return api.delete(API_ENDPOINTS.REELS.DELETE(reelId));
   },
 
-  // Get Reel Details
   getReelDetails: async (reelId: string) => {
     return api.get(API_ENDPOINTS.REELS.GET_DETAILS(reelId));
   },
 
-  // Toggle Like/Unlike Reel
   toggleLikeReel: async (reelId: string) => {
     return api.post(API_ENDPOINTS.REELS.TOGGLE_LIKE(reelId));
   },
 
-  // Comment on Reel
   commentOnReel: async (reelId: string, data: { text: string; reply_to_comment_id?: string }) => {
     return api.post(API_ENDPOINTS.REELS.COMMENT(reelId), data);
   },
 
-  // Get Reel Comments
   getReelComments: async (reelId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.REELS.COMMENTS(reelId), params);
   },
 
-  // Get User Reels
   getUserReels: async (userId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.REELS.GET_USER_REELS(userId), params);
   },
 
-  // Save Reel
   saveReel: async (reelId: string) => {
     return api.post(API_ENDPOINTS.REELS.SAVE(reelId));
   },
 
-  // Unsave Reel (DELETE method to match backend)
   unsaveReel: async (reelId: string) => {
     return api.delete(API_ENDPOINTS.REELS.UNSAVE(reelId));
   },
 
-  // Get Saved Reels
   getSavedReels: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.REELS.GET_SAVED, params);
   },
 
-  // Report Reel
   reportReel: async (reelId: string, data: { reason: string; additionalInfo?: string }) => {
     return api.post(API_ENDPOINTS.REELS.REPORT(reelId), data);
   },
+
+  viewReel: async (reelId: string) => {
+    return api.post(API_ENDPOINTS.REELS.VIEW(reelId));
+  },
 };
 
-// Story Service
 export const storyService = {
-  // Upload Story
   uploadStory: async (formData: FormData) => {
     return api.upload(API_ENDPOINTS.STORIES.UPLOAD, formData);
   },
 
-  // Delete Story
   deleteStory: async (storyId: string) => {
     return api.delete(API_ENDPOINTS.STORIES.DELETE(storyId));
   },
 
-  // Get User Stories
   getUserStories: async (userId: string) => {
-    // Add timestamp to prevent caching
     return api.get(API_ENDPOINTS.STORIES.GET_USER_STORIES(userId), { _t: Date.now() });
   },
 
-  // Get All Stories (Feed)
   getAllStories: async (params?: { page?: number; limit?: number }) => {
-    // Add timestamp to prevent caching
     return api.get(API_ENDPOINTS.STORIES.GET_ALL_STORIES, { ...params, _t: Date.now() });
   },
 
-  // Cleanup Expired Stories
   cleanupExpiredStories: async () => {
     return api.post(API_ENDPOINTS.STORIES.CLEANUP);
   },
 
-  // View Story (track view)
   viewStory: async (storyId: string) => {
     return api.post(API_ENDPOINTS.STORIES.VIEW_STORY(storyId));
   },
 
-  // Get Story Viewers
   getStoryViewers: async (storyId: string) => {
     return api.get(API_ENDPOINTS.STORIES.GET_VIEWERS(storyId));
   },
 };
 
-// Feed Service
 export const feedService = {
-  // Get Home Feed
   getHomeFeed: async (params?: { cursor?: string; limit?: number; filter?: string }) => {
     return api.get(API_ENDPOINTS.FEED.HOME, params);
   },
 
-  // Get Explore Feed
-  getExploreFeed: async (params?: { limit?: number }) => {
-    return api.get(API_ENDPOINTS.FEED.EXPLORE, params);
-  },
-
-  // Get Reels Feed
   getReelsFeed: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.FEED.REELS, params);
   },
 
-  // Get Stories Feed
   getStoriesFeed: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.FEED.STORIES, params);
   },
 
-  // Get User Posts
   getUserPosts: async (userId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.FEED.USER_POSTS(userId), params);
   },
 };
 
-// Follow Service
 export const followService = {
-  // Follow User (for public accounts)
   followUser: async (userId: string) => {
     return api.post(API_ENDPOINTS.FOLLOW.FOLLOW_USER(userId));
   },
 
-  // Unfollow User
   unfollowUser: async (userId: string) => {
     return api.delete(API_ENDPOINTS.FOLLOW.UNFOLLOW_USER(userId));
   },
 
-  // Send Follow Request (for private accounts)
   sendFollowRequest: async (userId: string) => {
-    return api.post(API_ENDPOINTS.FOLLOW.SEND_REQUEST(userId));
+    return api.post(API_ENDPOINTS.FOLLOW.FOLLOW_USER(userId));
   },
 
-  // Accept Follow Request
   acceptFollowRequest: async (requestId: string) => {
     return api.post(API_ENDPOINTS.FOLLOW.ACCEPT_REQUEST(requestId));
   },
 
-  // Reject Follow Request
   rejectFollowRequest: async (requestId: string) => {
     return api.post(API_ENDPOINTS.FOLLOW.REJECT_REQUEST(requestId));
   },
 
-  // Get Followers
   getFollowers: async (userId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.FOLLOW.GET_FOLLOWERS(userId), params);
   },
 
-  // Get Following
   getFollowing: async (userId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.FOLLOW.GET_FOLLOWING(userId), params);
   },
 
-  // Cancel Sent Follow Request
   cancelFollowRequest: async (userId: string) => {
     return api.delete(API_ENDPOINTS.FOLLOW.CANCEL_REQUEST(userId));
   },
 
-  // Get Pending Follow Requests (received)
   getPendingRequests: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.FOLLOW.GET_PENDING_REQUESTS, params);
   },
 
-  // Get Sent Follow Requests
   getSentRequests: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.FOLLOW.GET_SENT_REQUESTS, params);
   },
 
-  // Get Suggestions
   getSuggestions: async (params?: { limit?: number }) => {
     return api.get(API_ENDPOINTS.FOLLOW.GET_SUGGESTIONS, params);
   },
+
+  followBack: async (userId: string) => {
+    return api.post(API_ENDPOINTS.FOLLOW.FOLLOW_BACK(userId));
+  },
 };
 
-// Search Service
 export const searchService = {
-  // Global Search
   globalSearch: async (params: { query: string; type?: string; limit?: number }) => {
     return api.get(API_ENDPOINTS.SEARCH.GLOBAL, params);
   },
 
-  // Search Users
   searchUsers: async (params: { query: string; page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.SEARCH.USERS, params);
   },
 
-  // Search Pages
   searchPages: async (params: { query: string; page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.SEARCH.PAGES, params);
   },
 
-  // Search Hashtags
   searchHashtags: async (params: { query: string; page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.SEARCH.HASHTAGS, params);
   },
 
-  // Get Trending
   getTrending: async (params?: { timeframe?: string; limit?: number }) => {
     return api.get(API_ENDPOINTS.SEARCH.TRENDING, params);
   },
 };
 
-// Notification Service
 export const notificationService = {
-  // Get All Notifications
   getNotifications: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.NOTIFICATIONS.GET_ALL, params);
   },
 
-  // Mark as Read
   markAsRead: async (notificationId: string) => {
     return api.put(API_ENDPOINTS.NOTIFICATIONS.MARK_READ(notificationId));
   },
 
-  // Mark All as Read
   markAllAsRead: async () => {
     return api.put(API_ENDPOINTS.NOTIFICATIONS.MARK_ALL_READ);
   },
 
-  // Get Unread Count
   getUnreadCount: async () => {
     return api.get(API_ENDPOINTS.NOTIFICATIONS.GET_UNREAD_COUNT);
   },
 };
 
-// Chat Service
 export const chatService = {
-  // Get or Create Thread with User
   getThread: async (userId: string) => {
     return api.post(API_ENDPOINTS.CHAT.GET_THREAD(userId));
   },
 
-  // Send Message (supports text and media)
-  sendMessage: async (threadId: string, data: { text: string } | FormData) => {
+  sendMessage: async (
+    threadId: string,
+    data:
+      | {
+          text?: string;
+          reply_to?: string;
+          isForwarded?: boolean;
+          messageType?: string;
+          sharedContent?: { contentId: string };
+          location?: {
+            latitude: number;
+            longitude: number;
+            address?: string;
+            name?: string;
+            isLiveLocation?: boolean;
+            duration?: number;
+          };
+        }
+      | FormData
+  ) => {
     if (data instanceof FormData) {
       return api.upload(API_ENDPOINTS.CHAT.SEND_MESSAGE(threadId), data);
     }
     return api.post(API_ENDPOINTS.CHAT.SEND_MESSAGE(threadId), data);
   },
 
-  // Get All Threads
   getThreads: async (params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.CHAT.GET_THREADS, params);
   },
 
-  // Get Messages in Thread
+  getUnreadCount: async () => {
+    return api.get(API_ENDPOINTS.CHAT.GET_UNREAD_COUNT);
+  },
+
   getMessages: async (threadId: string, params?: { page?: number; limit?: number }) => {
     return api.get(API_ENDPOINTS.CHAT.GET_MESSAGES(threadId), params);
   },
 
-  // Mark Messages as Seen
   markThreadAsRead: async (threadId: string) => {
     return api.put(API_ENDPOINTS.CHAT.MARK_SEEN(threadId));
   },
 
-  // Delete Message
   deleteMessage: async (messageId: string, deleteFor: 'me' | 'everyone' = 'me') => {
-    return api.delete(API_ENDPOINTS.CHAT.DELETE_MESSAGE(messageId), { data: { deleteFor } });
+    return api.delete(API_ENDPOINTS.CHAT.DELETE_MESSAGE(messageId), { deleteFor });
   },
 
-  // Edit Message
   editMessage: async (messageId: string, data: { text: string }) => {
     return api.put(API_ENDPOINTS.CHAT.EDIT_MESSAGE(messageId), data);
   },
 
-  // Delete Thread/Conversation
   deleteThread: async (threadId: string) => {
     return api.delete(API_ENDPOINTS.CHAT.DELETE_THREAD(threadId));
   },
 
-  // Group Chat Methods
 
-  // Create Group
   createGroup: async (data: {
     name: string;
     description?: string;
@@ -592,49 +560,344 @@ export const chatService = {
       if (data.description) formData.append('description', data.description);
       formData.append('memberIds', JSON.stringify(data.memberIds));
       formData.append('avatar', data.avatar);
-      return api.upload(API_ENDPOINTS.CHAT.CREATE_GROUP, formData);
+      return api.upload(API_ENDPOINTS.GROUP.CREATE, formData);
     }
-    return api.post(API_ENDPOINTS.CHAT.CREATE_GROUP, {
+    return api.post(API_ENDPOINTS.GROUP.CREATE, {
       name: data.name,
       description: data.description,
       memberIds: data.memberIds,
     });
   },
 
-  // Get Group Details
   getGroupDetails: async (groupId: string) => {
-    return api.get(API_ENDPOINTS.CHAT.GET_GROUP_DETAILS(groupId));
+    return api.get(API_ENDPOINTS.GROUP.GET_DETAILS(groupId));
   },
 
-  // Update Group Info
   updateGroup: async (groupId: string, data: { name?: string; description?: string }) => {
-    return api.put(API_ENDPOINTS.CHAT.UPDATE_GROUP(groupId), data);
+    return api.put(API_ENDPOINTS.GROUP.UPDATE(groupId), data);
   },
 
-  // Update Group Avatar
   updateGroupAvatar: async (groupId: string, avatar: File) => {
     const formData = new FormData();
     formData.append('avatar', avatar);
-    return api.upload(API_ENDPOINTS.CHAT.UPDATE_GROUP_AVATAR(groupId), formData);
+    return api.put(API_ENDPOINTS.GROUP.UPDATE(groupId), formData, true);
   },
 
-  // Add Members to Group
   addMembers: async (groupId: string, memberIds: string[]) => {
-    return api.post(API_ENDPOINTS.CHAT.ADD_MEMBERS(groupId), { memberIds });
+    return api.post(API_ENDPOINTS.GROUP.ADD_MEMBERS(groupId), { memberIds });
   },
 
-  // Remove Member from Group
   removeMember: async (groupId: string, memberId: string) => {
-    return api.delete(API_ENDPOINTS.CHAT.REMOVE_MEMBER(groupId), { data: { memberId } });
+    return api.delete(API_ENDPOINTS.GROUP.REMOVE_MEMBER(groupId, memberId));
   },
 
-  // Leave Group
-  leaveGroup: async (groupId: string) => {
-    return api.post(API_ENDPOINTS.CHAT.LEAVE_GROUP(groupId));
+  leaveGroup: async (groupId: string, userId: string) => {
+    return api.delete(API_ENDPOINTS.GROUP.REMOVE_MEMBER(groupId, userId));
   },
 
-  // Make Admin
   makeAdmin: async (groupId: string, memberId: string) => {
-    return api.post(API_ENDPOINTS.CHAT.MAKE_ADMIN(groupId), { memberId });
+    return api.put(API_ENDPOINTS.GROUP.UPDATE_ROLE(groupId, memberId), { role: 'admin' });
+  },
+};
+
+export const liveStreamService = {
+  createLiveStream: async (data: { title: string; description?: string; thumbnail?: File }) => {
+    if (data.thumbnail) {
+      const formData = new FormData();
+      formData.append('title', data.title);
+      if (data.description) formData.append('description', data.description);
+      formData.append('file', data.thumbnail);
+      return api.upload(API_ENDPOINTS.LIVE.CREATE, formData);
+    }
+    return api.post(API_ENDPOINTS.LIVE.CREATE, {
+      title: data.title,
+      description: data.description,
+    });
+  },
+
+  startLiveStream: async (streamId: string) => {
+    return api.post(API_ENDPOINTS.LIVE.START(streamId));
+  },
+
+  endLiveStream: async (streamId: string) => {
+    return api.post(API_ENDPOINTS.LIVE.END(streamId));
+  },
+
+  getLiveStreamDetails: async (streamId: string) => {
+    return api.get(API_ENDPOINTS.LIVE.GET_DETAILS(streamId));
+  },
+
+  getActiveLiveStreams: async (params?: { page?: number; limit?: number }) => {
+    return api.get(API_ENDPOINTS.LIVE.GET_ACTIVE, params);
+  },
+
+  getAllLiveStreams: async (params?: { page?: number; limit?: number }) => {
+    return api.get(API_ENDPOINTS.LIVE.GET_ALL, params);
+  },
+
+  getUserLiveStreams: async (userId: string, params?: { page?: number; limit?: number }) => {
+    return api.get(API_ENDPOINTS.LIVE.GET_USER_STREAMS(userId), params);
+  },
+
+  joinLiveStream: async (streamId: string) => {
+    return api.post(API_ENDPOINTS.LIVE.JOIN(streamId));
+  },
+
+  leaveLiveStream: async (streamId: string) => {
+    return api.post(API_ENDPOINTS.LIVE.LEAVE(streamId));
+  },
+
+  getLiveStreamViewers: async (streamId: string, params?: { page?: number; limit?: number }) => {
+    return api.get(API_ENDPOINTS.LIVE.GET_VIEWERS(streamId), params);
+  },
+
+  sendLiveComment: async (streamId: string, data: { text: string }) => {
+    return api.post(API_ENDPOINTS.LIVE.SEND_COMMENT(streamId), data);
+  },
+
+  getLiveComments: async (streamId: string, params?: { page?: number; limit?: number }) => {
+    return api.get(API_ENDPOINTS.LIVE.GET_COMMENTS(streamId), params);
+  },
+
+  deleteLiveStream: async (streamId: string) => {
+    return api.delete(API_ENDPOINTS.LIVE.DELETE(streamId));
+  },
+};
+
+export const groupService = {
+
+  createGroup: async (data: {
+    name: string;
+    description?: string;
+    memberIds: string[];
+    type?: 'private' | 'public';
+    avatar?: File;
+  }) => {
+    const formData = new FormData();
+    formData.append('name', data.name);
+    if (data.description) formData.append('description', data.description);
+    formData.append('memberIds', JSON.stringify(data.memberIds));
+    if (data.type) formData.append('type', data.type);
+    if (data.avatar) formData.append('avatar', data.avatar);
+    return api.upload(API_ENDPOINTS.GROUP.CREATE, formData);
+  },
+
+  getMyGroups: async (params?: { limit?: number; skip?: number; search?: string }) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_MY_GROUPS, params);
+  },
+
+  getGroupDetails: async (groupId: string) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_DETAILS(groupId));
+  },
+
+  updateGroup: async (
+    groupId: string,
+    data: {
+      name?: string;
+      description?: string;
+      settings?: Record<string, unknown>;
+      avatar?: File;
+    }
+  ) => {
+    const formData = new FormData();
+    if (data.name) formData.append('name', data.name);
+    if (data.description !== undefined) formData.append('description', data.description);
+    if (data.settings) formData.append('settings', JSON.stringify(data.settings));
+    if (data.avatar) formData.append('avatar', data.avatar);
+    return api.put(API_ENDPOINTS.GROUP.UPDATE(groupId), formData, true);
+  },
+
+  deleteGroup: async (groupId: string) => {
+    return api.delete(API_ENDPOINTS.GROUP.DELETE(groupId));
+  },
+
+
+  addMembers: async (groupId: string, memberIds: string[]) => {
+    return api.post(API_ENDPOINTS.GROUP.ADD_MEMBERS(groupId), { memberIds });
+  },
+
+  removeMember: async (groupId: string, memberId: string) => {
+    return api.delete(API_ENDPOINTS.GROUP.REMOVE_MEMBER(groupId, memberId));
+  },
+
+  leaveGroup: async (groupId: string, userId: string) => {
+    return api.delete(API_ENDPOINTS.GROUP.REMOVE_MEMBER(groupId, userId));
+  },
+
+  updateMemberRole: async (
+    groupId: string,
+    memberId: string,
+    role: 'admin' | 'moderator' | 'member'
+  ) => {
+    return api.put(API_ENDPOINTS.GROUP.UPDATE_ROLE(groupId, memberId), { role });
+  },
+
+
+  generateInviteLink: async (
+    groupId: string,
+    options?: { expiresIn?: number; usageLimit?: number }
+  ) => {
+    return api.post(API_ENDPOINTS.GROUP.GENERATE_INVITE(groupId), options);
+  },
+
+  joinViaInvite: async (code: string) => {
+    return api.post(API_ENDPOINTS.GROUP.JOIN_VIA_INVITE(code));
+  },
+
+
+  sendGroupMessage: async (
+    groupId: string,
+    data: {
+      text?: string;
+      messageType?: string;
+      replyTo?: string;
+      mentions?: string[];
+      sharedContent?: { contentType: string; contentId: string };
+      location?: {
+        latitude: number;
+        longitude: number;
+        address?: string;
+        name?: string;
+        isLive?: boolean;
+        duration?: number;
+      };
+      contact?: { name: string; phone?: string; email?: string };
+      poll?: {
+        question: string;
+        options: string[];
+        allowMultiple?: boolean;
+        expiresAt?: Date;
+        isAnonymous?: boolean;
+      };
+      files?: File[];
+    }
+  ) => {
+    const formData = new FormData();
+    if (data.text) formData.append('text', data.text);
+    if (data.messageType) formData.append('messageType', data.messageType);
+    if (data.replyTo) formData.append('replyTo', data.replyTo);
+    if (data.mentions?.length) formData.append('mentions', JSON.stringify(data.mentions));
+    if (data.sharedContent) formData.append('sharedContent', JSON.stringify(data.sharedContent));
+    if (data.location) formData.append('location', JSON.stringify(data.location));
+    if (data.contact) formData.append('contact', JSON.stringify(data.contact));
+    if (data.poll) formData.append('poll', JSON.stringify(data.poll));
+    if (data.files?.length) {
+      data.files.forEach((file) => formData.append('files', file));
+    }
+    return api.upload(API_ENDPOINTS.GROUP.SEND_MESSAGE(groupId), formData);
+  },
+
+  getGroupMessages: async (
+    groupId: string,
+    params?: { limit?: number; before?: string; after?: string }
+  ) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_MESSAGES(groupId), params);
+  },
+
+  reactToMessage: async (groupId: string, messageId: string, emoji: string) => {
+    return api.post(API_ENDPOINTS.GROUP.REACT_TO_MESSAGE(groupId, messageId), { emoji });
+  },
+
+  deleteMessage: async (groupId: string, messageId: string, deleteForEveryone: boolean = false) => {
+    return api.delete(API_ENDPOINTS.GROUP.DELETE_MESSAGE(groupId, messageId), {
+      deleteForEveryone,
+    });
+  },
+
+  forwardMessage: async (messageId: string, targetGroupIds: string[]) => {
+    return api.post(API_ENDPOINTS.GROUP.FORWARD_MESSAGE(messageId), { targetGroupIds });
+  },
+
+  togglePinMessage: async (groupId: string, messageId: string) => {
+    return api.put(API_ENDPOINTS.GROUP.PIN_MESSAGE(groupId, messageId));
+  },
+
+  toggleStarMessage: async (groupId: string, messageId: string) => {
+    return api.put(API_ENDPOINTS.GROUP.STAR_MESSAGE(groupId, messageId));
+  },
+
+  voteOnPoll: async (groupId: string, messageId: string, optionIds: string[]) => {
+    return api.post(API_ENDPOINTS.GROUP.VOTE_POLL(groupId, messageId), { optionIds });
+  },
+
+  searchMessages: async (
+    groupId: string,
+    params?: { query?: string; type?: string; from?: string; limit?: number }
+  ) => {
+    return api.get(API_ENDPOINTS.GROUP.SEARCH_MESSAGES(groupId), params);
+  },
+
+  getStarredMessages: async (groupId: string, params?: { limit?: number }) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_STARRED(groupId), params);
+  },
+
+  getGroupMedia: async (
+    groupId: string,
+    params?: { type?: 'image' | 'video' | 'file' | 'all'; limit?: number; skip?: number }
+  ) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_MEDIA(groupId), params);
+  },
+
+
+  initiateGroupCall: async (
+    groupId: string,
+    callType: 'audio' | 'video',
+    settings?: {
+      maxParticipants?: number;
+      waitingRoomEnabled?: boolean;
+      muteOnJoin?: boolean;
+      recordingEnabled?: boolean;
+      screenSharingAllowed?: boolean;
+    }
+  ) => {
+    return api.post(API_ENDPOINTS.GROUP.INITIATE_CALL(groupId), { callType, settings });
+  },
+
+  getActiveCall: async (groupId: string) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_ACTIVE_CALL(groupId));
+  },
+
+  getCallHistory: async (groupId: string, params?: { limit?: number; skip?: number }) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_CALL_HISTORY(groupId), params);
+  },
+
+  joinCall: async (callId: string, peerId?: string) => {
+    return api.post(API_ENDPOINTS.GROUP.JOIN_CALL(callId), { peerId });
+  },
+
+  leaveCall: async (callId: string) => {
+    return api.post(API_ENDPOINTS.GROUP.LEAVE_CALL(callId));
+  },
+
+  endCall: async (callId: string) => {
+    return api.post(API_ENDPOINTS.GROUP.END_CALL(callId));
+  },
+
+  getCallInfo: async (callId: string) => {
+    return api.get(API_ENDPOINTS.GROUP.GET_CALL_INFO(callId));
+  },
+
+  toggleMediaState: async (
+    callId: string,
+    mediaType: 'audio' | 'video' | 'screenShare',
+    enabled: boolean
+  ) => {
+    return api.put(API_ENDPOINTS.GROUP.TOGGLE_MEDIA(callId), { mediaType, enabled });
+  },
+
+  admitFromWaitingRoom: async (callId: string, waitingUserId: string, admit: boolean = true) => {
+    return api.post(API_ENDPOINTS.GROUP.ADMIT_USER(callId), { waitingUserId, admit });
+  },
+
+  toggleHandRaise: async (callId: string, raised: boolean) => {
+    return api.put(API_ENDPOINTS.GROUP.TOGGLE_HAND(callId), { raised });
+  },
+
+  muteParticipant: async (callId: string, targetUserId: string, muted: boolean) => {
+    return api.post(API_ENDPOINTS.GROUP.MUTE_PARTICIPANT(callId), { targetUserId, muted });
+  },
+
+  toggleRecording: async (callId: string, record: boolean) => {
+    return api.put(API_ENDPOINTS.GROUP.TOGGLE_RECORDING(callId), { record });
   },
 };

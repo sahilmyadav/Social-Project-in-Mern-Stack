@@ -1,21 +1,38 @@
-# Backend Dockerfile
-FROM node:20-alpine
-
-WORKDIR /app
+# Backend Dockerfile — optimized for 12-core / 46GB VPS
+FROM node:20-alpine AS base
 
 # Install dependencies
+FROM base AS deps
+WORKDIR /app
+RUN apk add --no-cache python3 make g++
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --only=production && npm cache clean --force
 
-# Copy source code
-COPY . .
+# Production
+FROM base AS runner
+WORKDIR /app
 
-# Expose port
-EXPOSE 3333
+# ffmpeg is needed for video compression + faststart on upload
+RUN apk add --no-cache ffmpeg
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3333/health-check || exit 1
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nodeuser
+RUN mkdir -p /app/uploads && chown -R nodeuser:nodejs /app/uploads
 
-# Start the application
+COPY --from=deps /app/node_modules ./node_modules
+COPY --chown=nodeuser:nodejs . .
+
+RUN mkdir -p /app/uploads && chown -R nodeuser:nodejs /app/uploads
+
+ENV NODE_ENV=production
+ENV PORT=5000
+# Increase libuv thread pool for I/O-heavy operations (sharp, fs, crypto)
+ENV UV_THREADPOOL_SIZE=16
+# Node.js memory — allow up to 4GB per worker (cluster will fork multiple)
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
+EXPOSE 5000
+USER nodeuser
+
+# Default: single process. Override in docker-compose for cluster mode.
 CMD ["node", "src/index.js"]

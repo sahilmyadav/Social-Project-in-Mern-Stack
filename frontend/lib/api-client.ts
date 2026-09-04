@@ -1,6 +1,12 @@
 import { API_CONFIG } from './api-config';
+import {
+  refreshAccessToken as centralRefresh,
+  clearTokens,
+  getAccessToken,
+  redirectToLogin,
+  setTokens,
+} from './auth';
 
-// Types
 export interface ApiResponse<T = any> {
   success: boolean;
   statusCode: number;
@@ -18,45 +24,29 @@ export interface ApiError {
   errors: any[];
 }
 
-// Get token from localStorage
-export const getToken = (): string | null => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('accessToken');
-  }
-  return null;
+export const getToken = getAccessToken;
+export const setToken = (token: string) => setTokens(token);
+export const removeToken = clearTokens;
+export const setRefreshToken = (token: string) => {
+  if (typeof window !== 'undefined') localStorage.setItem('refreshToken', token);
 };
 
-// Set token to localStorage
-export const setToken = (token: string): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('accessToken', token);
+const getNetworkErrorMessage = (error: unknown): string => {
+  if (error instanceof TypeError) {
+    if (error.message === 'Failed to fetch')
+      return 'Unable to connect to server. The server may be down or there may be a connection issue.';
+    if (error.message.includes('NetworkError'))
+      return 'Network connection failed. Please check if you have internet access.';
+    if (error.message.includes('CORS'))
+      return 'Server configuration error (CORS). Please try again later.';
   }
+  const code = (error as Record<string, string>)?.code;
+  if (code === 'ECONNREFUSED') return 'Server is not responding. Please try again later.';
+  if (code === 'ENOTFOUND') return 'Server not found. Please check your internet connection.';
+  if (code === 'ETIMEDOUT') return 'Connection timed out. Please try again.';
+  return 'Connection error. Please check your internet and try again.';
 };
 
-// Remove token from localStorage
-export const removeToken = (): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-  }
-};
-
-// Get refresh token
-const getRefreshToken = (): string | null => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('refreshToken');
-  }
-  return null;
-};
-
-// Set refresh token
-export const setRefreshToken = (token: string): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('refreshToken', token);
-  }
-};
-
-// API Client class
 class ApiClient {
   private baseURL: string;
   private timeout: number;
@@ -66,50 +56,31 @@ class ApiClient {
     this.timeout = API_CONFIG.TIMEOUT;
   }
 
-  // Build headers
-  private getHeaders(isMultipart: boolean = false): HeadersInit {
+  private getHeaders(isMultipart = false): HeadersInit {
     const headers: HeadersInit = {};
-
-    if (!isMultipart) {
-      headers['Content-Type'] = 'application/json';
-    }
-
-    const token = getToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
+    if (!isMultipart) headers['Content-Type'] = 'application/json';
+    const token = getAccessToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     return headers;
   }
 
-  // Handle API response
-  private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  private async handleResponse<T>(
+    response: Response,
+    retryFetch?: () => Promise<Response>
+  ): Promise<ApiResponse<T>> {
     const contentType = response.headers.get('content-type');
-    const isJson = contentType && contentType.includes('application/json');
-
-    let data: any;
-    if (isJson) {
-      data = await response.json();
-    } else {
-      data = await response.text();
-    }
+    const isJson = contentType?.includes('application/json');
+    const data = isJson ? await response.json() : await response.text();
 
     if (!response.ok) {
-      // Handle 401 Unauthorized - try to refresh token
       if (response.status === 401 && data.message === 'jwt expired') {
-        const refreshed = await this.refreshAccessToken();
-        if (refreshed) {
-          // Retry the original request
-          return this.handleResponse(response);
-        } else {
-          // Redirect to login
-          removeToken();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
-          }
+        const newToken = await centralRefresh();
+        if (newToken && retryFetch) {
+          const retryResponse = await retryFetch();
+          return this.handleResponse<T>(retryResponse);
         }
+        redirectToLogin();
       }
-
       throw {
         success: false,
         statusCode: response.status,
@@ -122,247 +93,114 @@ class ApiClient {
     return data as ApiResponse<T>;
   }
 
-  // Refresh access token
-  private async refreshAccessToken(): Promise<boolean> {
-    try {
-      const refreshToken = getRefreshToken();
-      if (!refreshToken) return false;
+  private async request<T>(
+    method: string,
+    endpoint: string,
+    options: {
+      body?: unknown;
+      isMultipart?: boolean;
+      params?: Record<string, unknown>;
+      timeoutMs?: number;
+    } = {}
+  ): Promise<ApiResponse<T>> {
+    const { body, isMultipart = false, params, timeoutMs = this.timeout } = options;
 
-      const response = await fetch(`${this.baseURL}/users/refresh-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setToken(data.data.accessToken);
-        setRefreshToken(data.data.refreshToken);
-        return true;
-      }
-
-      return false;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  // GET request
-  async get<T = any>(endpoint: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
-    // Build URL - handle both relative and absolute base URLs
-    let urlString = `${this.baseURL}${endpoint}`;
-
+    let url = `${this.baseURL}${endpoint}`;
     if (params) {
       const searchParams = new URLSearchParams();
-      Object.keys(params).forEach((key) => {
-        if (params[key] !== undefined && params[key] !== null) {
-          searchParams.append(key, String(params[key]));
-        }
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null) searchParams.append(k, String(v));
       });
-      const queryString = searchParams.toString();
-      if (queryString) {
-        urlString += `?${queryString}`;
-      }
+      const qs = searchParams.toString();
+      if (qs) url += `?${qs}`;
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const buildInit = (): RequestInit => ({
+      method,
+      headers: this.getHeaders(isMultipart),
+      credentials: 'include',
+      body:
+        body === undefined ? undefined : isMultipart ? (body as BodyInit) : JSON.stringify(body),
+      signal: controller.signal,
+    });
 
     try {
-      const response = await fetch(urlString, {
-        method: 'GET',
-        headers: this.getHeaders(),
-        credentials: 'include',
-        signal: controller.signal,
+      const response = await fetch(url, buildInit());
+      clearTimeout(timeoutId);
+      return this.handleResponse<T>(response, () => {
+        const retryInit = buildInit();
+        delete (retryInit as Record<string, unknown>).signal;
+        return fetch(url, retryInit);
       });
-
+    } catch (error: unknown) {
       clearTimeout(timeoutId);
-      return this.handleResponse<T>(response);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
+      if ((error as Error).name === 'AbortError') {
         throw {
           success: false,
           statusCode: 408,
-          message: 'Request timeout',
+          message:
+            timeoutMs > this.timeout
+              ? 'Upload is taking too long. Please try with a smaller file or check your connection.'
+              : 'Request timeout',
           error: 'Request timeout',
           errors: [],
         } as ApiError;
       }
-      throw error;
+      throw {
+        success: false,
+        statusCode: 0,
+        message: getNetworkErrorMessage(error),
+        error: 'Network error',
+        errors: [],
+      } as ApiError;
     }
   }
 
-  // POST request
+  async get<T = any>(endpoint: string, params?: Record<string, unknown>): Promise<ApiResponse<T>> {
+    return this.request<T>('GET', endpoint, { params });
+  }
+
   async post<T = any>(
     endpoint: string,
-    data?: any,
-    isMultipart: boolean = false
+    data?: unknown,
+    isMultipart = false
   ): Promise<ApiResponse<T>> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const body = isMultipart ? data : JSON.stringify(data);
-
-      const response = await fetch(`${this.baseURL}${endpoint}`, {
-        method: 'POST',
-        headers: this.getHeaders(isMultipart),
-        credentials: 'include',
-        body,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      return this.handleResponse<T>(response);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw {
-          success: false,
-          statusCode: 408,
-          message: 'Request timeout',
-          error: 'Request timeout',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
-    }
+    return this.request<T>('POST', endpoint, { body: data, isMultipart });
   }
 
-  // PUT request
   async put<T = any>(
     endpoint: string,
-    data?: any,
-    isMultipart: boolean = false
+    data?: unknown,
+    isMultipart = false
   ): Promise<ApiResponse<T>> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const body = isMultipart ? data : JSON.stringify(data);
-
-      const response = await fetch(`${this.baseURL}${endpoint}`, {
-        method: 'PUT',
-        headers: this.getHeaders(isMultipart),
-        credentials: 'include',
-        body,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      return this.handleResponse<T>(response);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw {
-          success: false,
-          statusCode: 408,
-          message: 'Request timeout',
-          error: 'Request timeout',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
-    }
+    return this.request<T>('PUT', endpoint, { body: data, isMultipart });
   }
 
-  // DELETE request
-  async delete<T = any>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const response = await fetch(`${this.baseURL}${endpoint}`, {
-        method: 'DELETE',
-        headers: this.getHeaders(),
-        credentials: 'include',
-        body: data ? JSON.stringify(data) : undefined,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      return this.handleResponse<T>(response);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw {
-          success: false,
-          statusCode: 408,
-          message: 'Request timeout',
-          error: 'Request timeout',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
-    }
+  async delete<T = any>(endpoint: string, data?: unknown): Promise<ApiResponse<T>> {
+    return this.request<T>('DELETE', endpoint, { body: data });
   }
 
-  // Upload file (multipart/form-data)
   async upload<T = any>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
-    console.log('=== API CLIENT UPLOAD ===');
-    console.log('Endpoint:', endpoint);
-    console.log('Base URL:', this.baseURL);
-    console.log('Full URL:', `${this.baseURL}${endpoint}`);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds for file uploads
-
-    try {
-      const token = getToken();
-      console.log('Token:', token ? 'Present' : 'Missing');
-
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      console.log('Headers:', headers);
-      console.log('Making fetch request...');
-
-      const response = await fetch(`${this.baseURL}${endpoint}`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: formData,
-        signal: controller.signal,
-      });
-
-      console.log('Response received:', response.status, response.statusText);
-
-      clearTimeout(timeoutId);
-      return this.handleResponse<T>(response);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw {
-          success: false,
-          statusCode: 408,
-          message: 'Upload timeout',
-          error: 'Upload timeout',
-          errors: [],
-        } as ApiError;
-      }
-      throw error;
-    }
+    return this.request<T>('POST', endpoint, {
+      body: formData,
+      isMultipart: true,
+      timeoutMs: 120000,
+    });
   }
 }
 
-// Export singleton instance
 export const apiClient = new ApiClient();
 
-// Export convenience methods
 export const api = {
-  get: <T = any>(endpoint: string, params?: Record<string, any>) =>
+  get: <T = any>(endpoint: string, params?: Record<string, unknown>) =>
     apiClient.get<T>(endpoint, params),
-
-  post: <T = any>(endpoint: string, data?: any) => apiClient.post<T>(endpoint, data),
-
-  put: <T = any>(endpoint: string, data?: any, isMultipart?: boolean) =>
+  post: <T = any>(endpoint: string, data?: unknown) => apiClient.post<T>(endpoint, data),
+  put: <T = any>(endpoint: string, data?: unknown, isMultipart?: boolean) =>
     apiClient.put<T>(endpoint, data, isMultipart),
-
-  delete: <T = any>(endpoint: string, data?: any) => apiClient.delete<T>(endpoint, data),
-
+  delete: <T = any>(endpoint: string, data?: unknown) => apiClient.delete<T>(endpoint, data),
   upload: <T = any>(endpoint: string, formData: FormData) =>
     apiClient.upload<T>(endpoint, formData),
 };

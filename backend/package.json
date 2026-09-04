@@ -1,7 +1,7 @@
 {
-  "name": "quick-js-jwt-es6",
+  "name": "clickme-backend",
   "version": "1.0.1",
-  "description": "A quick setup for a JWT-based authentication system using ES6 modules.",
+  "description": "Backend API server for ClickME social media platform.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -9,16 +9,19 @@
     "start": "node src/index.js",
     "start:cluster": "NODE_ENV=production ENABLE_CLUSTER=true node src/cluster.js",
     "dev:cluster": "ENABLE_CLUSTER=true nodemon -r dotenv/config src/cluster.js",
-    "clear-redis": "redis-cli FLUSHALL"
+    "clear-redis": "redis-cli FLUSHALL",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "smoke": "vitest run tests/smoke.test.js"
   },
   "author": {
-    "name": "Kunal Risaaanva",
-    "email": "kunalrisaanva12@gmail.com"
+    "name": "Sahil Yadav"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
     "bcrypt": "^5.1.1",
-    "cloudinary": "^2.8.0",
+    "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "crypto-js": "^4.2.0",
@@ -35,10 +38,14 @@
     "multer": "^2.0.2",
     "nodemailer": "^7.0.11",
     "redis": "^5.10.0",
-    "socket.io": "^4.8.1"
+    "sharp": "^0.34.5",
+    "socket.io": "^4.8.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "eslint": "^9.39.2",
+    "nodemon": "^3.1.4",
+    "vitest": "^3.2.4"
   },
   "overrides": {
     "glob": "^10.4.5",

@@ -24,9 +24,6 @@ export default function ForgotPasswordPage() {
 
     try {
       const response = await authService.forgotPassword({ email });
-
-      console.log("response coming form api -->",response);
-      
       if (response.success) {
         setEmailSent(true)
       } else {
@@ -47,7 +44,6 @@ export default function ForgotPasswordPage() {
     <main className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="bg-card rounded-2xl border border-border p-8 shadow-lg">
-          {/* Header */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-primary to-secondary mb-4">
               <span className="text-3xl">🔐</span>
@@ -56,7 +52,6 @@ export default function ForgotPasswordPage() {
             <p className="text-muted-foreground mt-2">Recover access to your account</p>
           </div>
 
-          {/* Email Form or Success Message */}
           {!emailSent ? (
             <form onSubmit={handleEmailSubmit} className="space-y-4">
               <div>
@@ -87,7 +82,6 @@ export default function ForgotPasswordPage() {
             </form>
           ) : (
             <div className="space-y-6">
-              {/* Success Message */}
               <div className="text-center py-8">
                 <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/20 mb-4">
                   <Mail className="w-10 h-10 text-green-600 dark:text-green-400" />
@@ -121,7 +115,6 @@ export default function ForgotPasswordPage() {
             </div>
           )}
 
-          {/* Back to Login */}
           {!emailSent && (
             <div className="mt-6 text-center">
               <Link href="/login" className="inline-flex items-center gap-2 text-primary hover:underline">

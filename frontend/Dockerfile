@@ -1,55 +1,77 @@
-# Frontend Dockerfile
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Build arguments - NEXT_PUBLIC vars must be set at build time!
-ARG BACKEND_INTERNAL_URL=http://backend:3333
-ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
-ARG NEXT_PUBLIC_SOCKET_URL=
-ARG NEXT_PUBLIC_ENV=production
-
-# Set environment variables for build
-ENV BACKEND_INTERNAL_URL=$BACKEND_INTERNAL_URL
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
-ENV NEXT_PUBLIC_SOCKET_URL=$NEXT_PUBLIC_SOCKET_URL
-ENV NEXT_PUBLIC_ENV=$NEXT_PUBLIC_ENV
+# Frontend Dockerfile for Next.js — optimized for production VPS
+FROM node:20-alpine AS base
 
 # Install dependencies
-COPY package*.json ./
-RUN npm ci
+FROM base AS deps
+WORKDIR /app
+COPY package.json pnpm-lock.yaml* package-lock.json* ./
+# Use npm ci (or pnpm if lockfile present)
+RUN if [ -f pnpm-lock.yaml ]; then \
+  corepack enable && corepack prepare pnpm@latest --activate && pnpm install --frozen-lockfile; \
+  else \
+  npm ci; \
+  fi
 
-# Copy source code
+# Build stage
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build the application with env vars baked in
+# Build args for environment variables
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_SOCKET_URL
+ARG NEXT_PUBLIC_ENCRYPTION_KEY
+ARG NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+ARG NEXT_PUBLIC_FIREBASE_API_KEY
+ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
+ARG NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+ARG NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+ARG NEXT_PUBLIC_FIREBASE_APP_ID
+ARG NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+ARG NEXT_PUBLIC_FIREBASE_VAPID_KEY
+
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_SOCKET_URL=$NEXT_PUBLIC_SOCKET_URL
+ENV NEXT_PUBLIC_ENCRYPTION_KEY=$NEXT_PUBLIC_ENCRYPTION_KEY
+ENV NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=$NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+ENV NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY
+ENV NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+ENV NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID
+ENV NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+ENV NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+ENV NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID
+ENV NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=$NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+ENV NEXT_PUBLIC_FIREBASE_VAPID_KEY=$NEXT_PUBLIC_FIREBASE_VAPID_KEY
+ENV NEXT_TELEMETRY_DISABLED=1
+# Give builder enough memory for large builds
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
 RUN npm run build
 
-# Production image
-FROM node:20-alpine AS runner
-
+# Production
+FROM base AS runner
 WORKDIR /app
-
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+# Allow Next.js server to use up to 2GB
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 
-# Create non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy built assets
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+RUN mkdir .next && chown nextjs:nodejs .next
+
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
-
 EXPOSE 3000
-
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
 
 CMD ["node", "server.js"]

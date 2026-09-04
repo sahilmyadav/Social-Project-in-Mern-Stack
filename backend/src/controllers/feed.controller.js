@@ -1,10 +1,10 @@
-import { Comment } from '../models/comment.model.js';
+import mongoose from 'mongoose';
 import { Followers } from '../models/followers.model.js';
-import { Like } from '../models/like.model.js';
 import { Post } from '../models/post.model.js';
 import { Reel } from '../models/reel.model.js';
 import { Story } from '../models/story.model.js';
 import { User } from '../models/user.model.js';
+import { getCommentCounts, getLikeCounts, getLikedIds } from '../services/enrichment.service.js';
 import ApiError from '../utils/ApiError.js';
 import ApiResponse from '../utils/ApiResponse.js';
 import asyncHandler from '../utils/asyncHandler.js';
@@ -12,7 +12,7 @@ import asyncHandler from '../utils/asyncHandler.js';
 // Get home feed
 export const getHomeFeed = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { limit = 10 } = req.query;
+  const { limit = 10, cursor } = req.query;
 
   // STEP 1: Get following list
   const following = await Followers.find({
@@ -22,52 +22,100 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
 
   const followingIds = following.map((f) => f.following_id);
 
-  // STEP 2: Include your own posts
-  const userIdsToShow = [...followingIds, userId];
+  let posts = [];
+  const limitNum = parseInt(limit);
 
-  // STEP 3: Get posts from followed users OR all posts if not following anyone
-  let postsQuery = {
-    is_deleted: false,
-  };
+  // STRATEGY:
+  // 1. If user follows people: Show standard feed (Own posts + Following)
+  // 2. If user follows NO ONE: Show "Discovery Feed" (All public posts, sorted by new)
 
-  // If user follows people, show their content + own content
-  // If user doesn't follow anyone, show all public content (explore mode)
-  if (followingIds.length > 0) {
-    postsQuery.user_id = { $in: userIdsToShow };
+  const validUserIds = [...followingIds, userId];
+
+  // Unified Feed: Followed Users + Public Posts (Discovery)
+  // Sorted by creation time
+  const pipeline = [
+    { $match: { is_deleted: false } }, // Base match
+    { $sort: { createdAt: -1 } }, // Sort by newest
+  ];
+
+  // Pagination
+  if (cursor) {
+    pipeline.push({ $match: { _id: { $lt: new mongoose.Types.ObjectId(cursor) } } });
   }
-  // When not following anyone, show all posts (no user_id filter)
 
-  const posts = await Post.find(postsQuery)
-    .populate('user_id', 'firstName lastName username profileImage profilePicture avatar')
-    .sort({ createdAt: -1 })
-    .limit(parseInt(limit))
-    .lean();
-
-  // STEP 4: Add isLiked status and calculate actual counts
-  const postsWithData = await Promise.all(
-    posts.map(async (post) => {
-      const [isLiked, commentsCount] = await Promise.all([
-        Like.exists({
-          target_id: post._id,
-          target_type: 'post',
-          user_id: userId,
-        }),
-        Comment.countDocuments({
-          target_id: post._id,
-          target_type: 'post',
-          is_deleted: false,
-        }),
-      ]);
-
-      return {
-        ...post,
-        isLiked: !!isLiked,
-        likes_count: post.likes_count || 0,
-        comments_count: commentsCount, // ✅ Always accurate
-        shares_count: post.shares_count || 0,
-      };
-    })
+  pipeline.push(
+    // Fetch more candidates to filter privacy
+    { $limit: limitNum * 5 },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'user_id',
+        foreignField: '_id',
+        as: 'userInfo',
+      },
+    },
+    { $unwind: '$userInfo' },
+    {
+      $match: {
+        $or: [
+          // Condition 1: User is followed or self
+          { 'userInfo._id': { $in: validUserIds } },
+          // Condition 2: User is public (Discovery)
+          {
+            'userInfo.isPrivate': false,
+            'userInfo.status': 'active',
+            'userInfo._id': { $nin: validUserIds }, // Avoid duplicates
+          },
+        ],
+      },
+    },
+    { $limit: limitNum }, // Final limit
+    {
+      $project: {
+        caption: 1,
+        media: 1,
+        location: 1,
+        tags: 1,
+        likes_count: 1,
+        comments_count: 1,
+        shares_count: 1,
+        views_count: 1,
+        is_deleted: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        user_id: {
+          _id: '$userInfo._id',
+          firstName: '$userInfo.firstName',
+          lastName: '$userInfo.lastName',
+          username: '$userInfo.username',
+          profileImage: '$userInfo.profileImage',
+          profilePicture: '$userInfo.profilePicture',
+          avatar: '$userInfo.avatar',
+        },
+      },
+    }
   );
+
+  posts = await Post.aggregate(pipeline);
+
+  // STEP 4: Add isLiked status and calculate actual counts (batch — no N+1)
+  const postIds = posts.map((p) => p._id);
+  const [likedSet, commentCountMap] = await Promise.all([
+    getLikedIds(postIds, 'post', userId),
+    getCommentCounts(postIds, 'post'),
+  ]);
+
+  const validUserIdStrings = validUserIds.map((id) => id.toString());
+
+  const postsWithData = posts.map((post) => ({
+    ...post,
+    isLiked: likedSet.has(post._id.toString()),
+    likes_count: post.likes_count || 0,
+    comments_count: commentCountMap.get(post._id.toString()) || 0,
+    shares_count: post.shares_count || 0,
+    views_count: post.views_count || 0,
+    isSuggested: !validUserIdStrings.includes(post.user_id._id.toString()),
+  }));
 
   return res
     .status(200)
@@ -77,52 +125,88 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
 // Get reels feed
 export const getReelsFeed = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const { limit = 10 } = req.query;
+  const { limit = 10, page = 1 } = req.query;
+  const limitNum = parseInt(limit);
+  const skip = (parseInt(page) - 1) * limitNum;
 
-  // STEP 1: Get following list
+  // Get following list for tracking purposes
   const following = await Followers.find({
     follower_id: userId,
     status: 'accepted',
   }).select('following_id');
 
   const followingIds = following.map((f) => f.following_id);
-  const userIdsToShow = [...followingIds, userId];
 
-  // STEP 2: Get reels from followed users OR all reels if not following anyone
-  let reelsQuery = {
-    is_deleted: false,
-  };
+  // --- PUBLIC REELS FEED ---
+  // Show all reels from all users (public discovery for everyone)
+  // Using aggregation to get user info and filter active users
+  const pipeline = [
+    { $match: { is_deleted: false } },
+    { $sort: { createdAt: -1 } },
+    { $skip: skip },
+    { $limit: limitNum * 3 }, // Fetch extra for filtering
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'user_id',
+        foreignField: '_id',
+        as: 'userInfo',
+      },
+    },
+    { $unwind: '$userInfo' },
+    {
+      $match: {
+        'userInfo.status': 'active',
+      },
+    },
+    { $limit: limitNum },
+    {
+      $project: {
+        caption: 1,
+        media: 1,
+        music: 1,
+        tags: 1,
+        likes_count: 1,
+        comments_count: 1,
+        shares_count: 1,
+        views_count: 1,
+        is_deleted: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        user_id: {
+          _id: '$userInfo._id',
+          firstName: '$userInfo.firstName',
+          lastName: '$userInfo.lastName',
+          username: '$userInfo.username',
+          profileImage: '$userInfo.profileImage',
+          profilePicture: '$userInfo.profilePicture',
+          avatar: '$userInfo.avatar',
+        },
+      },
+    },
+  ];
 
-  // If user follows people, show their content + own content
-  // If user doesn't follow anyone, show all public reels (explore mode)
-  if (followingIds.length > 0) {
-    reelsQuery.user_id = { $in: userIdsToShow };
-  }
-  // When not following anyone, show all reels (no user_id filter)
+  const reels = await Reel.aggregate(pipeline);
 
-  const reels = await Reel.find(reelsQuery)
-    .populate('user_id', 'firstName lastName username profileImage profilePicture avatar') // ✅ FIXED
-    .sort({ createdAt: -1 })
-    .limit(parseInt(limit))
-    .lean();
+  // Add like/comment counts and following status (batch — no N+1)
+  const reelIds = reels.map((r) => r._id);
+  const [reelLikedSet, reelLikeCounts, reelCommentCounts] = await Promise.all([
+    getLikedIds(reelIds, 'reel', userId),
+    getLikeCounts(reelIds, 'reel'),
+    getCommentCounts(reelIds, 'reel'),
+  ]);
 
-  // STEP 3: Add like/comment counts
-  const reelsWithData = await Promise.all(
-    reels.map(async (reel) => {
-      const [isLiked, likesCount, commentsCount] = await Promise.all([
-        Like.exists({ target_type: 'reel', target_id: reel._id, user_id: userId }),
-        Like.countDocuments({ target_type: 'reel', target_id: reel._id }),
-        Comment.countDocuments({ target_type: 'reel', target_id: reel._id }),
-      ]);
-
-      return {
-        ...reel,
-        isLiked: !!isLiked,
-        likes_count: likesCount,
-        comments_count: commentsCount,
-      };
-    })
-  );
+  const reelsWithData = reels.map((reel) => {
+    const isFollowing = followingIds.some((id) => id.toString() === reel.user_id._id.toString());
+    return {
+      ...reel,
+      isLiked: reelLikedSet.has(reel._id.toString()),
+      likes_count: reelLikeCounts.get(reel._id.toString()) || 0,
+      comments_count: reelCommentCounts.get(reel._id.toString()) || 0,
+      isFollowing,
+      isSuggested: !isFollowing && reel.user_id._id.toString() !== userId.toString(),
+    };
+  });
 
   return res
     .status(200)
@@ -200,20 +284,31 @@ export const getUserPosts = asyncHandler(async (req, res) => {
   const currentUserId = req.user?._id;
   const { cursor, limit = 20 } = req.query;
 
+  // Check if userId is a valid MongoDB ObjectId or a username
+  const isValidObjectId = mongoose.Types.ObjectId.isValid(userId);
+
   // Get target user to check privacy settings
-  const targetUser = await User.findById(userId);
+  let targetUser;
+  if (isValidObjectId) {
+    targetUser = await User.findById(userId);
+  }
+  if (!targetUser) {
+    targetUser = await User.findOne({ username: userId });
+  }
   if (!targetUser) {
     throw new ApiError(404, 'User not found');
   }
 
+  const targetUserId = targetUser._id.toString();
+
   // Check if account is private and user is not following
-  const isOwnProfile = currentUserId && currentUserId.toString() === userId;
+  const isOwnProfile = currentUserId && currentUserId.toString() === targetUserId;
 
   if (targetUser.isPrivate && !isOwnProfile) {
     // Check if current user is following
     const isFollowing = await Followers.findOne({
       follower_id: currentUserId,
-      following_id: userId,
+      following_id: targetUserId,
       status: 'accepted',
     });
 
@@ -237,7 +332,7 @@ export const getUserPosts = asyncHandler(async (req, res) => {
 
   // User is allowed to see posts
   const query = {
-    user_id: userId,
+    user_id: targetUserId,
     is_deleted: false,
   };
 
@@ -252,19 +347,16 @@ export const getUserPosts = asyncHandler(async (req, res) => {
     .limit(parseInt(limit))
     .lean();
 
-  // Add isLiked status for each post
-  const postsWithLikeStatus = await Promise.all(
-    posts.map(async (post) => {
-      const isLiked = currentUserId
-        ? await Like.exists({ target_type: 'post', target_id: post._id, user_id: currentUserId })
-        : null;
+  // Add isLiked status for each post (batch — no N+1)
+  const userPostIds = posts.map((p) => p._id);
+  const userPostLikedSet = currentUserId
+    ? await getLikedIds(userPostIds, 'post', currentUserId)
+    : new Set();
 
-      return {
-        ...post,
-        isLiked: !!isLiked,
-      };
-    })
-  );
+  const postsWithLikeStatus = posts.map((post) => ({
+    ...post,
+    isLiked: userPostLikedSet.has(post._id.toString()),
+  }));
 
   const nextCursor =
     postsWithLikeStatus.length > 0 ? postsWithLikeStatus[postsWithLikeStatus.length - 1]._id : null;
@@ -281,58 +373,4 @@ export const getUserPosts = asyncHandler(async (req, res) => {
       'User posts fetched successfully'
     )
   );
-});
-
-// Get explore feed - posts from all public accounts
-export const getExploreFeed = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const { limit = 20 } = req.query;
-
-  // Get all public users
-  const publicUsers = await User.find({
-    profile_type: { $ne: 'private' },
-    is_deleted: { $ne: true },
-  }).select('_id');
-
-  const publicUserIds = publicUsers.map((u) => u._id);
-
-  // Get posts from public users
-  const posts = await Post.find({
-    user_id: { $in: publicUserIds },
-    is_deleted: false,
-  })
-    .populate('user_id', 'firstName lastName username profileImage profilePicture avatar')
-    .sort({ createdAt: -1 })
-    .limit(parseInt(limit))
-    .lean();
-
-  // Add isLiked status
-  const postsWithData = await Promise.all(
-    posts.map(async (post) => {
-      const [isLiked, commentsCount] = await Promise.all([
-        Like.exists({
-          target_id: post._id,
-          target_type: 'post',
-          user_id: userId,
-        }),
-        Comment.countDocuments({
-          target_id: post._id,
-          target_type: 'post',
-          is_deleted: false,
-        }),
-      ]);
-
-      return {
-        ...post,
-        isLiked: !!isLiked,
-        likes_count: post.likes_count || 0,
-        comments_count: commentsCount,
-        shares_count: post.shares_count || 0,
-      };
-    })
-  );
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, { posts: postsWithData }, 'Explore feed fetched successfully'));
 });

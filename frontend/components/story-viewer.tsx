@@ -1,9 +1,11 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useRef } from "react";
-import { X, ChevronLeft, ChevronRight, Trash2, Eye } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { storyService } from "@/lib/api-services";
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
+import { storyService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
+import '@/styles/filters.css';
+import { ChevronLeft, ChevronRight, Eye, Music, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Story {
   _id: string;
@@ -16,7 +18,15 @@ interface Story {
   };
   media: {
     url: string;
-    type: "image" | "video";
+    type: 'image' | 'video';
+  };
+  filter?: string;
+  music?: {
+    trackId: string;
+    trackName: string;
+    artistName: string;
+    previewUrl: string;
+    startTime: number;
   };
   createdAt: string;
   viewCount?: number;
@@ -53,42 +63,60 @@ export default function StoryViewer({
   const [viewCount, setViewCount] = useState(0);
   const [viewers, setViewers] = useState<any[]>([]);
   const [showViewers, setShowViewers] = useState(false);
+  const [mediaLoaded, setMediaLoaded] = useState(false); // Track if media is loaded
+  const [videoDuration, setVideoDuration] = useState<number>(0); // Track video duration
   const videoRef = useRef<HTMLVideoElement>(null);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
   const hasTrackedView = useRef<Set<string>>(new Set());
 
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const { confirm, dialogProps } = useConfirmDialog();
+
   const currentStory = stories[currentIndex];
   const isOwner = currentUserId === currentStory?.user._id;
-  const mediaUrl = typeof currentStory?.media === 'string'
-    ? currentStory.media
-    : currentStory?.media?.url || '';
-  const isImage = currentStory?.media?.type === "image" ||
-    (!currentStory?.media?.type && mediaUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i));
+  const rawMediaUrl =
+    typeof currentStory?.media === 'string' ? currentStory.media : currentStory?.media?.url || '';
+  const mediaUrl = getMediaUrl(rawMediaUrl);
+  const isImage =
+    currentStory?.media?.type === 'image' ||
+    (!currentStory?.media?.type && rawMediaUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i));
 
-  // Calculate time ago
   const getTimeAgo = (date: string) => {
-    const seconds = Math.floor(
-      (new Date().getTime() - new Date(date).getTime()) / 1000
-    );
+    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
     if (seconds < 60) return `${seconds}s ago`;
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
     return `${Math.floor(seconds / 86400)}d ago`;
   };
 
-  // Auto-advance story
-  useEffect(() => {
-    if (!isOpen || isPaused) return;
+  const shouldAdvanceRef = useRef(false);
 
-    const duration = isImage ? 5000 : videoRef.current?.duration ? videoRef.current.duration * 1000 : 15000;
+  useEffect(() => {
+    if (shouldAdvanceRef.current) {
+      shouldAdvanceRef.current = false;
+      handleNext();
+    }
+  }, [progress]);
+
+  useEffect(() => {
+    if (!isOpen || isPaused || !mediaLoaded) return;
+
+    let duration: number;
+    if (isImage) {
+      duration = currentStory?.music ? 30000 : 5000;
+    } else {
+      const actualVideoDuration = videoDuration > 0 ? videoDuration * 1000 : 15000;
+      duration = actualVideoDuration;
+    }
+
     const interval = 50;
 
     progressInterval.current = setInterval(() => {
       setProgress((prev) => {
         const newProgress = prev + (interval / duration) * 100;
         if (newProgress >= 100) {
-          handleNext();
-          return 0;
+          shouldAdvanceRef.current = true;
+          return 100; // Set to 100 to trigger the useEffect
         }
         return newProgress;
       });
@@ -99,14 +127,92 @@ export default function StoryViewer({
         clearInterval(progressInterval.current);
       }
     };
-  }, [currentIndex, isOpen, isPaused, isImage]);
+  }, [currentIndex, isOpen, isPaused, isImage, currentStory?.music, mediaLoaded, videoDuration]);
 
-  // Reset progress when story changes or when modal opens
+  useEffect(() => {
+    if (!isOpen || !currentStory?.music || !mediaLoaded) {
+      if (musicAudioRef.current) {
+        musicAudioRef.current.pause();
+        musicAudioRef.current = null;
+      }
+      return;
+    }
+
+    const musicUrl = currentStory.music.previewUrl;
+    if (!musicUrl) {
+      return;
+    }
+
+    const audio = new Audio(musicUrl);
+    let checkPlayback: NodeJS.Timeout | null = null;
+
+    const startTime =
+      typeof currentStory.music.startTime === 'number' && isFinite(currentStory.music.startTime)
+        ? currentStory.music.startTime
+        : 0;
+
+    audio.addEventListener('error', () => {
+      // Music URL may have expired (Saavn CDN links are temporary)
+      console.warn('Story music failed to load - URL may have expired');
+      if (musicAudioRef.current === audio) {
+        musicAudioRef.current = null;
+      }
+    });
+
+    audio.addEventListener('loadedmetadata', () => {
+      audio.currentTime = startTime;
+    });
+
+    audio.addEventListener(
+      'playing',
+      () => {
+        const playbackStartTime = Date.now();
+
+        checkPlayback = setInterval(() => {
+          const elapsed = (Date.now() - playbackStartTime) / 1000;
+
+          if (elapsed >= 30) {
+            if (checkPlayback) clearInterval(checkPlayback);
+            if (musicAudioRef.current) {
+              musicAudioRef.current.pause();
+              musicAudioRef.current = null;
+            }
+          }
+        }, 1000);
+      },
+      { once: true }
+    ); // Only trigger once
+
+    audio.volume = 0.7;
+    audio.play().catch(() => {});
+    musicAudioRef.current = audio;
+
+    return () => {
+      if (checkPlayback) clearInterval(checkPlayback);
+      if (musicAudioRef.current) {
+        musicAudioRef.current.pause();
+        musicAudioRef.current = null;
+      }
+    };
+  }, [currentStory?._id, isOpen, mediaLoaded]);
+
+  useEffect(() => {
+    if (!isOpen || isImage || !videoRef.current || !mediaLoaded) return;
+
+    videoRef.current.play().catch(() => {
+      if (videoRef.current) {
+        videoRef.current.muted = true;
+        videoRef.current.play().catch(() => {});
+      }
+    });
+  }, [currentIndex, isOpen, isImage, mediaLoaded]);
+
   useEffect(() => {
     setProgress(0);
+    setMediaLoaded(false); // Reset media loaded state for new story
+    setVideoDuration(0); // Reset video duration for new story
   }, [currentIndex, isOpen]);
 
-  // Load viewers for own stories
   const loadViewers = async () => {
     if (!currentStory || !isOwner) return;
 
@@ -118,34 +224,25 @@ export default function StoryViewer({
         setViewCount(viewersList.length);
       }
     } catch (error) {
-      console.error("❌ Error loading story viewers:", error);
-      // Don't break the story viewer if this fails
       setViewers([]);
       setViewCount(0);
     }
   };
 
-  // Track story view and load view count
   useEffect(() => {
     if (!isOpen || !currentStory) return;
 
     const trackView = async () => {
-      // Don't track view for own story
       if (isOwner) {
-        // Load viewers for own story
         loadViewers();
         return;
       }
 
-      // Track view only once per story
       if (!hasTrackedView.current.has(currentStory._id)) {
         try {
           await storyService.viewStory(currentStory._id);
           hasTrackedView.current.add(currentStory._id);
-          console.log("✅ Story view tracked:", currentStory._id);
         } catch (error) {
-          console.error("❌ Error tracking story view:", error);
-          // Don't break the story viewer if tracking fails
         }
       }
     };
@@ -154,11 +251,18 @@ export default function StoryViewer({
   }, [currentStory?._id, isOpen, isOwner]);
 
   const handleNext = () => {
+    if (musicAudioRef.current) {
+      musicAudioRef.current.pause();
+      musicAudioRef.current = null;
+    }
+
     if (currentIndex < stories.length - 1) {
       setCurrentIndex(currentIndex + 1);
       setProgress(0);
     } else {
-      onClose();
+      setTimeout(() => {
+        onClose();
+      }, 0);
     }
   };
 
@@ -172,84 +276,77 @@ export default function StoryViewer({
   const handleDelete = async () => {
     if (!isOwner || !currentStory) return;
 
-    const confirmed = confirm("Delete this story?");
-    if (confirmed) {
-      await onDelete?.(currentStory._id);
+    confirm({
+      title: 'Delete Story',
+      message: 'Are you sure you want to delete this story? This action cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        await onDelete?.(currentStory._id);
 
-      // Move to next story or close if last one
-      if (stories.length > 1) {
-        if (currentIndex === stories.length - 1) {
-          setCurrentIndex(Math.max(0, currentIndex - 1));
+        if (stories.length > 1) {
+          if (currentIndex === stories.length - 1) {
+            setCurrentIndex(Math.max(0, currentIndex - 1));
+          }
+        } else {
+          setTimeout(() => {
+            onClose();
+          }, 0);
         }
-      } else {
-        onClose();
-      }
-    }
+      },
+    });
   };
 
-
-  // Close viewer if stories become invalid
   useEffect(() => {
     if (isOpen && (!stories || stories.length === 0 || !currentStory)) {
-      onClose();
+      const timeoutId = setTimeout(() => {
+        onClose();
+      }, 0);
+      return () => clearTimeout(timeoutId);
     }
   }, [isOpen, stories, currentStory, onClose]);
 
   if (!isOpen || !currentStory) return null;
 
-
   return (
     <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
-      {/* Progress bars */}
       <div className="absolute top-0 left-0 right-0 flex gap-1 p-2 z-10">
+        <ConfirmDialog {...dialogProps} />
         {stories.map((_, index) => (
-          <div
-            key={index}
-            className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden"
-          >
+          <div key={index} className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden">
             <div
               className="h-full bg-white transition-all duration-100"
               style={{
                 width:
-                  index === currentIndex
-                    ? `${progress}%`
-                    : index < currentIndex
-                      ? "100%"
-                      : "0%",
+                  index === currentIndex ? `${progress}%` : index < currentIndex ? '100%' : '0%',
               }}
             />
           </div>
         ))}
       </div>
 
-      {/* Header */}
       <div className="absolute top-4 left-0 right-0 flex items-center justify-between px-4 z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
             {currentStory.user.profilePicture || currentStory.user.avatar ? (
               <img
-                src={currentStory.user.profilePicture || currentStory.user.avatar}
+                src={getMediaUrl(currentStory.user.profilePicture || currentStory.user.avatar)}
                 alt={currentStory.user.firstName}
                 className="w-full h-full object-cover"
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
-                {currentStory.user.firstName.charAt(0).toUpperCase()}
+                {(currentStory.user.firstName || 'U').charAt(0).toUpperCase()}
               </div>
             )}
           </div>
           <div>
-            <p className="text-white font-semibold text-sm">
-              {currentStory.user.firstName}
-            </p>
-            <p className="text-white/70 text-xs">
-              {getTimeAgo(currentStory.createdAt)}
-            </p>
+            <p className="text-white font-semibold text-sm">{currentStory.user.firstName}</p>
+            <p className="text-white/70 text-xs">{getTimeAgo(currentStory.createdAt)}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* View Count (for own stories) */}
           {isOwner && viewCount > 0 && (
             <button
               onClick={() => setShowViewers(true)}
@@ -268,16 +365,12 @@ export default function StoryViewer({
               <Trash2 className="w-5 h-5 text-white" />
             </button>
           )}
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white/20 rounded-full transition"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-full transition">
             <X className="w-6 h-6 text-white" />
           </button>
         </div>
       </div>
 
-      {/* Story content */}
       <div
         className="relative w-full h-full flex items-center justify-center"
         onClick={() => setIsPaused(!isPaused)}
@@ -287,16 +380,37 @@ export default function StoryViewer({
             <img
               src={mediaUrl}
               alt="Story"
-              className="max-w-full max-h-full object-contain"
+              className={`max-w-full max-h-full object-contain ${currentStory.filter ? `filter-${currentStory.filter}` : ''}`}
+              onLoad={() => {
+                setMediaLoaded(true);
+              }}
+              onError={() => {
+                setMediaLoaded(true); // Still set to true to prevent blocking
+              }}
             />
           ) : (
             <video
               ref={videoRef}
               src={mediaUrl}
-              className="max-w-full max-h-full object-contain"
+              className={`max-w-full max-h-full object-contain ${currentStory.filter ? `filter-${currentStory.filter}` : ''}`}
               autoPlay
               playsInline
+              loop={false}
+              muted={!!currentStory?.music} // Mute video if story has music (play music instead)
               onEnded={handleNext}
+              onLoadedMetadata={(e) => {
+                const video = e.currentTarget;
+                setVideoDuration(video.duration);
+              }}
+              onLoadedData={() => {
+                setMediaLoaded(true);
+                if (videoRef.current) {
+                  videoRef.current.play().catch(() => {});
+                }
+              }}
+              onError={() => {
+                setMediaLoaded(true); // Still set to true to prevent blocking
+              }}
             />
           )
         ) : (
@@ -307,9 +421,33 @@ export default function StoryViewer({
             </div>
           </div>
         )}
+
+        {!mediaLoaded && mediaUrl && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+              <p className="text-white text-sm font-medium">Loading story...</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Navigation */}
+      {currentStory?.music && (
+        <div className="absolute bottom-20 left-4 right-4 z-10">
+          <div className="bg-black/60 backdrop-blur-sm rounded-xl p-3 flex items-center gap-3">
+            <div className="w-10 h-10 rounded bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0">
+              <Music className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-semibold text-sm truncate">
+                {currentStory.music.trackName}
+              </p>
+              <p className="text-white/70 text-xs truncate">{currentStory.music.artistName}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {currentIndex > 0 && (
         <button
           onClick={handlePrevious}
@@ -327,7 +465,6 @@ export default function StoryViewer({
         </button>
       )}
 
-      {/* Pause indicator */}
       {isPaused && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/50 rounded-full p-4">
           <div className="w-3 h-8 bg-white/80 rounded-sm mx-1 inline-block" />
@@ -335,7 +472,6 @@ export default function StoryViewer({
         </div>
       )}
 
-      {/* Viewers Modal */}
       {showViewers && isOwner && (
         <div
           className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
@@ -345,16 +481,11 @@ export default function StoryViewer({
             className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-purple-500" />
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                  Viewers
-                </h3>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  ({viewCount})
-                </span>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Viewers</h3>
+                <span className="text-sm text-gray-500 dark:text-gray-400">({viewCount})</span>
               </div>
               <button
                 onClick={() => setShowViewers(false)}
@@ -364,7 +495,6 @@ export default function StoryViewer({
               </button>
             </div>
 
-            {/* Viewers List */}
             <div className="flex-1 overflow-y-auto p-4">
               {viewers.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -381,19 +511,19 @@ export default function StoryViewer({
                       <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-500 to-pink-500 flex-shrink-0">
                         {viewer.profilePicture ? (
                           <img
-                            src={viewer.profilePicture}
+                            src={getMediaUrl(viewer.profilePicture)}
                             alt={viewer.firstName}
                             className="w-full h-full object-cover"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
-                            {viewer.firstName?.charAt(0).toUpperCase()}
+                            {(viewer.firstName || 'U').charAt(0).toUpperCase()}
                           </div>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-gray-900 dark:text-white truncate">
-                          {viewer.firstName} {viewer.lastName || ""}
+                          {viewer.firstName} {viewer.lastName || ''}
                         </p>
                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                           @{viewer.username}
@@ -402,8 +532,8 @@ export default function StoryViewer({
                       {viewer.viewedAt && (
                         <div className="text-xs text-gray-400 dark:text-gray-500">
                           {new Date(viewer.viewedAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
+                            hour: '2-digit',
+                            minute: '2-digit',
                           })}
                         </div>
                       )}

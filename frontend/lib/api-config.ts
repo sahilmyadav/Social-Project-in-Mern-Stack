@@ -1,20 +1,10 @@
-// API Configuration
-// Use relative URL for API (proxied through Next.js rewrites)
-// Socket needs absolute URL for WebSocket connection
 export const API_CONFIG = {
-  BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || '/api/v1',
-  // For socket: Use NEXT_PUBLIC_SOCKET_URL if set, otherwise use same origin (works with polling)
-  SOCKET_URL:
-    process.env.NEXT_PUBLIC_SOCKET_URL ||
-    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3333'),
-  // Backend URL for direct socket connection (used in production with separate tunnel)
-  BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || '',
-  TIMEOUT: 30000, // 30 seconds
+  BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3333/api/v1',
+  SOCKET_URL: process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3333',
+  TIMEOUT: 30000,
 };
 
-// API Endpoints
 export const API_ENDPOINTS = {
-  // Auth
   AUTH: {
     REGISTER: '/users/register',
     VERIFY_REGISTER: '/users/verify-register',
@@ -31,9 +21,20 @@ export const API_ENDPOINTS = {
     GET_USER_PROFILE: (userId: string) => `/users/profile/${userId}`,
     UPDATE_PROFILE_PICTURE: '/users/update-profile-picture',
     UPDATE_COVER_PHOTO: '/users/update-cover-photo',
+    DELETE_PROFILE_PICTURE: '/users/delete-profile-picture',
+    DELETE_COVER_PHOTO: '/users/delete-cover-photo',
+    BLOCK_USER: (userId: string) => `/users/block/${userId}`,
+    UNBLOCK_USER: (userId: string) => `/users/unblock/${userId}`,
+    GET_BLOCKED_USERS: '/users/blocked-list',
+    CHECK_USERNAME: '/users/check-username',
+    COMPLETE_PROFILE: '/users/complete-profile',
+    REQUEST_EMAIL_CHANGE: '/users/request-email-change',
+    VERIFY_EMAIL_CHANGE: '/users/verify-email-change',
+    REQUEST_PHONE_CHANGE: '/users/request-phone-change',
+    VERIFY_PHONE_CHANGE: '/users/verify-phone-change',
+    REPORT_USER: (userId: string) => `/users/report/${userId}`,
   },
 
-  // Posts
   POSTS: {
     CREATE: '/post/upload',
     DELETE: (postId: string) => `/post/delete/${postId}`,
@@ -47,11 +48,11 @@ export const API_ENDPOINTS = {
     SHARE: (postId: string) => `/post/share/${postId}`,
     GET_SAVED_POSTS: '/post/save/user-saved-posts',
     REPORT: (postId: string) => `/post/report/${postId}`,
+    EXPLORE: '/post/explore',
 
-    TOTAL_COUNT: '/post/totalPostCount', // todo update this into total followers and total following
+    TOTAL_COUNT: '/post/totalPostCount',
   },
 
-  // Comments
   COMMENTS: {
     LIKE: (commentId: string) => `/comment/like/${commentId}`,
     UNLIKE: (commentId: string) => `/comment/unlike/${commentId}`,
@@ -61,7 +62,6 @@ export const API_ENDPOINTS = {
     DELETE: (commentId: string) => `/comment/delete/${commentId}`,
   },
 
-  // Reels
   REELS: {
     UPLOAD: '/reel/upload',
     DELETE: (reelId: string) => `/reel/delete/${reelId}`,
@@ -75,9 +75,9 @@ export const API_ENDPOINTS = {
     UNSAVE: (reelId: string) => `/reel/unsave/${reelId}`,
     GET_SAVED: '/reel/saved',
     REPORT: (reelId: string) => `/reel/report/${reelId}`,
+    VIEW: (reelId: string) => `/reel/view/${reelId}`,
   },
 
-  // Stories
   STORIES: {
     UPLOAD: '/story/upload',
     DELETE: (storyId: string) => `/story/delete/${storyId}`,
@@ -88,20 +88,16 @@ export const API_ENDPOINTS = {
     GET_VIEWERS: (storyId: string) => `/story/viewers/${storyId}`,
   },
 
-  // Feed
   FEED: {
     HOME: '/feed/home',
-    EXPLORE: '/feed/explore',
     REELS: '/feed/reels',
     STORIES: '/feed/stories',
     USER_POSTS: (userId: string) => `/feed/posts/${userId}`,
   },
 
-  // Follow
   FOLLOW: {
-    FOLLOW_USER: (userId: string) => `/follow/follow/${userId}`,
-    UNFOLLOW_USER: (userId: string) => `/follow/a/${userId}?action=unfollow`,
-    SEND_REQUEST: (userId: string) => `/follow/request/${userId}`,
+    FOLLOW_USER: (userId: string) => `/follow/request/${userId}`,
+    UNFOLLOW_USER: (userId: string) => `/follow/unfollow/${userId}`,
     ACCEPT_REQUEST: (requestId: string) => `/follow/accept/${requestId}`,
     REJECT_REQUEST: (requestId: string) => `/follow/reject/${requestId}`,
     CANCEL_REQUEST: (userId: string) => `/follow/cancel/${userId}`,
@@ -110,9 +106,9 @@ export const API_ENDPOINTS = {
     GET_FOLLOWERS: (userId: string) => `/follow/followers/${userId}`,
     GET_FOLLOWING: (userId: string) => `/follow/following/${userId}`,
     GET_SUGGESTIONS: '/follow/suggestions',
+    FOLLOW_BACK: (userId: string) => `/follow/follow-back/${userId}`,
   },
 
-  // Chat
   CHAT: {
     GET_THREAD: (userId: string) => `/chat/thread/${userId}`,
     SEND_MESSAGE: (threadId: string) => `/chat/message/send/${threadId}`,
@@ -123,19 +119,13 @@ export const API_ENDPOINTS = {
     EDIT_MESSAGE: (messageId: string) => `/chat/message/edit/${messageId}`,
     DELETE_THREAD: (threadId: string) => `/chat/thread/delete/${threadId}`,
     UPLOAD_MEDIA: '/chat/media/upload',
-
-    // Group Chat Endpoints
-    CREATE_GROUP: '/chat/group/create',
-    GET_GROUP_DETAILS: (groupId: string) => `/chat/group/${groupId}`,
-    UPDATE_GROUP: (groupId: string) => `/chat/group/${groupId}/update`,
-    ADD_MEMBERS: (groupId: string) => `/chat/group/${groupId}/members/add`,
-    REMOVE_MEMBER: (groupId: string) => `/chat/group/${groupId}/members/remove`,
-    LEAVE_GROUP: (groupId: string) => `/chat/group/${groupId}/leave`,
-    MAKE_ADMIN: (groupId: string) => `/chat/group/${groupId}/make-admin`,
-    UPDATE_GROUP_AVATAR: (groupId: string) => `/chat/group/${groupId}/avatar`,
+    GET_UNREAD_COUNT: '/chat/unread-count',
+    CALL_HISTORY: '/chat/call/history',
+    DELETE_CALL_LOG: (callId: string) => `/chat/call/delete/${callId}`,
+    REQUEST_CALL: (receiverId: string) => `/chat/call/request/${receiverId}`,
+    END_CALL: (callId: string) => `/chat/call/end/${callId}`,
   },
 
-  // Notifications
   NOTIFICATIONS: {
     GET_ALL: '/notifications/list',
     MARK_READ: (notificationId: string) => `/notifications/read/${notificationId}`,
@@ -143,9 +133,10 @@ export const API_ENDPOINTS = {
     GET_UNREAD_COUNT: '/notifications/unread-count',
     GET_SETTINGS: '/notifications/settings',
     UPDATE_SETTINGS: '/notifications/settings/update',
+    REGISTER_FCM_TOKEN: '/notifications/register-token',
+    UNREGISTER_FCM_TOKEN: '/notifications/unregister-token',
   },
 
-  // Search
   SEARCH: {
     GLOBAL: '/search/global',
     USERS: '/search/users',
@@ -156,7 +147,6 @@ export const API_ENDPOINTS = {
     CLEAR_HISTORY: '/search/history',
   },
 
-  // Admin
   ADMIN: {
     LOGIN: '/admin/login',
     DASHBOARD: '/admin/dashboard',
@@ -172,7 +162,68 @@ export const API_ENDPOINTS = {
     ANALYTICS: '/admin/analytics',
   },
 
-  // System
+  LIVE: {
+    CREATE: '/live/create',
+    START: (streamId: string) => `/live/start/${streamId}`,
+    END: (streamId: string) => `/live/end/${streamId}`,
+    GET_DETAILS: (streamId: string) => `/live/details/${streamId}`,
+    GET_ACTIVE: '/live/active',
+    GET_ALL: '/live/all',
+    GET_USER_STREAMS: (userId: string) => `/live/user/${userId}`,
+    JOIN: (streamId: string) => `/live/join/${streamId}`,
+    LEAVE: (streamId: string) => `/live/leave/${streamId}`,
+    GET_VIEWERS: (streamId: string) => `/live/viewers/${streamId}`,
+    SEND_COMMENT: (streamId: string) => `/live/comment/${streamId}`,
+    GET_COMMENTS: (streamId: string) => `/live/comments/${streamId}`,
+    DELETE: (streamId: string) => `/live/delete/${streamId}`,
+  },
+
+  GROUP: {
+    CREATE: '/group',
+    GET_MY_GROUPS: '/group',
+    GET_DETAILS: (groupId: string) => `/group/${groupId}`,
+    UPDATE: (groupId: string) => `/group/${groupId}`,
+    DELETE: (groupId: string) => `/group/${groupId}`,
+
+    ADD_MEMBERS: (groupId: string) => `/group/${groupId}/members`,
+    REMOVE_MEMBER: (groupId: string, memberId: string) => `/group/${groupId}/members/${memberId}`,
+    UPDATE_ROLE: (groupId: string, memberId: string) =>
+      `/group/${groupId}/members/${memberId}/role`,
+
+    GENERATE_INVITE: (groupId: string) => `/group/${groupId}/invite`,
+    JOIN_VIA_INVITE: (code: string) => `/group/join/${code}`,
+
+    SEND_MESSAGE: (groupId: string) => `/group/${groupId}/messages`,
+    GET_MESSAGES: (groupId: string) => `/group/${groupId}/messages`,
+    REACT_TO_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/react`,
+    DELETE_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}`,
+    FORWARD_MESSAGE: (messageId: string) => `/group/messages/${messageId}/forward`,
+    PIN_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/pin`,
+    STAR_MESSAGE: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/star`,
+    VOTE_POLL: (groupId: string, messageId: string) =>
+      `/group/${groupId}/messages/${messageId}/vote`,
+    SEARCH_MESSAGES: (groupId: string) => `/group/${groupId}/search`,
+    GET_STARRED: (groupId: string) => `/group/${groupId}/starred`,
+    GET_MEDIA: (groupId: string) => `/group/${groupId}/media`,
+
+    INITIATE_CALL: (groupId: string) => `/group/${groupId}/call`,
+    GET_ACTIVE_CALL: (groupId: string) => `/group/${groupId}/call/active`,
+    GET_CALL_HISTORY: (groupId: string) => `/group/${groupId}/call/history`,
+    JOIN_CALL: (callId: string) => `/group/call/${callId}/join`,
+    LEAVE_CALL: (callId: string) => `/group/call/${callId}/leave`,
+    END_CALL: (callId: string) => `/group/call/${callId}/end`,
+    GET_CALL_INFO: (callId: string) => `/group/call/${callId}`,
+    TOGGLE_MEDIA: (callId: string) => `/group/call/${callId}/media`,
+    ADMIT_USER: (callId: string) => `/group/call/${callId}/admit`,
+    TOGGLE_HAND: (callId: string) => `/group/call/${callId}/hand`,
+    MUTE_PARTICIPANT: (callId: string) => `/group/call/${callId}/mute`,
+    TOGGLE_RECORDING: (callId: string) => `/group/call/${callId}/recording`,
+  },
+
   SYSTEM: {
     APP_UPDATE: '/system/app-update',
     SERVER_HEALTH: '/system/server-health',

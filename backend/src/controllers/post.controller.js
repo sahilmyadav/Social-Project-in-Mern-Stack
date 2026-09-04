@@ -1,94 +1,125 @@
-import { Post } from "../models/post.model.js";
-import { Like } from "../models/like.model.js";
-import { Comment } from "../models/comment.model.js";
-import { Save } from "../models/save.model.js";
-import { Report } from "../models/report.model.js";
-import { Notification } from "../models/notification.model.js";
-import { User } from "../models/user.model.js";
-import { Followers } from "../models/followers.model.js";
-import ApiError from "../utils/ApiError.js";
-import ApiResponse from "../utils/ApiResponse.js";
-import asyncHandler from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import mongoose from 'mongoose';
+import { Comment } from '../models/comment.model.js';
+import { Followers } from '../models/followers.model.js';
+import { Like } from '../models/like.model.js';
+import { Post } from '../models/post.model.js';
+import { Reel } from '../models/reel.model.js';
+import { Save } from '../models/save.model.js';
+import { User } from '../models/user.model.js';
+import {
+    addComment as addCommentService,
+    deleteComment as deleteCommentService,
+    likeContent,
+    parseTagIds,
+    reportContent,
+    saveContent,
+    sendTagNotifications,
+    shareContent,
+    unlikeContent,
+    unsaveContent,
+} from '../services/content.service.js';
+import { getLikedIds, getSavedIds } from '../services/enrichment.service.js';
+import { notifyNewPost } from '../services/notification.service.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
+import { deleteMultipleFiles, saveMultipleFilesLocally } from '../utils/localStorage.js';
+import logger from '../utils/logger.js';
 
-// Upload a new post
+// No file count limit per client request — allow unlimited files
+const MAX_CAPTION_LENGTH = 2000;
+
 export const uploadPost = asyncHandler(async (req, res) => {
   const { caption, tags, location, visibility } = req.body;
-  const userId = req.user._id; // User who is uploading the post
-  // Get uploaded files from multer (temporary local files)
+  const userId = req.user._id;
   const files = req.files;
 
   if (!files || files.length === 0) {
-    throw new ApiError(
-      400,
-      "At least one media file (image/video) is required"
-    );
+    throw new ApiError(400, 'At least one media file is required');
   }
 
-  // Upload each file to Cloudinary and get URLs
-  const mediaUploadPromises = files.map(async (file) => {
-    const fileType = file.mimetype.startsWith("image/") ? "image" : "video";
-
-    // Upload to Cloudinary
-    const cloudinaryResponse = await uploadOnCloudinary(file.path);
-
-    if (!cloudinaryResponse) {
-      throw new ApiError(500, `Failed to upload ${fileType}`);
-    }
-
-    return {
-      type: fileType,
-      url: cloudinaryResponse.secure_url, // Cloudinary URL
-      thumbnail:
-        cloudinaryResponse.thumbnail_url || cloudinaryResponse.secure_url,
-      width: cloudinaryResponse.width,
-      height: cloudinaryResponse.height,
-      duration: cloudinaryResponse.duration || null, // For videos
-      public_id: cloudinaryResponse.public_id, // Store for deletion later
-    };
-  });
-
-  // Wait for all uploads to complete
-  const media = await Promise.all(mediaUploadPromises);
-
-  // Parse tags if it's a JSON string
-  let parsedTags = tags;
-  if (typeof tags === "string") {
-    try {
-      parsedTags = JSON.parse(tags);
-    } catch (error) {
-      parsedTags = tags.split(",").map((tag) => tag.trim());
-    }
+  if (caption && caption.length > MAX_CAPTION_LENGTH) {
+    throw new ApiError(400, `Caption must be less than ${MAX_CAPTION_LENGTH} characters`);
   }
 
-  // Parse location if it's a JSON string
-  let parsedLocation = location;
-  if (typeof location === "string" && location.trim() !== "") {
+  const savedFiles = await saveMultipleFilesLocally(files, userId, 'post');
+
+  if (savedFiles.length === 0) {
+    throw new ApiError(500, 'Failed to save media files. Please try again.');
+  }
+
+  const media = savedFiles.map((file) => ({
+    type: file.type,
+    url: file.url,
+    thumbnail: file.url,
+    width: null,
+    height: null,
+    duration: null,
+    public_id: file.public_id,
+    fileName: file.fileName,
+    size: file.size,
+  }));
+
+  let parsedTags = parseTagIds(tags);
+  parsedTags = parsedTags.slice(0, 30);
+
+  let parsedLocation = null;
+  if (location && typeof location === 'string' && location.trim()) {
     try {
       parsedLocation = JSON.parse(location);
-    } catch (error) {
-      parsedLocation = { name: location };
+    } catch {
+      parsedLocation = { name: location.trim() };
     }
   }
 
-  // Create post in database with user_id (who uploaded this)
-  const post = await Post.create({
-    user_id: userId, // This tracks who uploaded the post
-    caption: caption || "",
-    media, // Array of Cloudinary URLs with metadata
-    tags: parsedTags || [],
-    location: parsedLocation || null,
-    visibility: visibility || "public",
+  let post;
+  try {
+    // Only include valid ObjectId tags (for user mentions)
+    const validTags = parsedTags.filter((tag) => {
+      if (typeof tag === 'string' && mongoose.Types.ObjectId.isValid(tag)) {
+        return true;
+      }
+      if (tag instanceof mongoose.Types.ObjectId) {
+        return true;
+      }
+      return false;
+    });
+
+    post = await Post.create({
+      user_id: userId,
+      caption: caption?.trim() || '',
+      media,
+      tags: validTags,
+      location: parsedLocation,
+      visibility: visibility || 'public',
+    });
+
+    // Send notifications to tagged users
+    if (validTags.length > 0) {
+      sendTagNotifications({
+        taggedUserIds: validTags,
+        senderId: userId,
+        contentId: post._id,
+        contentType: 'post',
+      }).catch((err) => logger.error('Tag notification error:', { error: err.message }));
+    }
+  } catch (dbError) {
+    logger.error('Failed to create post:', { error: dbError.message });
+    await deleteMultipleFiles(savedFiles.map((f) => f.url));
+    throw new ApiError(500, 'Failed to create post. Please try again.');
+  }
+
+  await post.populate(
+    'user_id',
+    'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
+  );
+
+  // Notify all followers about the new post (async, don't block response)
+  notifyNewPost(post._id, userId, post.media?.[0]?.url || null).catch((err) => {
+    logger.error('Error sending new post notifications:', { error: err.message });
   });
 
-  // Populate user details to show who created this post
-  await post.populate("user_id", "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified");
-
-  return res
-    .status(201)
-    .json(
-      new ApiResponse(201, post, "Post uploaded successfully to Cloudinary")
-    );
+  return res.status(201).json(new ApiResponse(201, post, 'Post created successfully'));
 });
 
 // Delete a post
@@ -99,20 +130,18 @@ export const deletePost = asyncHandler(async (req, res) => {
   const post = await Post.findById(postId);
 
   if (!post || post.is_deleted) {
-    throw new ApiError(404, "Post not found");
+    throw new ApiError(404, 'Post not found');
   }
 
   // Check if user is owner
   if (post.user_id.toString() !== userId.toString()) {
-    throw new ApiError(403, "You are not authorized to delete this post");
+    throw new ApiError(403, 'You are not authorized to delete this post');
   }
 
   post.is_deleted = true;
   await post.save();
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Post deleted successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Post deleted successfully'));
 });
 
 // Get post details
@@ -120,30 +149,30 @@ export const getPostDetails = asyncHandler(async (req, res) => {
   const { postId } = req.params;
 
   const post = await Post.findOne({ _id: postId, is_deleted: false })
-    .populate("user_id", "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified")
-    .populate("tags", "firstName lastName username");
+    .populate(
+      'user_id',
+      'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
+    )
+    .populate('tags', 'firstName lastName username');
 
   if (!post) {
-    throw new ApiError(404, "Post not found");
+    throw new ApiError(404, 'Post not found');
   }
 
   // Check visibility
   const userId = req.user?._id;
-  if (
-    post.visibility === "private" &&
-    post.user_id._id.toString() !== userId?.toString()
-  ) {
+  if (post.visibility === 'private' && post.user_id._id.toString() !== userId?.toString()) {
     throw new ApiError(403, "You don't have access to this post");
   }
 
   // Get comments for this post
   const comments = await Comment.find({
-    target_type: "post",
+    target_type: 'post',
     target_id: postId,
     is_deleted: false,
     reply_to_comment_id: null,
   })
-    .populate("user_id", "firstName lastName username profilePicture")
+    .populate('user_id', 'firstName lastName username profilePicture')
     .sort({ createdAt: -1 })
     .limit(10);
 
@@ -155,343 +184,115 @@ export const getPostDetails = asyncHandler(async (req, res) => {
   if (userId) {
     const liked = await Like.findOne({
       user_id: userId,
-      target_type: "post",
+      target_type: 'post',
       target_id: postId,
     });
     postData.is_liked = !!liked;
   }
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, postData, "Post details fetched successfully"));
+  return res.status(200).json(new ApiResponse(200, postData, 'Post details fetched successfully'));
 });
 
 // Like a post (Idempotent)
 export const likePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const userId = req.user._id;
-
-  const post = await Post.findOne({ _id: postId, is_deleted: false });
-
-  if (!post) {
-    throw new ApiError(404, "Post not found");
-  }
-
-  // Check if already liked
-  const existingLike = await Like.findOne({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
+  const result = await likeContent({
+    Model: Post,
+    contentId: postId,
+    userId: req.user._id,
+    contentType: 'post',
   });
 
-  if (existingLike) {
-    // Already liked - return success (idempotent)
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          {
-            likes_count: post.likes_count,
-            alreadyLiked: true,
-            isLiked: true
-          },
-          "Post already liked"
-        )
-      );
-  }
-
-  // Create like
-  const like = await Like.create({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
-  });
-
-  // Increment likes count
-  post.likes_count += 1;
-  await post.save();
-
-
-  // Create notification for post owner (only if liker is not the post owner)
-  if (post.user_id.toString() !== userId.toString()) {
-    try {
-      // Get the liker's details for the notification message
-      const liker = await User.findById(userId).select('firstName lastName profilePicture');
-
-      await Notification.create({
-        recipient_id: post.user_id,
-        sender_id: userId,
-        type: "like",
-        reference_id: postId,
-        reference_type: "Post",
-        title: "New Like",
-        message: `${liker.firstName} ${liker.lastName} liked your post`,
-        thumbnail: post.media?.[0]?.url || null,
-        is_read: false,
-        action_url: `/post/${postId}`
-      });
-
-    } catch (notifError) {
-      // Don't fail the like operation if notification creation fails
-      console.error('Failed to create notification:', notifError);
-    }
-  }
-
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        {
-          likes_count: post.likes_count,
-          alreadyLiked: false,
-          isLiked: true
-        },
-        "Post liked successfully"
-      )
-    );
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        likes_count: result.likesCount,
+        alreadyLiked: result.alreadyLiked,
+        isLiked: result.isLiked,
+      },
+      result.alreadyLiked ? 'Post already liked' : 'Post liked successfully'
+    )
+  );
 });
 
-// Unlike a post (Idempotent)
 export const unlikePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const userId = req.user._id;
-
-  const like = await Like.findOneAndDelete({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
+  const result = await unlikeContent({
+    Model: Post,
+    contentId: postId,
+    userId: req.user._id,
+    contentType: 'post',
   });
 
-  if (!like) {
-    // Not liked - return success (idempotent)
-    const post = await Post.findById(postId);
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          {
-            likes_count: post?.likes_count || 0,
-            wasLiked: false,
-            isLiked: false
-          },
-          "Post not liked"
-        )
-      );
-  }
-
-  // Decrement likes count
-  const post = await Post.findById(postId);
-  if (post && post.likes_count > 0) {
-    post.likes_count -= 1;
-    await post.save();
-  }
-
-
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        {
-          likes_count: post?.likes_count || 0,
-          wasLiked: true,
-          isLiked: false
-        },
-        "Post unliked successfully"
-      )
-    );
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        likes_count: result.likesCount,
+        wasLiked: result.wasLiked,
+        isLiked: result.isLiked,
+      },
+      result.wasLiked ? 'Post unliked successfully' : 'Post not liked'
+    )
+  );
 });
 
-// Add comment to a post
 export const commentOnPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const { text, reply_to_comment_id, media } = req.body;
-  const userId = req.user._id;
 
-  if (!text || text.trim().length === 0) {
-    throw new ApiError(400, "Comment text is required");
-  }
-
-  const post = await Post.findOne({ _id: postId, is_deleted: false });
-
-  if (!post) {
-    throw new ApiError(404, "Post not found");
-  }
-
-  // If replying to a comment, verify it exists
-  if (reply_to_comment_id) {
-    const parentComment = await Comment.findById(reply_to_comment_id);
-    if (!parentComment) {
-      throw new ApiError(404, "Parent comment not found");
-    }
-  }
-
-  const comment = await Comment.create({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
+  const comment = await addCommentService({
+    Model: Post,
+    contentId: postId,
+    userId: req.user._id,
     text,
-    reply_to_comment_id,
+    replyToCommentId: reply_to_comment_id,
     media,
+    contentType: 'post',
   });
 
-  // Increment comment count
-  post.comments_count += 1;
-  await post.save();
-
-  // If it's a reply, increment replies count on parent
-  if (reply_to_comment_id) {
-    await Comment.findByIdAndUpdate(reply_to_comment_id, {
-      $inc: { replies_count: 1 },
-    });
-  }
-
-  // Create notification for post owner (only if commenter is not the post owner)
-  if (post.user_id.toString() !== userId.toString()) {
-    try {
-      // Get the commenter's details for the notification message
-      const commenter = await User.findById(userId).select('firstName lastName profilePicture');
-
-      await Notification.create({
-        recipient_id: post.user_id,
-        sender_id: userId,
-        type: "comment",
-        reference_id: postId,
-        reference_type: "Post",
-        title: "New Comment",
-        message: `${commenter.firstName} ${commenter.lastName} commented on your post`,
-        thumbnail: post.media?.[0]?.url || null,
-        is_read: false,
-        action_url: `/post/${postId}`
-      });
-
-    } catch (notifError) {
-      // Don't fail the comment operation if notification creation fails
-      console.error('Failed to create notification:', notifError);
-    }
-  }
-
-  const populatedComment = await Comment.findById(comment._id).populate(
-    "user_id",
-    "firstName lastName username profilePicture"
-  );
-
-  return res
-    .status(201)
-    .json(new ApiResponse(201, populatedComment, "Comment added successfully"));
+  return res.status(201).json(new ApiResponse(201, comment, 'Comment added successfully'));
 });
 
-// Delete a comment
 export const deleteComment = asyncHandler(async (req, res) => {
   const { commentId } = req.params;
-  const userId = req.user._id;
 
-  const comment = await Comment.findById(commentId);
+  await deleteCommentService({
+    Model: Post,
+    commentId,
+    userId: req.user._id,
+  });
 
-  if (!comment || comment.is_deleted) {
-    throw new ApiError(404, "Comment not found");
-  }
-
-  // Check if user is comment owner or post owner
-  const post = await Post.findById(comment.target_id);
-  const isOwner = comment.user_id.toString() === userId.toString();
-  const isPostOwner = post?.user_id.toString() === userId.toString();
-
-  if (!isOwner && !isPostOwner) {
-    throw new ApiError(403, "You are not authorized to delete this comment");
-  }
-
-  comment.is_deleted = true;
-  await comment.save();
-
-  // Decrement comment count
-  if (post && post.comments_count > 0) {
-    post.comments_count -= 1;
-    await post.save();
-  }
-
-  // If it's a reply, decrement parent's replies count
-  if (comment.reply_to_comment_id) {
-    await Comment.findByIdAndUpdate(comment.reply_to_comment_id, {
-      $inc: { replies_count: -1 },
-    });
-  }
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Comment deleted successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Comment deleted successfully'));
 });
 
-// Share a post
 export const sharePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { target, caption } = req.body;
-  const userId = req.user._id;
 
-  const post = await Post.findOne({ _id: postId, is_deleted: false });
-
-  if (!post) {
-    throw new ApiError(404, "Post not found");
-  }
-
-  // Increment shares count
-  post.shares_count += 1;
-  await post.save();
-
-  // TODO: Implement actual sharing logic based on target (feed/story/external)
-  // For now, just increment the counter
+  const result = await shareContent({
+    Model: Post,
+    contentId: postId,
+    contentType: 'post',
+  });
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { shares_count: post.shares_count },
-        "Post shared successfully"
-      )
-    );
+    .json(new ApiResponse(200, { shares_count: result.sharesCount }, 'Post shared successfully'));
 });
 
-// Save a post
 export const savePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const userId = req.user._id;
 
-  const post = await Post.findOne({ _id: postId, is_deleted: false });
-
-  if (!post) {
-    throw new ApiError(404, "Post not found");
-  }
-
-  // Check if already saved
-  const existingSave = await Save.findOne({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
+  await saveContent({
+    Model: Post,
+    contentId: postId,
+    userId: req.user._id,
+    contentType: 'post',
   });
 
-  if (existingSave) {
-    throw new ApiError(400, "Post already saved");
-  }
-
-  await Save.create({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
-  });
-
-  // Increment saves count
-  post.saves_count += 1;
-  await post.save();
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Post saved successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Post saved successfully'));
 });
-
 
 export const getUserSavedPosts = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -499,126 +300,139 @@ export const getUserSavedPosts = asyncHandler(async (req, res) => {
 
   const skip = (page - 1) * limit;
 
-  // Find all saved post IDs for the user
-  const savedPosts = await Save.find({
+  // Find ALL saved items (posts + reels) for the user
+  const savedItems = await Save.find({
     user_id: userId,
-    target_type: "post",
   })
     .sort({ created_at: -1 })
     .skip(skip)
     .limit(parseInt(limit))
     .lean();
 
-  // Extract post IDs
-  const postIds = savedPosts.map(save => save.target_id);
+  // Split into posts and reels
+  const savedPostEntries = savedItems.filter((s) => s.target_type === 'post');
+  const savedReelEntries = savedItems.filter((s) => s.target_type === 'reel');
 
-  if (postIds.length === 0) {
-    return res.status(200).json(
-      new ApiResponse(200, [], "Saved posts fetched successfully")
-    );
-  }
+  const postIds = savedPostEntries.map((s) => s.target_id);
+  const reelIds = savedReelEntries.map((s) => s.target_id);
 
-  // Fetch the actual posts with user details
-  const posts = await Post.find({
-    _id: { $in: postIds },
-    is_deleted: false
-  })
-    .populate("user_id", "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified")
-    .lean();
+  // Fetch posts and reels in parallel
+  const [posts, reels] = await Promise.all([
+    postIds.length > 0
+      ? Post.find({ _id: { $in: postIds }, is_deleted: false })
+          .populate(
+            'user_id',
+            'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
+          )
+          .lean()
+      : [],
+    reelIds.length > 0
+      ? Reel.find({ _id: { $in: reelIds }, is_deleted: false })
+          .populate(
+            'user_id',
+            'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
+          )
+          .lean()
+      : [],
+  ]);
 
-  // Add isLiked status for each post
-  const postsWithStatus = await Promise.all(
-    posts.map(async (post) => {
-      const isLiked = await Like.exists({
-        target_id: post._id,
-        target_type: "post",
-        user_id: userId
-      });
+  // Get liked status in batch
+  const allPostIds = posts.map((p) => p._id);
+  const allReelIds = reels.map((r) => r._id);
 
-      return {
+  const [postLikedSet, reelLikedSet] = await Promise.all([
+    allPostIds.length > 0 ? getLikedIds(allPostIds, 'post', userId) : new Set(),
+    allReelIds.length > 0 ? getLikedIds(allReelIds, 'reel', userId) : new Set(),
+  ]);
+
+  // Create lookup maps for ordering
+  const postMap = new Map(posts.map((p) => [p._id.toString(), p]));
+  const reelMap = new Map(reels.map((r) => [r._id.toString(), r]));
+
+  // Build result in saved order (most recently saved first)
+  const results = [];
+  for (const item of savedItems) {
+    const id = item.target_id.toString();
+
+    if (item.target_type === 'post' && postMap.has(id)) {
+      const post = postMap.get(id);
+      results.push({
         ...post,
         _id: post._id,
         id: post._id,
+        savedItemType: 'post',
         user_id: post.user_id,
-        caption: post.caption || "",
+        caption: post.caption || '',
         media: post.media || [],
-        file_url: post.file_url || post.media?.[0]?.url || "",
+        file_url: post.file_url || post.media?.[0]?.url || '',
         likes_count: post.likes_count || 0,
         comments_count: post.comments_count || 0,
         shares_count: post.shares_count || 0,
-        isLiked: !!isLiked,
+        isLiked: postLikedSet.has(post._id.toString()),
         isSaved: true,
         canDownload: post.user_id?.allowDownloads !== false,
-        createdAt: post.createdAt
-      };
-    })
-  );
+        createdAt: post.createdAt,
+      });
+    } else if (item.target_type === 'reel' && reelMap.has(id)) {
+      const reel = reelMap.get(id);
+      results.push({
+        ...reel,
+        _id: reel._id,
+        id: reel._id,
+        savedItemType: 'reel',
+        user_id: reel.user_id,
+        caption: reel.caption || '',
+        media: reel.media || [],
+        file_url: reel.media?.[0]?.url || '',
+        likes_count: reel.likes_count || 0,
+        comments_count: reel.comments_count || 0,
+        shares_count: reel.shares_count || 0,
+        views_count: reel.views_count || 0,
+        isLiked: reelLikedSet.has(reel._id.toString()),
+        isSaved: true,
+        canDownload: reel.user_id?.allowDownloads !== false,
+        createdAt: reel.createdAt,
+      });
+    }
+  }
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      postsWithStatus,
-      "Saved posts fetched successfully"
-    )
-  );
+  return res.status(200).json(new ApiResponse(200, results, 'Saved content fetched successfully'));
 });
 
 export const unsavePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const userId = req.user._id;
 
-  const save = await Save.findOneAndDelete({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
+  await unsaveContent({
+    Model: Post,
+    contentId: postId,
+    userId: req.user._id,
+    contentType: 'post',
   });
 
-  if (!save) {
-    throw new ApiError(404, "Saved post not found");
-  }
-
-  // Decrement saves count
-  const post = await Post.findById(postId);
-  if (post && post.saves_count > 0) {
-    post.saves_count -= 1;
-    await post.save();
-  }
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "Post unsaved successfully"));
+  return res.status(200).json(new ApiResponse(200, null, 'Post unsaved successfully'));
 });
 
-
-
-// Report a post
 export const reportPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { reason, details, attachments } = req.body;
-  const userId = req.user._id;
+  const { reason } = req.body;
 
   if (!reason) {
-    throw new ApiError(400, "Reason is required");
+    throw new ApiError(400, 'Reason is required');
   }
 
   const post = await Post.findOne({ _id: postId, is_deleted: false });
-
   if (!post) {
-    throw new ApiError(404, "Post not found");
+    throw new ApiError(404, 'Post not found');
   }
 
-  const report = await Report.create({
-    user_id: userId,
-    target_type: "post",
-    target_id: postId,
+  await reportContent({
+    contentId: postId,
+    userId: req.user._id,
     reason,
-    details,
-    attachments,
+    contentType: 'post',
   });
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, report, "Post reported successfully"));
+  return res.status(201).json(new ApiResponse(201, null, 'Post reported successfully'));
 });
 
 export const getCurrentUserPosts = asyncHandler(async (req, res) => {
@@ -626,17 +440,20 @@ export const getCurrentUserPosts = asyncHandler(async (req, res) => {
 
   const posts = await Post.find({ user_id: userId, is_deleted: false })
     .sort({ createdAt: -1 })
-    .populate("user_id", "firstName lastName username profilePicture profileImage avatar allowDownloads isVerified");
+    .populate(
+      'user_id',
+      'firstName lastName username profilePicture profileImage avatar allowDownloads isVerified'
+    );
 
   // Add canDownload flag to each post
-  const postsWithDownloadFlag = posts.map(post => ({
+  const postsWithDownloadFlag = posts.map((post) => ({
     ...post.toObject(),
-    canDownload: post.user_id?.allowDownloads !== false
+    canDownload: post.user_id?.allowDownloads !== false,
   }));
 
   return res
     .status(200)
-    .json(new ApiResponse(200, postsWithDownloadFlag, "User posts fetched successfully"));
+    .json(new ApiResponse(200, postsWithDownloadFlag, 'User posts fetched successfully'));
 });
 
 export const totalPostCount = asyncHandler(async (req, res) => {
@@ -646,31 +463,22 @@ export const totalPostCount = asyncHandler(async (req, res) => {
     user_id: userId,
     is_deleted: false,
   });
-  // todo
 
-  // total followeres count
   const followersCount = await Followers.countDocuments({
     following_id: userId,
-    status: "accepted",
+    status: 'accepted',
   });
 
   // total following count
   const followingCount = await Followers.countDocuments({
     follower_id: userId,
-    status: "accepted",
+    status: 'accepted',
   });
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { totalPostCount: count },
-        "Total post count fetched successfully"
-      )
-    );
+    .json(new ApiResponse(200, { totalPostCount: count }, 'Total post count fetched successfully'));
 });
-
 
 // Get all comments for a post with pagination
 export const getAllComments = asyncHandler(async (req, res) => {
@@ -682,36 +490,27 @@ export const getAllComments = asyncHandler(async (req, res) => {
     target_id: postId,
     target_type: 'post',
     is_deleted: false,
-    reply_to_comment_id: null // Only get top-level comments
+    reply_to_comment_id: null, // Only get top-level comments
   })
-    .populate('user_id', 'firstName lastName username profileImage profilePicture avatar') // ✅ ADD profileImage
+    .populate('user_id', 'firstName lastName username profileImage profilePicture avatar')
     .sort({ createdAt: -1 })
     .limit(parseInt(limit))
     .skip((parseInt(page) - 1) * parseInt(limit));
 
-  // Add isLiked status for each comment
-  const commentsWithLikeStatus = await Promise.all(
-    comments.map(async (comment) => {
-      const isLiked = await Like.exists({
-        target_type: 'comment',
-        target_id: comment._id,
-        user_id: userId
-      });
+  // Add isLiked status for each comment (batch — no N+1)
+  const commentIds = comments.map((c) => c._id);
+  const commentLikedSet = await getLikedIds(commentIds, 'comment', userId);
 
-      return {
-        ...comment.toObject(),
-        isLiked: !!isLiked
-      };
-    })
-  );
+  const commentsWithLikeStatus = comments.map((comment) => ({
+    ...comment.toObject(),
+    isLiked: commentLikedSet.has(comment._id.toString()),
+  }));
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { comments: commentsWithLikeStatus },
-      'Comments fetched successfully'
-    )
-  );
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, { comments: commentsWithLikeStatus }, 'Comments fetched successfully')
+    );
 });
 
 // Get explore posts - posts from users NOT being followed
@@ -726,8 +525,8 @@ export const getExplorePosts = asyncHandler(async (req, res) => {
   // Get list of users the current user is following
   const followingRecords = await Followers.find({
     follower_id: currentUserId,
-    status: "accepted",
-  }).select("following_id");
+    status: 'accepted',
+  }).select('following_id');
 
   const followingIds = followingRecords.map((record) => record.following_id);
 
@@ -740,9 +539,11 @@ export const getExplorePosts = asyncHandler(async (req, res) => {
 
   // Find users who have blocked the current user
   const usersWithBlocks = await User.find({
-    blockedUsers: currentUserId
-  }).select('_id').lean();
-  const usersWhoBlockedCurrentUser = usersWithBlocks.map(u => u._id);
+    blockedUsers: currentUserId,
+  })
+    .select('_id')
+    .lean();
+  const usersWhoBlockedCurrentUser = usersWithBlocks.map((u) => u._id);
 
   // Combine all blocked users (bidirectional)
   const allBlockedUserIds = [...blockedByCurrentUser, ...usersWhoBlockedCurrentUser];
@@ -754,49 +555,41 @@ export const getExplorePosts = asyncHandler(async (req, res) => {
   const posts = await Post.find({
     user_id: { $nin: allExcludedUserIds },
     is_deleted: false,
-    visibility: "public", // Only show public posts in explore
+    visibility: 'public', // Only show public posts in explore
   })
-    .populate("user_id", "firstName lastName username profileImage avatar isVerified allowDownloads")
+    .populate(
+      'user_id',
+      'firstName lastName username profileImage avatar isVerified allowDownloads'
+    )
     .sort({ createdAt: -1 }) // Sort by most recent first
     .skip(skip)
     .limit(limitNum)
     .lean();
 
-  // Enrich posts with engagement data
-  const enrichedPosts = await Promise.all(
-    posts.map(async (post) => {
-      // Check if current user liked this post
-      const isLiked = await Like.exists({
-        user_id: currentUserId,
-        target_type: "post",
-        target_id: post._id,
-      });
+  // Enrich posts with engagement data (batch — no N+1)
+  const explorePostIds = posts.map((p) => p._id);
+  const [exploreLikedSet, exploreSavedSet] = await Promise.all([
+    getLikedIds(explorePostIds, 'post', currentUserId),
+    getSavedIds(explorePostIds, 'post', currentUserId),
+  ]);
 
-      // Check if current user saved this post
-      const isSaved = await Save.exists({
-        user_id: currentUserId,
-        target_type: "post",
-        target_id: post._id,
-      });
-
-      return {
-        _id: post._id,
-        user_id: post.user_id,
-        caption: post.caption || "",
-        media: post.media || [],
-        tags: post.tags || [],
-        location: post.location || null,
-        likes_count: post.likes_count || 0,
-        comments_count: post.comments_count || 0,
-        shares_count: post.shares_count || 0,
-        saves_count: post.saves_count || 0,
-        isLiked: !!isLiked,
-        isSaved: !!isSaved,
-        canDownload: post.user_id?.allowDownloads !== false,
-        createdAt: post.createdAt,
-      };
-    })
-  );
+  const enrichedPosts = posts.map((post) => ({
+    _id: post._id,
+    user_id: post.user_id,
+    caption: post.caption || '',
+    media: post.media || [],
+    tags: post.tags || [],
+    location: post.location || null,
+    likes_count: post.likes_count || 0,
+    comments_count: post.comments_count || 0,
+    shares_count: post.shares_count || 0,
+    saves_count: post.saves_count || 0,
+    views_count: post.views_count || 0,
+    isLiked: exploreLikedSet.has(post._id.toString()),
+    isSaved: exploreSavedSet.has(post._id.toString()),
+    canDownload: post.user_id?.allowDownloads !== false,
+    createdAt: post.createdAt,
+  }));
 
   return res.status(200).json(
     new ApiResponse(
@@ -807,7 +600,65 @@ export const getExplorePosts = asyncHandler(async (req, res) => {
         limit: limitNum,
         hasMore: enrichedPosts.length === limitNum,
       },
-      "Explore posts fetched successfully"
+      'Explore posts fetched successfully'
     )
   );
+});
+
+// Track post view
+export const trackPostView = asyncHandler(async (req, res) => {
+  const { postId } = req.params;
+  const userId = req.user._id;
+
+  if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+    throw new ApiError(400, 'Valid post ID is required');
+  }
+
+  const post = await Post.findById(postId);
+
+  if (!post) {
+    throw new ApiError(404, 'Post not found');
+  }
+
+  if (post.is_deleted) {
+    throw new ApiError(404, 'Post has been deleted');
+  }
+
+  // Check if user has already viewed this post
+  const hasViewed = post.viewers?.some((viewerId) => viewerId.toString() === userId.toString());
+
+  if (!hasViewed) {
+    // Add user to viewers and increment view count
+    await Post.findByIdAndUpdate(postId, {
+      $addToSet: { viewers: userId },
+      $inc: { views_count: 1 },
+    });
+  }
+
+  return res.status(200).json(new ApiResponse(200, { success: true }, 'View tracked successfully'));
+});
+
+// Get post view count
+export const getPostViews = asyncHandler(async (req, res) => {
+  const { postId } = req.params;
+
+  if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+    throw new ApiError(400, 'Valid post ID is required');
+  }
+
+  const post = await Post.findById(postId).select('views_count').lean();
+
+  if (!post) {
+    throw new ApiError(404, 'Post not found');
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { views_count: post.views_count || 0 },
+        'View count fetched successfully'
+      )
+    );
 });

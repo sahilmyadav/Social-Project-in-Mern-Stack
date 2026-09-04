@@ -1,30 +1,31 @@
 // redis.config.js
 import Redis from 'ioredis';
+import logger from './logger.js';
 
 let redis;
 
-if (process.env.REDIS_URL) {
-  // Check if it's a secure connection (Upstash/cloud) or local Docker
-  const isSecure = process.env.REDIS_URL.startsWith('rediss://');
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
-  redis = new Redis(process.env.REDIS_URL, {
+// Check if it's a secure Redis URL (like Upstash)
+const isSecureRedis = redisUrl.startsWith('rediss://');
+
+if (isSecureRedis) {
+  redis = new Redis(redisUrl, {
     maxRetriesPerRequest: null,
-    retryDelayOnFailover: 100,
-    retryDelayOnClusterDown: 100,
-    ...(isSecure && { tls: {} }), // Only use TLS for secure connections (Upstash)
+    tls: {},
   });
 } else {
-  // ✅ Local development
-  redis = new Redis({
-    host: '127.0.0.1',
-    port: 6379,
+  redis = new Redis(redisUrl, {
+    maxRetriesPerRequest: null,
   });
 }
 
-redis.on('connect', () => {});
+redis.on('connect', () => {
+  logger.info('Redis connected successfully');
+});
 
 redis.on('error', (err) => {
-  console.error('Redis connection error:', err.message);
+  logger.error('Redis connection error:', err.message);
 });
 
 export default redis;

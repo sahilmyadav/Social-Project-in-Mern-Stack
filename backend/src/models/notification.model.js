@@ -1,44 +1,50 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
 const notificationSchema = new mongoose.Schema(
   {
     recipient_id: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
       index: true,
     },
     sender_id: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
     },
     type: {
       type: String,
       enum: [
-        "like",
-        "comment",
-        "share",
-        "follow",
-        "follow_request",
-        "follow_accepted",
-        "reel_like",
-        "reel_comment",
-        "story_view",
-        "mention",
-        "tag",
-        "live_invite",
+        'like',
+        'comment',
+        'share',
+        'follow',
+        'follow_request',
+        'follow_accepted',
+        'reel_like',
+        'reel_comment',
+        'story_view',
+        'mention',
+        'tag',
+        'live_invite',
+        'live_started',
+        'group_added',
+        'group_removed',
+        'group_message',
+        'new_post',
+        'new_reel',
       ],
       required: true,
       index: true,
     },
     reference_id: {
       type: mongoose.Schema.Types.ObjectId,
-      // Can reference Post, Comment, Reel, Story, etc.
+      // Can reference Post, Comment, Reel, Story, Group, etc.
     },
     reference_type: {
       type: String,
-      enum: ["Post", "Comment", "Reel", "Story", "User"],
+      enum: ['Post', 'Comment', 'Reel', 'Story', 'User', 'Group'],
     },
     title: {
       type: String,
@@ -82,4 +88,4 @@ notificationSchema.index(
   { expireAfterSeconds: 30 * 24 * 60 * 60, partialFilterExpression: { is_read: true } }
 );
 
-export const Notification = mongoose.model("Notification", notificationSchema);
+export const Notification = mongoose.model('Notification', notificationSchema);

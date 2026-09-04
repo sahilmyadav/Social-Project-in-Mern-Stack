@@ -1,19 +1,23 @@
-import dotenv from "dotenv";
+import dotenv from 'dotenv';
+import http from 'http';
+import { Server as ExpressApp } from './app.js';
+import { validateEnv } from './config/env.js';
+import { startLiveStreamCleanupJob } from './controllers/liveStream.controller.js';
+import { startStoryCleanupJob } from './controllers/story.controller.js';
+import connectDB from './db/connection.js';
+import { initializeSocket } from './socket/socket.js';
+import logger from './utils/logger.js';
 dotenv.config({
-  path: "../.env",
+  path: '../../.env',
 });
-import connectDB from "./db/connection.js";
-import http from "http";
-import { Server as ExpressApp } from "./app.js";
-import { initializeSocket } from "./socket/socket.js";
-import { startStoryCleanupJob } from "./controllers/story.controller.js";
+
+// Validate env vars early — fails fast in production if critical vars are missing.
+validateEnv();
 
 const Port = process.env.PORT || 3000;
 
 // Create HTTP server
 const httpServer = http.createServer(ExpressApp);
-
-// to do cluster configration for production ✅ DONE!
 
 connectDB()
   .then(async () => {
@@ -21,29 +25,30 @@ connectDB()
     await initializeSocket(httpServer);
 
     httpServer.listen(Port, () =>
-      console.log(`Server is Running on Port http://localhost:${Port}/ And PID is ${process.pid}`)
+      logger.info(`Server is Running on Port http://localhost:${Port}/ And PID is ${process.pid}`)
     );
 
     // Start automatic story cleanup job (deletes expired stories every hour)
     startStoryCleanupJob();
+
+    // Start live stream cleanup job (ends stale/zombie streams every 30 min)
+    startLiveStreamCleanupJob();
   })
   .catch((e) => {
-    console.error(`Something went wrong while connecting to DB`, e);
+    logger.error('Something went wrong while connecting to DB', e);
     process.exit(1);
   });
 
 // Graceful shutdown handler
-process.on("SIGTERM", gracefulShutdown);
-process.on("SIGINT", gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
 
 async function gracefulShutdown() {
-
   // Close HTTP server
-  httpServer.close(() => {
-  });
+  httpServer.close(() => {});
 
   // Cleanup Socket.IO Redis connections
-  const { cleanupRedis } = await import("./socket/socket.js");
+  const { cleanupRedis } = await import('./socket/socket.js');
   await cleanupRedis();
 
   process.exit(0);

@@ -4,10 +4,16 @@ import Navigation from '@/components/navigation';
 import PostCard from '@/components/post-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { feedService, followService, searchService } from '@/lib/api-services';
+import { followService, postService, searchService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import { Clock, Search, UserCheck, UserPlus, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+
+const isValidImageUrl = (url: string | undefined | null): boolean => {
+  if (!url) return false;
+  return url.startsWith('http') || url.startsWith('/uploads') || url.startsWith('uploads');
+};
 
 interface Creator {
   id: string;
@@ -35,7 +41,9 @@ export default function ExplorePage() {
     Record<string, 'following' | 'pending' | 'none'>
   >({});
   const [explorePosts, setExplorePosts] = useState<any[]>([]);
-  const [postsLoading, setPostsLoading] = useState(true);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [postsError, setPostsError] = useState<string | null>(null);
+
   const router = useRouter();
 
   useEffect(() => {
@@ -50,20 +58,23 @@ export default function ExplorePage() {
   }, [router]);
 
   const loadExplorePosts = async () => {
+    setLoadingPosts(true);
+    setPostsError(null);
     try {
-      setPostsLoading(true);
-      const response = await feedService.getExploreFeed({ limit: 20 });
-      if (response.success && response.data?.posts) {
-        setExplorePosts(response.data.posts);
+      const response = await postService.getExplorePosts({ page: 1, limit: 20 });
+      if (response.success && response.data) {
+        setExplorePosts(response.data.posts || []);
+      } else {
+        setExplorePosts([]);
       }
-    } catch (error) {
-      console.error('Error loading posts:', error);
+    } catch (error: any) {
+      setPostsError(error.message || 'Failed to load posts');
+      setExplorePosts([]);
     } finally {
-      setPostsLoading(false);
+      setLoadingPosts(false);
     }
   };
 
-  // Debounced search
   useEffect(() => {
     if (searchTimeout) {
       clearTimeout(searchTimeout);
@@ -89,19 +100,25 @@ export default function ExplorePage() {
     try {
       const response = await followService.getSuggestions({ limit: 20 });
       if (response.success && response.data) {
-        // Handle different response structures - data might be an array or an object with suggestions
         const suggestions = Array.isArray(response.data)
           ? response.data
           : response.data.suggestions || [];
 
-        const formattedCreators = suggestions.map((user: any) => ({
+        // Filter out current user from suggestions
+        const userData = localStorage.getItem('user');
+        const currentUser = userData ? JSON.parse(userData) : null;
+        const filteredSuggestions = currentUser
+          ? suggestions.filter((u: any) => u._id !== currentUser._id && u._id !== currentUser.id)
+          : suggestions;
+
+        const formattedCreators = filteredSuggestions.map((user: any) => ({
           id: user._id,
           name: `${user.firstName} ${user.lastName}`,
           username:
             user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
-          avatar: user.profilePicture || user.avatar || '👤',
+          avatar: user.profileImage || user.avatar || '👤',
           bio: user.bio || 'No bio yet',
-          followers: user.followersCount || 0,
+          followers: user.followers_count || user.followersCount || 0,
           following: user.followingCount || 0,
           posts: user.postsCount || 0,
           verified: user.isVerified || false,
@@ -110,18 +127,27 @@ export default function ExplorePage() {
         }));
         setCreators(formattedCreators);
       }
-    } catch (error) {
-      console.error('Error loading suggestions:', error);
-    }
+    } catch (error) {}
   };
 
   const searchUsers = async (query: string) => {
     setIsSearching(true);
+    setCreators([]); // Clear previous results
+
     try {
       const response = await searchService.searchUsers({ query, limit: 20 });
 
       if (response.success && response.data?.users) {
-        const users = response.data.users;
+        let users = response.data.users || [];
+
+        if (user) {
+          const blockedUsers = user.blockedUsers || [];
+          users = users.filter(
+            (u: any) =>
+              u._id !== user._id && // Remove self
+              !blockedUsers.includes(u._id) // Remove blocked users
+          );
+        }
 
         if (Array.isArray(users) && users.length > 0) {
           const formattedCreators = users.map((user: any) => ({
@@ -129,9 +155,9 @@ export default function ExplorePage() {
             name: user.fullName || `${user.firstName} ${user.lastName}`,
             username:
               user.username || `${user.firstName?.toLowerCase()}${user.lastName?.toLowerCase()}`,
-            avatar: user.avatar || user.profilePicture || '👤',
+            avatar: user.avatar || user.profileImage || '👤',
             bio: user.bio || 'No bio yet',
-            followers: user.followersCount || 0,
+            followers: user.followers_count || user.followersCount || 0,
             following: user.followingCount || 0,
             posts: user.postsCount || 0,
             verified: user.isVerified || false,
@@ -146,7 +172,6 @@ export default function ExplorePage() {
         setCreators([]);
       }
     } catch (error) {
-      console.error('Error searching users:', error);
       setCreators([]);
     } finally {
       setIsSearching(false);
@@ -158,15 +183,12 @@ export default function ExplorePage() {
       const currentStatus = followingStatus[userId] || 'none';
 
       if (currentStatus === 'following') {
-        // Unfollow
         await followService.unfollowUser(userId);
         setFollowingStatus((prev) => ({ ...prev, [userId]: 'none' }));
       } else if (currentStatus === 'pending') {
-        // Cancel request
         await followService.cancelFollowRequest(userId);
         setFollowingStatus((prev) => ({ ...prev, [userId]: 'none' }));
       } else {
-        // Follow or send request
         if (isPrivate) {
           await followService.sendFollowRequest(userId);
           setFollowingStatus((prev) => ({ ...prev, [userId]: 'pending' }));
@@ -175,9 +197,7 @@ export default function ExplorePage() {
           setFollowingStatus((prev) => ({ ...prev, [userId]: 'following' }));
         }
       }
-    } catch (error) {
-      console.error('Error with follow action:', error);
-    }
+    } catch (error) {}
   };
 
   const getFollowButtonConfig = (userId: string, isPrivate: boolean) => {
@@ -204,6 +224,35 @@ export default function ExplorePage() {
     }
   };
 
+  const handleOpenPostDetails = useCallback((post: any) => {
+    setExplorePosts((prevPosts) =>
+      prevPosts.map((item) => {
+        if (item._id === post._id || item.id === post._id) {
+          return { ...item, showComments: !item.showComments };
+        }
+        return item;
+      })
+    );
+  }, []);
+
+  const handlePostLikeUpdate = useCallback(
+    (postId: string, isLiked: boolean, likeCount: number) => {
+      setExplorePosts((prevPosts) =>
+        prevPosts.map((item) => {
+          if (item._id === postId || item.id === postId) {
+            return {
+              ...item,
+              isLiked,
+              likes_count: likeCount,
+            };
+          }
+          return item;
+        })
+      );
+    },
+    []
+  );
+
   const handleLogout = () => {
     localStorage.removeItem('user');
     router.push('/');
@@ -216,12 +265,10 @@ export default function ExplorePage() {
   return (
     <main className="min-h-screen bg-background">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pb-20 lg:pb-0">
-        {/* Sidebar */}
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Main Content */}
         <section className="lg:col-span-2">
           <div className="sticky top-0 z-20 mb-6 bg-background pt-4">
             <div className="relative bg-card rounded-2xl border border-border p-4">
@@ -245,7 +292,6 @@ export default function ExplorePage() {
                 </button>
               )}
 
-              {/* Search Results Dropdown */}
               {searchQuery && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-2xl shadow-lg max-h-96 overflow-y-auto">
                   {isSearching ? (
@@ -270,13 +316,12 @@ export default function ExplorePage() {
                           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/50 transition-colors border-b border-border last:border-0"
                         >
                           <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-400 to-pink-600 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
-                            {creator.avatar && creator.avatar.startsWith('http') ? (
+                            {isValidImageUrl(creator.avatar) ? (
                               <img
-                                src={creator.avatar}
+                                src={getMediaUrl(creator.avatar)}
                                 alt={creator.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
-                                  // Fallback to initials if image fails to load
                                   const target = e.target as HTMLImageElement;
                                   target.style.display = 'none';
                                   if (target.nextSibling) {
@@ -287,18 +332,13 @@ export default function ExplorePage() {
                             ) : null}
                             <span
                               className="w-full h-full flex items-center justify-center"
-                              style={{
-                                display:
-                                  creator.avatar && creator.avatar.startsWith('http')
-                                    ? 'none'
-                                    : 'flex',
-                              }}
+                              style={{ display: isValidImageUrl(creator.avatar) ? 'none' : 'flex' }}
                             >
-                              {creator.name
+                              {(creator.name || 'U')
                                 .split(' ')
-                                .map((n) => n.charAt(0).toUpperCase())
+                                .map((n) => (n || 'U').charAt(0).toUpperCase())
                                 .join('')
-                                .slice(0, 2)}
+                                .slice(0, 2) || 'U'}
                             </span>
                           </div>
                           <div className="flex-1 text-left">
@@ -329,7 +369,6 @@ export default function ExplorePage() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="flex gap-4 mb-6 border-b border-border">
             <button
               onClick={() => setActiveTab('posts')}
@@ -353,26 +392,39 @@ export default function ExplorePage() {
             </button>
           </div>
 
-          {/* Posts Tab */}
           {activeTab === 'posts' && (
             <div className="space-y-4">
-              {postsLoading ? (
+              {loadingPosts ? (
                 <div className="flex justify-center py-12">
-                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : postsError ? (
+                <div className="text-center py-12 text-destructive">
+                  <p>{postsError}</p>
+                  <Button variant="outline" onClick={loadExplorePosts} className="mt-4">
+                    Try Again
+                  </Button>
                 </div>
               ) : explorePosts.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground">No posts to explore yet</p>
+                <div className="text-center py-12 text-muted-foreground">
+                  <p>No posts found to explore</p>
                 </div>
               ) : (
                 explorePosts.map((post) => (
-                  <PostCard key={post._id} post={post} currentUserId={user?._id} />
+                  <PostCard
+                    key={post._id || post.id}
+                    post={post}
+                    currentUserId={user?._id || user?.id}
+                    onCommentClick={handleOpenPostDetails}
+                    onLikeUpdate={handlePostLikeUpdate}
+                    onPostClick={handleOpenPostDetails}
+                    showComments={post.showComments}
+                  />
                 ))
               )}
             </div>
           )}
 
-          {/* Creators Tab */}
           {activeTab === 'creators' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {creators.length === 0 ? (
@@ -393,22 +445,25 @@ export default function ExplorePage() {
                       key={creator.id}
                       className="bg-card rounded-2xl border border-border p-6 hover:shadow-lg transition group"
                     >
-                      {/* User Info - Clickable */}
                       <div
                         onClick={() => router.push(`/profile/${creator.id}`)}
                         className="cursor-pointer mb-4"
                       >
                         <div className="flex justify-center mb-4">
                           <div className="relative">
-                            {creator.avatar.startsWith('http') ? (
+                            {isValidImageUrl(creator.avatar) ? (
                               <img
-                                src={creator.avatar}
+                                src={getMediaUrl(creator.avatar)}
                                 alt={creator.name}
                                 className="w-24 h-24 rounded-full object-cover border-4 border-primary/20 group-hover:border-primary/40 transition"
                               />
                             ) : (
-                              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-4xl border-4 border-primary/20 group-hover:border-primary/40 transition">
-                                {creator.avatar}
+                              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-2xl font-bold text-white border-4 border-primary/20 group-hover:border-primary/40 transition">
+                                {(creator.name || 'U')
+                                  .split(' ')
+                                  .map((n) => (n || 'U').charAt(0).toUpperCase())
+                                  .join('')
+                                  .slice(0, 2) || 'U'}
                               </div>
                             )}
                             {creator.verified && (
@@ -439,7 +494,6 @@ export default function ExplorePage() {
                           {creator.bio}
                         </p>
 
-                        {/* Stats */}
                         <div className="flex justify-center gap-6 mb-4 pb-4 border-b border-border">
                           <div className="text-center">
                             <p className="font-bold text-foreground">{creator.posts || 0}</p>
@@ -458,7 +512,6 @@ export default function ExplorePage() {
                         </div>
                       </div>
 
-                      {/* Action Buttons */}
                       <div className="flex gap-2">
                         <Button
                           onClick={(e) => {
@@ -490,7 +543,6 @@ export default function ExplorePage() {
           )}
         </section>
 
-        {/* Right Sidebar - Categories */}
         <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4">
           <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
             <h3 className="font-bold text-lg mb-4">Popular Categories</h3>
@@ -511,7 +563,6 @@ export default function ExplorePage() {
         </aside>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
     </main>
   );

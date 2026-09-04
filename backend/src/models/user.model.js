@@ -77,14 +77,37 @@ const userSchema = new Schema(
     lockUntil: { type: Date },
 
     // Username
-    username: { type: String, unique: true, sparse: true },
+    username: {
+      type: String,
+      unique: true,
+      sparse: true,
+      lowercase: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 30,
+      match: /^[a-zA-Z0-9_]+$/,
+    },
+
+    // Profile completion status
+    profileCompleted: {
+      type: Boolean,
+      default: false,
+    },
+
+    // User interests - categories/topics the user is interested in
+    interests: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
 
     // OTP for verification (registration/login)
     otp: {
       code: { type: String },
       expiresAt: { type: Date },
     },
-    isOneline: { type: Boolean, default: false },
+    isOnline: { type: Boolean, default: false },
 
     // Refresh token
     refreshToken: { type: String, select: false },
@@ -101,7 +124,7 @@ const userSchema = new Schema(
   { timestamps: true }
 );
 
-// Note: email and phone indexes are created automatically by unique: true
+// Indexes - email, phone, username already have unique: true which creates indexes
 
 // Virtual for full name
 userSchema.virtual('fullName').get(function () {

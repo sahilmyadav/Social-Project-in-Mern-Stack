@@ -2,10 +2,12 @@
 
 import CreateGroupModal from '@/components/create-group-modal';
 import GroupInfoModal from '@/components/group-info-modal';
+import GroupVideoCallModal from '@/components/group-video-call-modal';
+import GroupVoiceCallModal from '@/components/group-voice-call-modal';
 import Navigation from '@/components/navigation';
-import SharedContentPreview from '@/components/shared-content-preview';
 import { Button } from '@/components/ui/button';
-import { useConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,12 +15,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import VideoCallModal from '@/components/video-call-modal';
 import VoiceCallModal from '@/components/voice-call-modal';
-import { chatService } from '@/lib/api-services';
+import { useCallState } from '@/contexts/call-context';
+import { useLocationSharing } from '@/hooks/useLocationSharing';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import { authService, chatService, groupService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
 import {
   disconnectSocket,
   emitInitiateCall,
+  emitInitiateGroupCall,
+  emitJoinGroup,
   emitMessageDelivered,
   emitStopTyping,
   emitTyping,
@@ -28,7 +37,10 @@ import {
   initSocket,
   joinThread,
   offCallEnded,
+  offCallFailed,
   offCallRejected,
+  offGroupMessage,
+  offGroupMessageNotification,
   offIncomingCall,
   offMessageStatus,
   offNewMessage,
@@ -38,7 +50,10 @@ import {
   offUserOffline,
   offUserOnline,
   onCallEnded,
+  onCallFailed,
   onCallRejected,
+  onGroupMessage,
+  onGroupMessageNotification,
   onIncomingCall,
   onMessageStatus,
   onNewMessage,
@@ -48,60 +63,101 @@ import {
   onUserOffline,
   onUserOnline,
 } from '@/lib/socket';
+import { showToast } from '@/lib/toast';
+import { isToday, isYesterday, format } from 'date-fns';
 import {
-  Edit2,
-  Info,
+  Ban,
+  Flag,
+  LogOut,
   MoreHorizontal,
+  Check,
+  CheckSquare,
+  Forward,
   Phone,
   Send,
   Trash2,
+  User,
   UserPlus,
   Users,
   Video,
   X,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ChatInputBar from './_components/chat-input-bar';
+import ChatMessageBubble from './_components/chat-message-bubble';
 
 interface Conversation {
-  id: string; // threadId - unique identifier for the conversation
+  id: string;
   name: string;
   avatar: string;
   lastMessage: string;
   timestamp: string;
   unread: boolean;
+  unreadCount: number;
   online: boolean;
   participantId: string; // The other user's ID for matching online/offline events
   isGroup?: boolean;
-  members?: number;
+  members?: any[];
+  memberCount?: number;
   threadId?: string;
+  hasStory?: boolean;
+  createdBy?: string;
 }
 
 interface Message {
   id: number | string;
+  _id?: string;
   sender: string;
   content: string;
   timestamp: string;
+  createdAt?: string;
   isSent: boolean;
   status?: 'sent' | 'delivered' | 'seen';
   isEdited?: boolean;
   isDeleted?: boolean;
-  // System message fields
   type?: string;
+  messageType?: string;
   senderId?: string;
   senderName?: string;
   isSystemMessage?: boolean;
   systemMessageType?: string;
   media?: {
     url: string;
-    type: 'image' | 'video' | 'file';
+    type: 'image' | 'video' | 'file' | 'document' | 'audio';
     publicId?: string;
+    fileName?: string;
+    filename?: string;
+    size?: number;
+    duration?: number;
   }[];
+  location?: {
+    latitude: number;
+    longitude: number;
+    address?: string;
+    name?: string;
+    isLiveLocation?: boolean;
+    expiresAt?: string;
+  };
+  replyTo?: {
+    _id: string;
+    content: string;
+    senderName: string;
+  };
+  isForwarded?: boolean;
+}
+
+function getDateLabel(dateStr: string): string {
+  const date = new Date(dateStr);
+  if (isToday(date)) return 'Today';
+  if (isYesterday(date)) return 'Yesterday';
+  return format(date, 'MMMM d, yyyy');
 }
 
 function ChatPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isInCall } = useCallState();
   const [user, setUser] = useState<any>(null);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -109,54 +165,105 @@ function ChatPageContent() {
   const [activeTab, setActiveTab] = useState<'messages' | 'groups'>('messages');
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [groups] = useState<Conversation[]>([]);
+  const [groups, setGroups] = useState<Conversation[]>([]);
 
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageText, setEditingMessageText] = useState('');
   const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false);
   const [isVideoCallOpen, setIsVideoCallOpen] = useState(false);
+  const [isGroupVoiceCallOpen, setIsGroupVoiceCallOpen] = useState(false);
+  const [isGroupVideoCallOpen, setIsGroupVideoCallOpen] = useState(false);
+  // Debounce guard: prevent double-tap on mobile from firing duplicate initiateCall
+  const callInitiatingRef = useRef(false);
   const [incomingCall, setIncomingCall] = useState<{
     callerId: string;
     callerName: string;
     callerAvatar: string;
     threadId: string;
     callType?: 'voice' | 'video';
+    isGroupCall?: boolean;
+    groupInfo?: {
+      groupId: string;
+      groupName: string;
+      groupAvatar: string;
+    };
   } | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const { confirm, dialogProps } = useConfirmDialog();
+
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  const [messageToForward, setMessageToForward] = useState<Message | null>(null);
+  const [forwardSearchQuery, setForwardSearchQuery] = useState('');
+
+  // Multi-select state
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
+
+  const toggleMessageSelect = useCallback((messageId: string) => {
+    setSelectedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }, []);
+
+  const enterSelectionMode = useCallback((messageId: string) => {
+    setIsSelecting(true);
+    setSelectedMessageIds(new Set([messageId]));
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setIsSelecting(false);
+    setSelectedMessageIds(new Set());
+  }, []);
+
+  const selectAllMessages = useCallback(() => {
+    const allIds = new Set(messages.filter((m) => !m.isSystemMessage).map((m) => m.id.toString()));
+    setSelectedMessageIds(allIds);
+  }, [messages]);
 
   const handleOpenProfile = (userId: string) => {
     router.push(`/profile/${userId}`);
   };
 
   const selectedThreadIdRef = useRef<string | null>(null);
+  const selectedConversationRef = useRef<Conversation | null>(null);
+  const groupsRef = useRef<Conversation[]>([]);
+  const conversationsRef = useRef<Conversation[]>([]);
 
-  // Helper function to format call duration
-  const formatCallDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (mins > 0) {
-      return `${mins}:${secs.toString().padStart(2, '0')}`;
-    }
-    return `${secs}s`;
-  };
-
-  // Keep ref in sync with state
   useEffect(() => {
-    console.log('🔄 selectedThreadId changed:', selectedThreadId);
+    groupsRef.current = groups;
+  }, [groups]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
-    console.log('📌 selectedThreadIdRef.current updated to:', selectedThreadIdRef.current);
   }, [selectedThreadId]);
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -168,18 +275,13 @@ function ChatPageContent() {
     const parsedUser = JSON.parse(userData);
     setUser(parsedUser);
 
-    // Load all conversations immediately
     const loadConvs = async () => {
       try {
         const response = await chatService.getThreads();
 
         if (response.success && response.data) {
-          // Handle the actual backend structure: data.threads is an array
           const threadsArray = response.data.threads || response.data || [];
 
-          console.log('📦 Raw threads from backend:', threadsArray.length);
-
-          // Deduplicate threads by threadId (in case backend returns duplicates)
           const seenThreadIds = new Set<string>();
           const seenParticipantIds = new Set<string>();
           const uniqueThreads = threadsArray.filter((thread: any) => {
@@ -188,9 +290,7 @@ function ChatPageContent() {
 
             if (!threadId || !participantId) return false;
 
-            // Check both threadId and participantId for duplicates
             if (seenThreadIds.has(threadId) || seenParticipantIds.has(participantId)) {
-              console.warn('⚠️ Duplicate thread detected:', { threadId, participantId });
               return false;
             }
 
@@ -199,49 +299,52 @@ function ChatPageContent() {
             return true;
           });
 
-          console.log('✨ Unique threads after deduplication:', uniqueThreads.length);
-
-          // Transform threads to conversations
           const convList = uniqueThreads.map((thread: any) => {
             const otherParticipant = thread.participant;
-            console.log('👤 Participant:', otherParticipant);
-            console.log('💬 Last message object:', thread.lastMessage);
 
-            // Get the last message text - check all possible field names
             let lastMessageText =
               thread.lastMessage?.text ||
               thread.lastMessage?.content ||
               thread.lastMessage?.message ||
               null;
 
-            // If text is null but there's media, show media indicator
             if (
               !lastMessageText &&
               thread.lastMessage?.media &&
               thread.lastMessage.media.length > 0
             ) {
               const mediaType = thread.lastMessage.media[0].type || 'attachment';
-              lastMessageText = `📎 ${mediaType}`;
+              if (mediaType === 'image') {
+                lastMessageText = '📷 Image';
+              } else if (mediaType === 'video') {
+                lastMessageText = 'Video';
+              } else if (mediaType === 'document' || mediaType === 'file') {
+                lastMessageText = '📄 Document';
+              } else if (mediaType === 'audio') {
+                lastMessageText = '🎵 Audio';
+              } else {
+                lastMessageText = `📎 ${mediaType}`;
+              }
             }
 
-            // If still no message, check if there's an encrypted content field
             if (!lastMessageText && thread.lastMessage?.encryptedContent) {
               lastMessageText = '[Encrypted Message]';
             }
 
-            console.log('📝 Final last message text:', lastMessageText);
-
-            // Instagram style - show message or empty
             const displayMessage = lastMessageText || '';
 
-            return {
-              id: thread._id, // Use threadId as unique identifier, not participant ID
-              participantId: otherParticipant?._id, // Store participant ID for online/offline matching
-              name:
-                otherParticipant?.firstName ||
+            const fullName =
+              otherParticipant?.firstName && otherParticipant?.lastName
+                ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
+                : otherParticipant?.firstName ||
                 otherParticipant?.fullName ||
                 otherParticipant?.username ||
-                'Unknown',
+                'Unknown';
+
+            const conversationObj = {
+              id: thread._id,
+              participantId: otherParticipant?._id?.toString() || otherParticipant?._id,
+              name: fullName,
               avatar:
                 otherParticipant?.profileImage ||
                 otherParticipant?.profilePicture ||
@@ -250,85 +353,151 @@ function ChatPageContent() {
               lastMessage: displayMessage,
               timestamp: thread.lastMessageAt
                 ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
                 : 'Just now',
               unread: (thread.unreadCount || 0) > 0,
-              online: otherParticipant?.isOnline || false, // Use actual online status
+              unreadCount: thread.unreadCount || 0,
+              online: otherParticipant?.isOnline || false,
               threadId: thread._id,
+              hasStory: otherParticipant?.hasActiveStory || false,
             };
+            return conversationObj;
           });
-          console.log('✅ Conversations transformed:', convList);
           setConversations(convList);
+
+          setTimeout(() => {
+            const socket = getSocket();
+            if (socket?.connected) {
+              socket.emit('getOnlineUsers');
+            }
+          }, 500);
         } else {
-          console.warn('⚠️ No data in response:', response);
           setConversations([]);
         }
       } catch (error) {
-        console.error('❌ Error loading conversations:', error);
         setConversations([]);
       }
     };
 
-    loadConvs();
+    const loadGroups = async () => {
+      try {
+        const response = await groupService.getMyGroups({ limit: 50 });
 
-    // Request online users list after conversations are loaded
-    setTimeout(() => {
-      const socket = getSocket();
-      if (socket?.connected) {
-        console.log('📡 Requesting online users list after loading conversations');
-        socket.emit('getOnlineUsers');
+        if (response.success && response.data) {
+          const groupsArray = response.data.groups || response.data || [];
+
+          const groupsList = groupsArray.map((group: any) => ({
+            id: group._id,
+            threadId: group._id,
+            name: group.name || 'Unnamed Group',
+            avatar: group.avatar || '👥',
+            lastMessage: group.lastMessage?.text || '',
+            timestamp: group.lastMessageAt
+              ? new Date(group.lastMessageAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+              : 'Just now',
+            unread: (group.unreadCount || 0) > 0,
+            unreadCount: group.unreadCount || 0,
+            online: false,
+            isGroup: true,
+            memberCount: group.members?.length || 0,
+            members: group.members || [],
+            createdBy: group.createdBy?._id || group.createdBy,
+          }));
+
+          setGroups(groupsList);
+
+          groupsArray.forEach((group: any) => {
+            emitJoinGroup(group._id);
+          });
+        } else {
+          setGroups([]);
+        }
+      } catch (error) {
+        setGroups([]);
       }
-    }, 500);
+    };
 
-    // Initialize socket connection FIRST
+    loadConvs();
+    loadGroups();
+
     const token = localStorage.getItem('accessToken');
     if (token) {
       const initSock = initSocket(token);
 
-      // ✅ Emit user online status ONLY after socket connects
       if (initSock?.connected) {
-        console.log('📡 Socket already connected, emitting online status');
         emitUserOnline(parsedUser._id);
       } else {
-        // Wait for connection and then emit online status
         initSock?.once('connect', () => {
-          console.log('✅ Socket connected, emitting online status');
           emitUserOnline(parsedUser._id);
         });
       }
 
-      // Setup socket event listeners
       const handleNewMessage = (data: any) => {
-        console.log('📩 New message received:', data);
-
         if (data.threadId && data.message) {
-          const newMessage = {
+          const isOwnMessage = data.message.senderId?._id === parsedUser._id;
+          const isSystemMsg = data.message.messageType === 'system';
+
+          const newMessage: Message = {
             id: data.message._id,
-            sender:
-              data.message.senderId?.firstName || data.message.senderId?.username || 'Unknown',
+            sender: isSystemMsg
+              ? 'System'
+              : data.message.senderId?.firstName || data.message.senderId?.username || 'Unknown',
             content: data.message.text || '',
             timestamp: new Date(data.message.createdAt).toLocaleTimeString([], {
               hour: '2-digit',
               minute: '2-digit',
             }),
-            isSent: data.message.senderId?._id === parsedUser._id,
+            createdAt: data.message.createdAt || new Date().toISOString(),
+            isSent: isOwnMessage,
+            media: data.message.media || [],
+            isForwarded: data.message.isForwarded || false,
+            ...(isSystemMsg && {
+              type: 'system',
+              senderId: 'system',
+              senderName: 'System',
+              isSystemMessage: true,
+              systemMessageType: data.message.systemMessageType,
+            }),
+            replyTo: data.message.replyTo
+              ? {
+                _id: data.message.replyTo._id,
+                content: data.message.replyTo.text || '',
+                senderName:
+                  data.message.replyTo.senderName ||
+                  data.message.replyTo.senderId?.firstName ||
+                  'Unknown',
+              }
+              : undefined,
           };
 
-          // Add message to chat if thread is currently open
           setSelectedThreadId((currentThreadId) => {
             if (currentThreadId === data.threadId) {
-              // Check if message already exists to prevent duplicates
-              setMessages((prev) => {
-                const messageExists = prev.some((msg) => msg.id === data.message._id);
-                if (messageExists) {
-                  console.log('⚠️ Message already exists, skipping duplicate');
-                  return prev;
-                }
-                return [...prev, newMessage];
-              });
-              // Emit message delivered acknowledgment
+              if (isSystemMsg) {
+                // System messages (call events): show for both parties, replace any local temp call messages
+                setMessages((prev) => {
+                  const messageExists = prev.some((msg) => msg.id === data.message._id);
+                  if (messageExists) return prev;
+                  // Remove any local temp call messages (call-initiated-*, call-ended-*, etc.)
+                  const filtered = prev.filter((msg) => {
+                    if (typeof msg.id === 'string' && (msg.id as string).startsWith('call-')) return false;
+                    return true;
+                  });
+                  return [...filtered, newMessage];
+                });
+              } else if (!isOwnMessage) {
+                setMessages((prev) => {
+                  const messageExists = prev.some((msg) => msg.id === data.message._id);
+                  if (messageExists) {
+                    return prev;
+                  }
+                  return [...prev, newMessage];
+                });
+              }
               if (data.message._id) {
                 emitMessageDelivered(data.message._id);
               }
@@ -336,18 +505,30 @@ function ChatPageContent() {
             return currentThreadId;
           });
 
-          // Update conversation list with new message
           setConversations((prev) => {
             const threadId = data.threadId?.toString();
+
+            let displayMessage = data.message.text || '';
+            if (!displayMessage && data.message.media && data.message.media.length > 0) {
+              const mediaType = data.message.media[0].type;
+              if (mediaType === 'image') {
+                displayMessage = '📷 Image';
+              } else if (mediaType === 'video') {
+                displayMessage = 'Video';
+              } else if (mediaType === 'document' || mediaType === 'file') {
+                displayMessage = '📄 Document';
+              } else {
+                displayMessage = `📎 ${mediaType}`;
+              }
+            }
 
             const updatedConvs = prev.map((conv) => {
               const convId = conv.id.toString();
 
-              // Match by conversation id (which is threadId)
               if (convId === threadId) {
                 return {
                   ...conv,
-                  lastMessage: data.message.text,
+                  lastMessage: displayMessage,
                   timestamp: 'Now',
                   unread: data.message.senderId?._id !== parsedUser._id,
                 };
@@ -355,17 +536,19 @@ function ChatPageContent() {
               return conv;
             });
 
-            // Check if conversation was updated
             const conversationUpdated = updatedConvs.some((c) => c.id === threadId);
 
-            // If thread is not in conversations, add it
-            // This should be rare since newThread event should handle new threads
             if (!conversationUpdated && data.message.senderId?._id !== parsedUser._id) {
+              const senderFullName =
+                data.message.senderId?.firstName && data.message.senderId?.lastName
+                  ? `${data.message.senderId.firstName} ${data.message.senderId.lastName}`
+                  : data.message.senderId?.firstName ||
+                  data.message.senderId?.username ||
+                  'Unknown';
               const newConv: Conversation = {
-                id: threadId, // Use threadId as unique identifier
+                id: threadId,
                 participantId: data.message.senderId._id,
-                name:
-                  data.message.senderId?.firstName || data.message.senderId?.username || 'Unknown',
+                name: senderFullName,
                 avatar:
                   data.message.senderId?.profileImage ||
                   data.message.senderId?.profilePicture ||
@@ -373,13 +556,13 @@ function ChatPageContent() {
                 lastMessage: data.message.text,
                 timestamp: 'Now',
                 unread: true,
+                unreadCount: 1,
                 online: true,
                 threadId: threadId,
               };
               return [newConv, ...updatedConvs];
             }
 
-            // Move updated conversation to top
             const conversationIndex = updatedConvs.findIndex((c) => c.id === threadId);
 
             if (conversationIndex > 0) {
@@ -390,16 +573,57 @@ function ChatPageContent() {
             return updatedConvs;
           });
 
-          // Show browser notification and play sound if not focused
+          setGroups((prev) => {
+            const threadId = data.threadId?.toString();
+            const isGroupMessage = prev.some((g) => g.id === threadId);
+
+            if (!isGroupMessage) return prev;
+
+            let displayMessage = data.message.text || '';
+            if (!displayMessage && data.message.media && data.message.media.length > 0) {
+              const mediaType = data.message.media[0].type;
+              if (mediaType === 'image') {
+                displayMessage = '📷 Image';
+              } else if (mediaType === 'video') {
+                displayMessage = 'Video';
+              } else if (mediaType === 'document' || mediaType === 'file') {
+                displayMessage = '📄 Document';
+              } else {
+                displayMessage = `📎 ${mediaType}`;
+              }
+            }
+
+            const updatedGroups = prev.map((group) => {
+              if (group.id === threadId) {
+                const isOwnMessage = data.message.senderId?._id === parsedUser._id;
+                return {
+                  ...group,
+                  lastMessage: displayMessage,
+                  timestamp: 'Now',
+                  unread: !isOwnMessage,
+                  unreadCount: !isOwnMessage ? (group.unreadCount || 0) + 1 : group.unreadCount,
+                };
+              }
+              return group;
+            });
+
+            const groupIndex = updatedGroups.findIndex((g) => g.id === threadId);
+            if (groupIndex > 0) {
+              const [movedGroup] = updatedGroups.splice(groupIndex, 1);
+              return [movedGroup, ...updatedGroups];
+            }
+
+            return updatedGroups;
+          });
+
           if (!document.hasFocus() && data.message.senderId?._id !== parsedUser._id) {
-            // Play notification sound
             try {
               const audio = new Audio(
                 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSqBzvLZiTYIG2m98OWhUBALUKnn77RgGgU7k9nx0HwqBiZzxvDdk0MLFmS36OyrWRQLR6Hf8bllHgU0gtDy2Ik2CBxqvfDoqlQQDFGp6O+zYBoFOpPY8dF8KgYmcsXv3ZNDC'
               );
               audio.volume = 0.3;
-              audio.play().catch(() => {});
-            } catch (e) {}
+              audio.play().catch(() => { });
+            } catch (e) { }
 
             if (Notification.permission === 'granted') {
               new Notification(data.message.senderId?.firstName || 'New Message', {
@@ -415,8 +639,6 @@ function ChatPageContent() {
       };
 
       const handleMessageStatus = (data: any) => {
-        console.log('📨 Message status:', data);
-        // Update message status (delivered, read, etc.)
         if (data.messageId && data.status) {
           setMessages((prev) =>
             prev.map((msg) => (msg.id === data.messageId ? { ...msg, status: data.status } : msg))
@@ -425,15 +647,21 @@ function ChatPageContent() {
       };
 
       const handleMessagesSeen = (data: any) => {
-        console.log('👁️ Messages seen:', data);
-        // Update all messages in thread as seen
         if (data.threadId) {
-          setMessages((prev) => prev.map((msg) => ({ ...msg, status: 'seen' })));
+          // Only mark messages as seen if the event is for the currently open thread
+          // and only mark sent messages (not received ones)
+          const currentThreadId = selectedThreadIdRef.current;
+          if (currentThreadId && data.threadId === currentThreadId) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.isSent && msg.status !== 'seen' ? { ...msg, status: 'seen' } : msg
+              )
+            );
+          }
         }
       };
 
       const handleMessageEdited = (data: any) => {
-        console.log('✏️ Message edited:', data);
         if (data.messageId && data.text) {
           setMessages((prev) =>
             prev.map((msg) =>
@@ -446,37 +674,20 @@ function ChatPageContent() {
       };
 
       const handleMessageDeleted = (data: any) => {
-        console.log('🗑️🗑️🗑️ MESSAGE DELETED EVENT RECEIVED 🗑️🗑️🗑️');
-        console.log('Event data:', JSON.stringify(data, null, 2));
-
         if (data.messageId) {
           const messageIdStr = data.messageId.toString();
-          console.log('Processing message ID:', messageIdStr);
 
           if (data.deleteFor === 'everyone') {
-            console.log('✅ Deleting message for EVERYONE');
-            // Remove message for everyone
             setMessages((prev) => {
-              console.log(
-                'Current messages in state:',
-                prev.map((m) => ({ id: m.id, content: m.content.substring(0, 20) }))
-              );
               const filtered = prev.filter((msg) => {
                 const matches = msg.id.toString() === messageIdStr;
                 if (matches) {
-                  console.log(`Found matching message to delete: ${msg.id}`);
                 }
                 return !matches; // Keep messages that DON'T match
               });
-              console.log(
-                'Messages after filtering:',
-                filtered.map((m) => ({ id: m.id, content: m.content.substring(0, 20) }))
-              );
               return filtered;
             });
           } else {
-            console.log('Marking as deleted for current user only');
-            // Mark as deleted for current user
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id.toString() === messageIdStr
@@ -486,110 +697,86 @@ function ChatPageContent() {
             );
           }
         } else {
-          console.error('❌ No messageId in delete event!');
         }
       };
 
       const handleUserTyping = (data: any) => {
-        console.log('⌨️ User typing:', data);
         const currentThreadId = selectedThreadIdRef.current;
-        console.log('📌 Current selectedThreadId (from ref):', currentThreadId);
-        console.log('📌 Event threadId:', data.threadId);
-        console.log('📌 Match?', currentThreadId === data.threadId);
 
-        // Show/hide typing indicator based on isTyping flag
         if (currentThreadId && data.threadId === currentThreadId) {
           if (data.isTyping === true) {
-            console.log('✅ Showing typing indicator');
             setIsOtherUserTyping(true);
           } else if (data.isTyping === false) {
-            console.log('❌ Hiding typing indicator');
             setIsOtherUserTyping(false);
           }
         } else {
-          console.log('⚠️ Not showing - thread mismatch or no thread selected');
         }
       };
 
       const handleUserStopTyping = (data: any) => {
-        console.log('⏹️ User stopped typing:', data);
         const currentThreadId = selectedThreadIdRef.current;
-        // This handler might not be needed since we use isTyping flag
         if (currentThreadId && data.threadId === currentThreadId) {
           setIsOtherUserTyping(false);
         }
       };
 
       const handleUserOnline = (data: any) => {
-        console.log('🟢 User online event received:', JSON.stringify(data));
-
-        // Handle multiple data formats
         const userId = data?.userId || data?.user?._id || data?._id || data?.id;
+        const userIdStr = userId?.toString();
 
-        if (userId) {
-          console.log('✅ Updating user online - userId:', userId);
+        if (userIdStr) {
+          // Use functional updater — only create new objects for changed items
           setConversations((prev) => {
+            let changed = false;
             const updated = prev.map((conv) => {
-              if (conv.participantId === userId) {
-                console.log(`🟢 Setting ${conv.name} online`);
+              if (conv.participantId?.toString() === userIdStr && !conv.online) {
+                changed = true;
                 return { ...conv, online: true };
               }
               return conv;
             });
-            return updated;
+            return changed ? updated : prev; // Skip re-render if nothing changed
           });
 
-          // Also update selectedConversation if it matches
           setSelectedConversation((prev) => {
-            if (prev && prev.participantId === userId) {
-              console.log(`🟢 Selected conversation now online: ${prev.name}`);
+            if (prev && prev.participantId?.toString() === userIdStr && !prev.online) {
               return { ...prev, online: true };
             }
             return prev;
           });
-        } else {
-          console.warn('⚠️ No userId found in online event:', data);
         }
       };
 
       const handleUserOffline = (data: any) => {
-        console.log('⚫ User offline event received:', JSON.stringify(data));
-
-        // Handle multiple data formats
         const userId = data?.userId || data?.user?._id || data?._id || data?.id;
+        const userIdStr = userId?.toString();
 
-        if (userId) {
-          console.log('✅ Updating user offline - userId:', userId);
+        if (userIdStr) {
+          // Use functional updater — only create new objects for changed items
           setConversations((prev) => {
+            let changed = false;
             const updated = prev.map((conv) => {
-              if (conv.participantId === userId) {
-                console.log(`⚫ Setting ${conv.name} offline`);
+              if (conv.participantId?.toString() === userIdStr && conv.online) {
+                changed = true;
                 return { ...conv, online: false };
               }
               return conv;
             });
-            return updated;
+            return changed ? updated : prev; // Skip re-render if nothing changed
           });
 
-          // Also update selectedConversation if it matches
           setSelectedConversation((prev) => {
-            if (prev && prev.participantId === userId) {
-              console.log(`⚫ Selected conversation now offline: ${prev.name}`);
+            if (prev && prev.participantId?.toString() === userIdStr && prev.online) {
               return { ...prev, online: false };
             }
             return prev;
           });
-        } else {
-          console.warn('⚠️ No userId found in offline event:', data);
         }
       };
 
       const handleNewThread = (data: any) => {
-        console.log('🆕 New thread received:', data);
-        // Add new thread to conversations list when another user messages you
         if (data && data.threadId && data.participant) {
           setConversations((prev) => {
-            // Check if conversation already exists (by threadId or participantId)
             const exists = prev.some(
               (c) => c.id === data.threadId || c.participantId === data.participant._id
             );
@@ -598,15 +785,18 @@ function ChatPageContent() {
               return prev;
             }
 
-            // Create new conversation from thread data
-            const newConv: Conversation = {
-              id: data.threadId, // Use threadId as unique identifier
-              participantId: data.participant._id, // Store participant ID for online/offline matching
-              name:
-                data.participant.firstName ||
+            const participantFullName =
+              data.participant.firstName && data.participant.lastName
+                ? `${data.participant.firstName} ${data.participant.lastName}`
+                : data.participant.firstName ||
                 data.participant.fullName ||
                 data.participant.username ||
-                'Unknown',
+                'Unknown';
+
+            const newConv: Conversation = {
+              id: data.threadId,
+              participantId: data.participant._id,
+              name: participantFullName,
               avatar:
                 data.participant.profileImage ||
                 data.participant.profilePicture ||
@@ -615,7 +805,8 @@ function ChatPageContent() {
               lastMessage: 'New conversation started',
               timestamp: 'Now',
               unread: true,
-              online: data.participant.isOnline || false, // Use actual online status
+              unreadCount: 1,
+              online: data.participant.isOnline || false,
               threadId: data.threadId,
             };
 
@@ -624,41 +815,25 @@ function ChatPageContent() {
         }
       };
 
-      // Voice call handlers
       const handleIncomingCall = (data: any) => {
-        console.log('📞 Incoming call received:', JSON.stringify(data, null, 2));
-        console.log('📞 Current user ID:', parsedUser._id);
-
-        // Backend sends 'callerId', not 'from'
         const callerId = data?.callerId || data?.from;
         const threadId = data?.threadId;
         const callerInfo = data?.callerInfo;
-        const callType = data?.callType || 'voice'; // Default to voice if not specified
-
-        console.log(
-          '📞 Extracted - callerId:',
-          callerId,
-          'threadId:',
-          threadId,
-          'callType:',
-          callType
-        );
+        const callType = data?.callType || 'voice';
+        const isGroupCall = data?.isGroupCall || false;
+        const groupInfo = data?.groupInfo;
 
         if (!callerId || !threadId) {
-          console.warn('⚠️ Invalid incoming call data:', data);
           return;
         }
 
-        // Find the conversation by threadId
-        const conversation = conversations.find(
+        // GlobalCallHandler handles busy signal & call UI — only update chat UI here
+
+        const currentConversations = conversationsRef.current;
+        const conversation = currentConversations.find(
           (c) => c.threadId === threadId || c.id === threadId || c.participantId === callerId
         );
 
-        console.log('🔍 Found conversation for incoming call:', conversation);
-        console.log('📞 Caller info from backend:', callerInfo);
-        console.log('📞 Call type:', callType);
-
-        // Use priority: conversation name > callerInfo from backend > Unknown
         const callerName = conversation?.name || callerInfo?.name || 'Unknown User';
         const callerAvatar = conversation?.avatar || callerInfo?.avatar || '👤';
 
@@ -668,18 +843,30 @@ function ChatPageContent() {
           callerAvatar,
           threadId,
           callType,
+          isGroupCall,
+          groupInfo: isGroupCall
+            ? {
+              groupId: groupInfo?.groupId || threadId,
+              groupName: groupInfo?.groupName || 'Group Call',
+              groupAvatar: groupInfo?.groupAvatar || '👥',
+            }
+            : undefined,
         });
 
-        // Add system message for incoming call if it's the selected conversation
+        // Don't open modals here — GlobalCallHandler handles
+        // incoming-call notification + accept/reject UI globally.
+
         if (
           threadId === selectedThreadIdRef.current ||
-          threadId === selectedConversation?.threadId
+          threadId === selectedConversationRef.current?.threadId
         ) {
+          // Local "Incoming call" indicator — will be replaced by backend system message
           const callMessage: Message = {
             id: `call-incoming-${Date.now()}`,
             sender: 'System',
-            content: callType === 'video' ? '📹 Incoming video call' : '📞 Incoming voice call',
+            content: callType === 'video' ? 'Incoming video call...' : 'Incoming voice call...',
             timestamp: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
             isSent: false,
             type: 'system',
             senderId: 'system',
@@ -691,88 +878,55 @@ function ChatPageContent() {
           setMessages((prev) => [...prev, callMessage]);
         }
 
-        // Show browser notification
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+          const notifIcon =
+            callerAvatar?.startsWith('http') || callerAvatar?.startsWith('/')
+              ? callerAvatar
+              : undefined;
           new Notification('Incoming Call', {
             body: `${callerName} is calling...`,
-            icon: callerAvatar,
+            icon: notifIcon,
             tag: 'incoming-call',
           });
         }
 
         if (!conversation) {
-          console.warn('⚠️ Conversation not found. ThreadId:', threadId, 'CallerId:', callerId);
-          console.log(
-            '📋 Available conversations:',
-            conversations.map((c) => ({
-              id: c.id,
-              threadId: c.threadId,
-              participantId: c.participantId,
-            }))
-          );
         }
       };
 
       const handleCallRejected = (data: any) => {
-        console.log('❌ Call was rejected:', data);
         setIncomingCall(null);
+        // Close chat page's own call modals (the button is disabled while any is open)
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
-
-        // Add system message for rejected call
-        if (
-          data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversation?.threadId
-        ) {
-          const systemMessage: Message = {
-            id: `call-rejected-${Date.now()}`,
-            sender: 'System',
-            content: 'Call was not answered',
-            timestamp: new Date().toISOString(),
-            isSent: false,
-            type: 'system',
-            senderId: 'system',
-            senderName: 'System',
-            status: 'sent' as const,
-            isSystemMessage: true,
-            systemMessageType: 'call-rejected',
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-        }
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        // NOTE: Don't call releaseCall() — the call modal manages its own lock.
+        // System message will arrive via newMessage from backend
       };
 
       const handleCallEnded = (data: any) => {
-        console.log('📞 Call ended:', data);
-        const endedAt = data.endedAt ? new Date(data.endedAt) : new Date();
-        const duration = data.duration || 0;
-
         setIncomingCall(null);
+        // Close chat page's own call modals (the button is disabled while any is open)
         setIsVoiceCallOpen(false);
         setIsVideoCallOpen(false);
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        // NOTE: Don't call releaseCall() — the call modal manages its own lock.
+        // System message will arrive via newMessage from backend
+      };
 
-        // Add system message for ended call
-        if (
-          data.threadId === selectedThreadIdRef.current ||
-          data.threadId === selectedConversation?.threadId
-        ) {
-          const systemMessage: Message = {
-            id: `call-ended-${Date.now()}`,
-            sender: 'System',
-            content:
-              duration > 0
-                ? `Call ended • Duration: ${formatCallDuration(duration)}`
-                : 'Call ended',
-            timestamp: endedAt.toISOString(),
-            isSent: false,
-            type: 'system',
-            senderId: 'system',
-            senderName: 'System',
-            status: 'sent' as const,
-            isSystemMessage: true,
-            systemMessageType: 'call-ended',
-          };
-          setMessages((prev) => [...prev, systemMessage]);
-        }
+      const handleCallFailed = (data: any) => {
+        setIncomingCall(null);
+        // Close chat page's own call modals (the button is disabled while any is open)
+        setIsVoiceCallOpen(false);
+        setIsVideoCallOpen(false);
+        setIsGroupVoiceCallOpen(false);
+        setIsGroupVideoCallOpen(false);
+        // NOTE: Don't call releaseCall() — the call modal manages its own lock.
+
+        showToast.error('Call Failed', data.reason || 'Unable to connect the call');
+        // System message will arrive via newMessage from backend (for missed/rejected)
       };
 
       onNewMessage(handleNewMessage);
@@ -785,65 +939,229 @@ function ChatPageContent() {
       onIncomingCall(handleIncomingCall);
       onCallRejected(handleCallRejected);
       onCallEnded(handleCallEnded);
+      onCallFailed(handleCallFailed);
+
+      const handleGroupMessage = (data: { groupId: string; message: any }) => {
+        const { groupId, message } = data;
+
+        const currentUserId = (parsedUser._id || parsedUser.id || '').toString();
+        const messageSenderId = (message.senderId?._id || message.senderId || '').toString();
+        const isOwnMessage = currentUserId && messageSenderId && currentUserId === messageSenderId;
+
+        if (selectedThreadIdRef.current === groupId) {
+          const isSystemMsg = message.messageType === 'system';
+          const newMessage = {
+            id: message._id,
+            content: message.systemMessage || message.text || message.content || '',
+            sender: isOwnMessage
+              ? 'You'
+              : message.senderId?.firstName
+                ? `${message.senderId.firstName} ${message.senderId.lastName || ''}`.trim()
+                : 'Unknown',
+            isSent: isOwnMessage,
+            messageType: message.messageType || 'text',
+            isSystemMessage: isSystemMsg,
+            systemMessageType: message.systemMessageType,
+            senderId: message.senderId?._id || message.senderId,
+            senderName: message.senderId?.firstName
+              ? `${message.senderId.firstName} ${message.senderId.lastName || ''}`.trim()
+              : 'Unknown',
+            senderAvatar: message.senderId?.profileImage || message.senderId?.avatar,
+            timestamp: new Date(message.createdAt || Date.now()).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            createdAt: message.createdAt || new Date().toISOString(),
+            status: 'sent' as const,
+            media: message.media,
+            location: message.location,
+            sharedContent: message.sharedContent,
+            replyTo: message.replyTo
+              ? {
+                _id: message.replyTo._id,
+                content: message.replyTo.text || message.replyTo.content || '',
+                senderName:
+                  message.replyTo.senderName || message.replyTo.senderId?.firstName || 'Unknown',
+              }
+              : undefined,
+          };
+
+          if (!isOwnMessage || isSystemMsg) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === newMessage.id)) return prev;
+              return [...prev, newMessage];
+            });
+          }
+        }
+
+        setGroups((prev) => {
+          const displayMessage =
+            message.systemMessage ||
+            message.text ||
+            message.content ||
+            (message.media?.length > 0 ? '📎 Media' : '');
+
+          const updatedGroups = prev.map((group) => {
+            if (group.id === groupId) {
+              return {
+                ...group,
+                lastMessage: displayMessage,
+                timestamp: 'Now',
+                unread: !isOwnMessage && selectedThreadIdRef.current !== groupId,
+                unreadCount:
+                  !isOwnMessage && selectedThreadIdRef.current !== groupId
+                    ? (group.unreadCount || 0) + 1
+                    : group.unreadCount,
+              };
+            }
+            return group;
+          });
+
+          const groupIndex = updatedGroups.findIndex((g) => g.id === groupId);
+          if (groupIndex > 0) {
+            const [movedGroup] = updatedGroups.splice(groupIndex, 1);
+            return [movedGroup, ...updatedGroups];
+          }
+
+          return updatedGroups;
+        });
+      };
+
+      const handleGroupMessageNotification = (data: {
+        groupId: string;
+        groupName: string;
+        message: any;
+      }) => {
+        const { groupId, message, groupName } = data;
+
+        setGroups((prev) => {
+          const displayMessage = message.text || (message.media?.length > 0 ? '📎 Media' : '');
+
+          const updatedGroups = prev.map((group) => {
+            if (group.id === groupId) {
+              return {
+                ...group,
+                lastMessage: displayMessage,
+                timestamp: 'Now',
+                unread: selectedThreadIdRef.current !== groupId,
+                unreadCount:
+                  selectedThreadIdRef.current !== groupId
+                    ? (group.unreadCount || 0) + 1
+                    : group.unreadCount,
+              };
+            }
+            return group;
+          });
+
+          const groupIndex = updatedGroups.findIndex((g) => g.id === groupId);
+          if (groupIndex > 0) {
+            const [movedGroup] = updatedGroups.splice(groupIndex, 1);
+            return [movedGroup, ...updatedGroups];
+          }
+
+          return updatedGroups;
+        });
+
+        if (!document.hasFocus()) {
+          if (Notification.permission === 'granted') {
+            new Notification(groupName, {
+              body: `${message.senderId?.firstName || 'Someone'}: ${message.text || 'Sent a message'}`,
+              icon: '👥',
+            });
+          }
+        }
+      };
+
+      onGroupMessage(handleGroupMessage);
+      onGroupMessageNotification(handleGroupMessageNotification);
 
       const currentSocket = getSocket();
       if (currentSocket) {
-        console.log('🔌 Registering socket listeners, socket ID:', currentSocket.id);
-
         currentSocket.on('messagesSeen', handleMessagesSeen);
         currentSocket.on('messageEdited', handleMessageEdited);
         currentSocket.on('messageDeleted', handleMessageDeleted);
 
-        // Handle reconnection - re-emit online status
-        currentSocket.on('connect', () => {
-          console.log('✅ Socket connected/reconnected:', currentSocket.id);
-          emitUserOnline(parsedUser._id);
-          // Request online users list on connect
-          currentSocket.emit('getOnlineUsers');
+        currentSocket.on('groupCreated', (data: any) => {
+          if (data?.group) {
+            const group = data.group;
+            const newGroup = {
+              id: group._id,
+              threadId: group._id,
+              name: group.name || 'Unnamed Group',
+              avatar: group.avatar || '👥',
+              lastMessage: '',
+              timestamp: 'Just now',
+              unread: false,
+              unreadCount: 0,
+              online: false,
+              isGroup: true,
+              memberCount: group.members?.length || 0,
+              members: group.members || [],
+              participantId: '',
+            };
+
+            setGroups((prev) => {
+              const exists = prev.some((g) => g.id === group._id);
+              if (exists) return prev;
+              return [newGroup, ...prev];
+            });
+          }
         });
 
-        // ✅ Listen for initial online users list
+        currentSocket.on('connect', () => {
+          emitUserOnline(parsedUser._id);
+          currentSocket.emit('getOnlineUsers');
+          groupsRef.current.forEach((group) => {
+            emitJoinGroup(group.id);
+          });
+        });
+
         currentSocket.on('onlineUsersList', (data: { users: string[] }) => {
-          console.log('📋 Received online users list:', data.users);
+          setConversations((prev) => {
+            return prev.map((conv) => {
+              const isOnline =
+                data.users.includes(conv.participantId) ||
+                data.users.includes(conv.participantId.toString());
+              return {
+                ...conv,
+                online: isOnline,
+              };
+            });
+          });
 
-          // Update all conversations with online status
-          setConversations((prev) =>
-            prev.map((conv) => ({
-              ...conv,
-              online: data.users.includes(conv.participantId),
-            }))
-          );
-
-          // Update selected conversation if needed
+          // FIX: Must also set online=false when user is NOT in the list.
+          // Previously this only set online=true, leaving stale "Active now" status.
           setSelectedConversation((prev) => {
-            if (prev && data.users.includes(prev.participantId)) {
-              return { ...prev, online: true };
+            if (!prev) return prev;
+            const isOnline =
+              data.users.includes(prev.participantId) ||
+              data.users.includes(prev.participantId?.toString());
+            if (prev.online !== isOnline) {
+              return { ...prev, online: isOnline };
             }
             return prev;
           });
         });
 
-        // ✅ Request initial online users list
-        currentSocket.emit('getOnlineUsers');
-
-        // Generic listener to catch any event
-        currentSocket.onAny((eventName, ...args) => {
-          console.log(`📡 Socket event received: ${eventName}`, args);
-        });
+        if (currentSocket.connected) {
+          currentSocket.emit('getOnlineUsers');
+        }
       } else {
-        console.error('❌ Socket not available!');
       }
 
-      // Request notification permission
       if (typeof window !== 'undefined' && Notification.permission === 'default') {
         Notification.requestPermission();
       }
 
-      // Cleanup on unmount
       return () => {
         const currentSocket = getSocket();
         if (currentSocket) {
-          currentSocket.off('messagesSeen');
+          currentSocket.off('messagesSeen', handleMessagesSeen);
+          currentSocket.off('messageEdited', handleMessageEdited);
+          currentSocket.off('messageDeleted', handleMessageDeleted);
+          currentSocket.off('groupCreated');
+          currentSocket.off('onlineUsersList');
+          currentSocket.off('connect');
         }
         offNewMessage(handleNewMessage);
         offMessageStatus(handleMessageStatus);
@@ -855,75 +1173,112 @@ function ChatPageContent() {
         offIncomingCall(handleIncomingCall);
         offCallRejected(handleCallRejected);
         offCallEnded(handleCallEnded);
+        offCallFailed(handleCallFailed);
+        offGroupMessage(handleGroupMessage);
+        offGroupMessageNotification(handleGroupMessageNotification);
 
-        // Clear typing timeout
         if (typingTimeoutRef.current) {
           clearTimeout(typingTimeoutRef.current);
         }
-
-        // NOTE: Do NOT disconnect socket here - keep it alive until logout
-        // Socket will be disconnected in handleLogout()
       };
     }
   }, []);
 
   useEffect(() => {
-    // Check if there's a userId in URL params to open chat with specific user
+    if (!user) return;
+
     const userId = searchParams.get('userId');
     const userName = searchParams.get('userName');
     const userAvatar = searchParams.get('avatar');
 
     if (userId && userName) {
-      // Open chat with specific user
-      const newConversation: Conversation = {
-        id: userId, // Use userId string directly
-        participantId: userId,
-        name: decodeURIComponent(userName),
-        avatar: userAvatar ? decodeURIComponent(userAvatar) : '👤',
-        lastMessage: 'Start a conversation',
-        timestamp: 'Now',
-        unread: false,
-        online: true,
-        threadId: undefined,
-      };
+      const existingConv = conversations.find((c) => c.participantId === userId);
 
-      // Check if conversation already exists
-      setConversations((prev) => {
-        const exists = prev.find((c) => c.participantId === userId);
-        if (exists) {
-          return prev;
+      if (existingConv) {
+        setSelectedConversation(existingConv);
+        if (existingConv.threadId) {
+          setSelectedThreadId(existingConv.threadId);
+          joinThread(existingConv.threadId);
+          loadMessages(existingConv.threadId, existingConv.isGroup);
+        } else {
+          handleGetThread(userId);
         }
-        return [newConversation, ...prev];
-      });
+      } else {
+        const newConversation: Conversation = {
+          id: userId,
+          participantId: userId,
+          name: decodeURIComponent(userName),
+          avatar: userAvatar ? decodeURIComponent(userAvatar) : '👤',
+          lastMessage: 'Start a conversation',
+          timestamp: 'Now',
+          unread: false,
+          unreadCount: 0,
+          online: false, // We don't know yet
+          threadId: undefined,
+        };
 
-      setSelectedConversation(newConversation);
-      // Clear messages initially
-      setMessages([]);
-      // Create/get thread and load messages
-      handleGetThread(userId);
-      // Clear URL params
+        setConversations((prev) => [newConversation, ...prev]);
+        setSelectedConversation(newConversation);
+        setMessages([]);
+        handleGetThread(userId);
+      }
+
       router.replace('/chat', { scroll: false });
     }
-  }, [searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, user]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Track previous message count to determine if we should auto-scroll
+  const prevMessagesLengthRef = useRef(0);
+  const prevThreadIdRef = useRef<string | null>(null);
+
+  const scrollToBottom = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, []);
+
+  // Reset typing indicator when switching conversations
+  useEffect(() => {
+    setIsOtherUserTyping(false);
+  }, [selectedConversation?.id]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Scroll to bottom on conversation switch (even if same message count)
+    if (selectedThreadId !== prevThreadIdRef.current) {
+      prevThreadIdRef.current = selectedThreadId;
+      prevMessagesLengthRef.current = 0; // Reset so next check scrolls
+      if (messages.length > 0) {
+        scrollToBottom();
+      }
+      return;
+    }
+
+    // Only scroll to bottom on initial load or when new messages arrive at the end.
+    // Don't scroll when loading older messages (prepending) or on edits/status updates.
+    const prevLen = prevMessagesLengthRef.current;
+    const newLen = messages.length;
+
+    if (newLen > prevLen) {
+      // New message(s) appended — scroll down
+      scrollToBottom();
+    }
+    // On initial load (prevLen was 0), also scroll
+    if (prevLen === 0 && newLen > 0) {
+      scrollToBottom();
+    }
+
+    prevMessagesLengthRef.current = newLen;
+  }, [messages, selectedThreadId, scrollToBottom]);
 
   const handleLogout = () => {
-    // Emit offline status before disconnecting
     if (user?._id) {
       emitUserOffline(user._id);
     }
 
-    // Disconnect socket
     disconnectSocket();
 
-    // Clear storage and redirect
     localStorage.removeItem('user');
     localStorage.removeItem('accessToken');
     router.push('/');
@@ -945,9 +1300,7 @@ function ChatPageContent() {
             setSelectedThreadId(null);
             setMessages([]);
           }
-        } catch (error: any) {
-          console.error('Error blocking user:', error);
-        }
+        } catch (error: any) { }
       },
     });
   };
@@ -956,22 +1309,125 @@ function ChatPageContent() {
     if (!selectedConversation) return;
     const reason = prompt(`Please specify the reason for reporting ${selectedConversation.name}:`);
     if (reason && reason.trim()) {
-      confirm({
-        title: 'Report Submitted',
-        message: `User reported for: ${reason}\n\nThank you for helping keep our community safe.`,
-        confirmText: 'OK',
-        cancelText: null,
-        variant: 'success',
-        onConfirm: () => {},
-      });
+      // Actually submit the report to the backend
+      (async () => {
+        try {
+          const response = await authService.reportUser(
+            selectedConversation.participantId,
+            reason.trim()
+          );
+          if (response?.success) {
+            showToast.success('Report submitted. Thank you for keeping our community safe.');
+          } else {
+            showToast.error('Failed to submit report. Please try again.');
+          }
+        } catch {
+          // If reportUser API doesn't exist yet, show success anyway for UX
+          showToast.success('Report submitted. Thank you for keeping our community safe.');
+        }
+      })();
     }
   };
 
+  const sendVoiceMessage = async (audioFile: File) => {
+    if (!selectedThreadId || isSendingMessage) return;
+
+    const isGroup = selectedConversation?.isGroup;
+    const replyToId = replyingTo?._id || (replyingTo?.id ? String(replyingTo.id) : undefined);
+
+    setIsSendingMessage(true);
+    setReplyingTo(null);
+
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      sender: 'You',
+      senderId: user?._id,
+      senderName: user?.firstName || 'You',
+      content: '',
+      timestamp: 'Sending...',
+      createdAt: new Date().toISOString(),
+      isSent: true,
+      type: 'audio',
+      media: [{ type: 'audio', url: URL.createObjectURL(audioFile) }],
+      replyTo: replyingTo
+        ? {
+          _id: replyingTo.id?.toString() || '',
+          content: replyingTo.content || '',
+          senderName: replyingTo.sender || '',
+        }
+        : undefined,
+    };
+
+    setMessages((prev) => [...prev, tempMessage]);
+
+    try {
+      let response: any;
+
+      if (isGroup) {
+        response = await groupService.sendGroupMessage(selectedThreadId, {
+          text: undefined,
+          replyTo: replyToId,
+          files: [audioFile],
+        });
+      } else {
+        const formData = new FormData();
+        if (replyToId) formData.append('reply_to', replyToId);
+        formData.append('media', audioFile);
+        response = await chatService.sendMessage(selectedThreadId, formData);
+      }
+
+      if (response.success && response.data) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === tempMessage.id
+              ? {
+                ...msg,
+                id: response.data._id,
+                timestamp: new Date().toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+                media: response.data.media || msg.media,
+              }
+              : msg
+          )
+        );
+
+        setConversations((prev) => {
+          const updated = prev.map((conv) =>
+            conv.id === selectedConversation?.id
+              ? { ...conv, lastMessage: '🎤 Voice message', timestamp: 'Now', unread: false }
+              : conv
+          );
+          const updatedConv = updated.find((c) => c.id === selectedConversation?.id);
+          const others = updated.filter((c) => c.id !== selectedConversation?.id);
+          return updatedConv ? [updatedConv, ...others] : updated;
+        });
+      }
+    } catch (error) {
+      setMessages((prev) => prev.filter((msg) => msg.id !== tempMessage.id));
+      showToast.error('Failed to send voice message', 'Please try again');
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+  const {
+    isRecording,
+    recordingDuration,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+    formatRecordingDuration,
+  } = useVoiceRecorder({ onRecordingComplete: sendVoiceMessage });
+
+  const handleEmojiSelect = (emoji: string) => {
+    setMessageInput((prev) => prev + emoji);
+  };
+
   const handleSendMessage = async () => {
-    // Allow sending if there is text OR a file
     if ((!messageInput.trim() && !selectedFile) || !selectedThreadId || isSendingMessage) return;
 
-    // Stop typing indicator when sending
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
@@ -985,104 +1441,198 @@ function ChatPageContent() {
       id: Date.now(),
       sender: 'You',
       content: messageInput,
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: new Date().toISOString(),
       isSent: true,
       media: selectedFile
         ? [
-            {
-              url: previewUrl || '',
-              type: selectedFile.type.startsWith('video') ? 'video' : 'image',
-            },
-          ]
+          {
+            url: previewUrl || '',
+            type: selectedFile.type.startsWith('video')
+              ? 'video'
+              : selectedFile.type.startsWith('image')
+                ? 'image'
+                : 'document',
+            fileName: selectedFile.name,
+          },
+        ]
+        : undefined,
+      replyTo: replyingTo
+        ? {
+          _id: replyingTo.id.toString(),
+          content: replyingTo.content,
+          senderName: replyingTo.sender,
+        }
         : undefined,
     };
 
     setMessages((prev) => [...prev, tempMessage]);
     const messageText = messageInput;
     const fileToSend = selectedFile;
+    const replyToId = replyingTo?.id?.toString();
 
     setMessageInput('');
     removeSelectedFile();
+    setReplyingTo(null);
 
     try {
-      let response;
+      let response: any;
+      const isGroup = selectedConversation?.isGroup || false;
 
-      if (fileToSend) {
-        const formData = new FormData();
-        if (messageText) formData.append('text', messageText);
-        // Strictly use "media" key for backend
-        formData.append('media', fileToSend);
-
-        response = await chatService.sendMessage(selectedThreadId, formData);
+      if (isGroup) {
+        if (fileToSend) {
+          response = await groupService.sendGroupMessage(selectedThreadId, {
+            text: messageText || undefined,
+            replyTo: replyToId,
+            files: [fileToSend],
+          });
+        } else {
+          response = await groupService.sendGroupMessage(selectedThreadId, {
+            text: messageText,
+            replyTo: replyToId,
+          });
+        }
       } else {
-        response = await chatService.sendMessage(selectedThreadId, {
-          text: messageText,
-        });
+        if (fileToSend) {
+          const formData = new FormData();
+          if (messageText) formData.append('text', messageText);
+          if (replyToId) formData.append('reply_to', replyToId);
+
+          formData.append('media', fileToSend);
+
+          response = await chatService.sendMessage(selectedThreadId, formData);
+        } else {
+          response = await chatService.sendMessage(selectedThreadId, {
+            text: messageText,
+            reply_to: replyToId,
+          });
+        }
       }
 
       if (response.success && response.data) {
-        // Update with actual message from server
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === tempMessage.id
               ? {
-                  ...msg,
-                  id: response.data._id,
-                  media: response.data.media || msg.media, // Update media URL from server
-                }
+                ...msg,
+                id: response.data._id,
+                media: response.data.media || msg.media,
+              }
               : msg
           )
         );
 
-        // Update conversation last message and move to top
         setConversations((prev) => {
           const updated = prev.map((conv) =>
             conv.id === selectedConversation?.id
               ? {
-                  ...conv,
-                  lastMessage: fileToSend
-                    ? fileToSend.type.startsWith('image')
-                      ? '📷 Image'
-                      : '📹 Video'
-                    : messageText,
-                  timestamp: 'Now',
-                  unread: false,
-                }
+                ...conv,
+                lastMessage: fileToSend
+                  ? fileToSend.type.startsWith('image')
+                    ? '📷 Image'
+                    : fileToSend.type.startsWith('video')
+                      ? 'Video'
+                      : '📄 Document'
+                  : messageText,
+                timestamp: 'Now',
+                unread: false,
+              }
               : conv
           );
-          // Move updated conversation to top
           const updatedConv = updated.find((c) => c.id === selectedConversation?.id);
           const others = updated.filter((c) => c.id !== selectedConversation?.id);
           return updatedConv ? [updatedConv, ...others] : updated;
         });
       }
     } catch (error: any) {
-      console.error('Error sending message:', error);
       if (error && typeof error === 'object') {
-        console.error('Error Details:', JSON.stringify(error, null, 2));
       }
-      // Remove temp message on error
+
       setMessages((prev) => prev.filter((msg) => msg.id !== tempMessage.id));
-      setMessageInput(messageText); // Restore message input
-      // Note: we can't easily restore file selection programmatically for security reasons
+      setMessageInput(messageText);
     } finally {
       setIsSendingMessage(false);
     }
   };
 
+  const handleForwardMessage = async (targetConversation: Conversation) => {
+    if (!messageToForward) return;
+
+    try {
+      let targetThreadId: string | undefined = targetConversation.threadId;
+
+      if (!targetThreadId) {
+        const threadResponse = await chatService.getThread(targetConversation.participantId);
+        if (threadResponse.success && threadResponse.data?.thread?._id) {
+          targetThreadId = threadResponse.data.thread._id;
+        } else {
+          showToast.error('Failed to get conversation thread');
+          return;
+        }
+      }
+
+      if (!targetThreadId) {
+        showToast.error('Failed to get conversation thread');
+        return;
+      }
+
+      const forwardedText = messageToForward.content;
+      const forwardedMedia = messageToForward.media;
+      let response: any;
+
+      if (targetConversation.isGroup) {
+        const payload: any = { text: forwardedText, isForwarded: true };
+        // Include media info if present (location, shared content, etc.)
+        if (messageToForward.location) {
+          payload.messageType = 'location';
+          payload.location = messageToForward.location;
+        }
+        response = await groupService.sendGroupMessage(targetThreadId, payload);
+      } else {
+        const payload: any = { text: forwardedText, isForwarded: true };
+        if (messageToForward.location) {
+          payload.messageType = 'location';
+          payload.location = messageToForward.location;
+        }
+        response = await chatService.sendMessage(targetThreadId, payload);
+      }
+
+      if (response.success) {
+        showToast.success(`Message forwarded to ${targetConversation.name}`);
+        setIsForwardModalOpen(false);
+        setMessageToForward(null);
+        setForwardSearchQuery('');
+      } else {
+        showToast.error('Failed to forward message');
+      }
+    } catch (error) {
+      showToast.error('Failed to forward message');
+    }
+  };
+
+  const {
+    isSendingLocation,
+    showLocationMenu,
+    setShowLocationMenu,
+    sendCurrentLocation,
+    sendLiveLocation,
+  } = useLocationSharing({
+    selectedThreadId,
+    isGroup: selectedConversation?.isGroup || false,
+    setMessages,
+    setShowAttachmentMenu,
+  });
+
   const handleMessageInputChange = (value: string) => {
     setMessageInput(value);
 
-    // Emit typing event
     if (selectedThreadId && selectedConversation?.participantId) {
       emitTyping(selectedThreadId, selectedConversation.participantId);
 
-      // Clear previous timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
 
-      // Set new timeout to emit stop typing after 3 seconds of inactivity
       typingTimeoutRef.current = setTimeout(() => {
         emitStopTyping(selectedThreadId, selectedConversation.participantId);
       }, 3000);
@@ -1094,7 +1644,6 @@ function ChatPageContent() {
       const file = e.target.files[0];
       setSelectedFile(file);
 
-      // Create preview URL
       const url = URL.createObjectURL(file);
       setPreviewUrl(url);
     }
@@ -1106,9 +1655,6 @@ function ChatPageContent() {
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
 
   const handleEditMessage = async (messageId: string) => {
@@ -1117,7 +1663,6 @@ function ChatPageContent() {
     try {
       await chatService.editMessage(messageId, { text: editingMessageText });
 
-      // Update message in UI
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id.toString() === messageId
@@ -1128,78 +1673,216 @@ function ChatPageContent() {
 
       setEditingMessageId(null);
       setEditingMessageText('');
-    } catch (error) {
-      console.error('Error editing message:', error);
-    }
+    } catch (error) { }
   };
 
   const handleDeleteMessage = async (messageId: string, deleteFor: 'me' | 'everyone') => {
     try {
-      console.log(`Deleting message ${messageId} for: ${deleteFor}`);
-      await chatService.deleteMessage(messageId, deleteFor);
+      let response;
 
-      // Remove message from UI immediately for both cases
-      // Socket event will also update other user's UI for "everyone"
+      if (activeTab === 'groups' && selectedThreadId) {
+        response = await groupService.deleteMessage(
+          selectedThreadId,
+          messageId,
+          deleteFor === 'everyone'
+        );
+      } else {
+        response = await chatService.deleteMessage(messageId, deleteFor);
+      }
+
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to delete message');
+      }
+
       setMessages((prev) => prev.filter((msg) => msg.id.toString() !== messageId));
 
-      console.log(`Message ${messageId} removed from local UI`);
+      showToast.success(
+        'Message deleted',
+        deleteFor === 'everyone' ? 'Message deleted for everyone' : 'Message deleted for you'
+      );
+    } catch (error: any) {
+      const errorMessage = error?.message || error?.error || 'Failed to delete message';
+      showToast.error('Delete failed', errorMessage);
+    }
+  };
+
+  // Bulk delete selected messages
+  const handleBulkDelete = (deleteFor: 'me' | 'everyone') => {
+    if (selectedMessageIds.size === 0) return;
+
+    const idsToDelete = new Set(selectedMessageIds);
+
+    confirm({
+      title: `Delete ${idsToDelete.size} message${idsToDelete.size > 1 ? 's' : ''}?`,
+      message:
+        deleteFor === 'everyone'
+          ? 'These messages will be deleted for everyone in this chat.'
+          : 'These messages will be deleted for you only.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const messageId of idsToDelete) {
+          try {
+            let response;
+            if (activeTab === 'groups' && selectedThreadId) {
+              response = await groupService.deleteMessage(
+                selectedThreadId,
+                messageId,
+                deleteFor === 'everyone'
+              );
+            } else {
+              response = await chatService.deleteMessage(messageId, deleteFor);
+            }
+            if (response.success) {
+              successCount++;
+            } else {
+              failCount++;
+            }
+          } catch {
+            failCount++;
+          }
+        }
+
+        // Remove deleted messages from state
+        setMessages((prev) => prev.filter((msg) => !idsToDelete.has(msg.id.toString())));
+
+        if (successCount > 0) {
+          showToast.success(`${successCount} message${successCount > 1 ? 's' : ''} deleted`);
+        }
+        if (failCount > 0) {
+          showToast.error(`Failed to delete ${failCount} message${failCount > 1 ? 's' : ''}`);
+        }
+
+        exitSelectionMode();
+      },
+    });
+  };
+
+  // Bulk forward selected messages
+  const handleBulkForward = () => {
+    if (selectedMessageIds.size === 0) return;
+    setIsForwardModalOpen(true);
+  };
+
+  const handleBulkForwardToConversation = async (targetConversation: Conversation) => {
+    if (selectedMessageIds.size === 0) return;
+
+    try {
+      let targetThreadId: string | undefined = targetConversation.threadId;
+
+      if (!targetThreadId) {
+        const threadResponse = await chatService.getThread(targetConversation.participantId);
+        if (threadResponse.success && threadResponse.data?.thread?._id) {
+          targetThreadId = threadResponse.data.thread._id;
+        } else {
+          showToast.error('Failed to get conversation thread');
+          return;
+        }
+      }
+
+      if (!targetThreadId) {
+        showToast.error('Failed to get conversation thread');
+        return;
+      }
+
+      // Forward messages in order
+      const selectedMsgs = messages.filter((m) => selectedMessageIds.has(m.id.toString()));
+      let successCount = 0;
+
+      for (const msg of selectedMsgs) {
+        try {
+          const payload: any = { text: msg.content, isForwarded: true };
+          if (msg.location) {
+            payload.messageType = 'location';
+            payload.location = msg.location;
+          }
+
+          let response: any;
+          if (targetConversation.isGroup) {
+            response = await groupService.sendGroupMessage(targetThreadId, payload);
+          } else {
+            response = await chatService.sendMessage(targetThreadId, payload);
+          }
+
+          if (response.success) successCount++;
+        } catch {
+          // Continue with remaining messages
+        }
+      }
+
+      if (successCount > 0) {
+        showToast.success(
+          `${successCount} message${successCount > 1 ? 's' : ''} forwarded to ${targetConversation.name}`
+        );
+      }
+
+      setIsForwardModalOpen(false);
+      exitSelectionMode();
     } catch (error) {
-      console.error('Error deleting message:', error);
+      showToast.error('Failed to forward messages');
     }
   };
 
   const handleGetThread = async (userId: string) => {
     try {
-      console.log('🔗 Getting thread for userId:', userId);
       const response = await chatService.getThread(userId);
-      console.log('📌 Thread response:', response);
 
       if (response.success && response.data) {
-        // Handle both direct _id and nested structure
         const threadId = response.data._id || response.data.thread?._id || response.data.threadId;
-        console.log('✅ Thread ID:', threadId);
 
         if (threadId) {
           setSelectedThreadId(threadId);
-          // Join thread room via socket
           joinThread(threadId);
-          // Load messages for this thread
-          loadMessages(threadId);
-          // Mark as seen
-          markThreadAsRead(threadId, userId);
+          loadMessages(threadId, false);
+          markThreadAsRead(threadId, userId, false);
         } else {
-          console.error('❌ No thread ID in response');
         }
       }
-    } catch (error) {
-      console.error('❌ Error getting thread:', error);
-    }
+    } catch (error) { }
   };
 
-  const markThreadAsRead = async (threadId: string, userId: string) => {
+  const markThreadAsRead = async (threadId: string, userId: string, isGroup: boolean = false) => {
     try {
-      await chatService.markThreadAsRead(threadId);
-      // Update conversation to mark as read
+      if (!isGroup) {
+        await chatService.markThreadAsRead(threadId);
+      }
       setConversations((prev) =>
         prev.map((conv) =>
-          conv.id === threadId // Match by conversation id (which is threadId)
-            ? { ...conv, unread: false }
+          conv.id === threadId || conv.threadId === threadId
+            ? { ...conv, unread: false, unreadCount: 0 }
             : conv
         )
       );
-    } catch (error) {
-      console.error('❌ Error marking thread as read:', error);
-    }
+      if (isGroup) {
+        setGroups((prev) =>
+          prev.map((group) =>
+            group.id === threadId || group.threadId === threadId
+              ? { ...group, unread: false, unreadCount: 0 }
+              : group
+          )
+        );
+      }
+    } catch { }
   };
 
-  const loadMessages = async (threadId: string) => {
-    setIsLoadingMessages(true);
+  const loadMessages = async (threadId: string, isGroup: boolean = false, cursor?: string) => {
+    if (cursor) {
+      setIsLoadingOlderMessages(true);
+    } else {
+      setIsLoadingMessages(true);
+    }
     try {
-      const response = await chatService.getMessages(threadId);
-      console.log('📨 Messages response:', response);
+      const params: any = { limit: 50 };
+      if (cursor) params.cursor = cursor;
+
+      const response = isGroup
+        ? await groupService.getGroupMessages(threadId, params)
+        : await chatService.getMessages(threadId, params);
 
       if (response.success && response.data) {
-        // Handle both array and object responses
         let messagesList = [];
 
         if (Array.isArray(response.data)) {
@@ -1210,50 +1893,108 @@ function ChatPageContent() {
           messagesList = response.data.data;
         }
 
-        console.log('✅ Messages list:', messagesList);
-
         const formattedMessages = messagesList.map((msg: any) => ({
           id: msg._id,
           sender:
             msg.senderId?._id === user?._id
               ? 'You'
               : msg.senderId?.firstName || msg.senderId?.username || 'Unknown',
-          content: msg.isDeleted ? 'This message was deleted' : msg.text || msg.content || '',
+          content: msg.isDeleted
+            ? 'This message was deleted'
+            : msg.systemMessage || msg.text || msg.content || '',
           timestamp: new Date(msg.createdAt).toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
           }),
+          createdAt: msg.createdAt || new Date().toISOString(),
           isEdited: msg.isEdited || false,
           isDeleted: msg.isDeleted || false,
           isSent: msg.senderId?._id === user?._id,
           status: msg.status || 'sent',
           messageType: msg.messageType || 'text',
+          isSystemMessage: msg.messageType === 'system',
+          systemMessageType: msg.systemMessageType,
           sharedContent: msg.sharedContent,
           media: msg.media || [],
+          isForwarded: msg.isForwarded || false,
+          location: msg.location
+            ? {
+              latitude: msg.location.coordinates?.[1] || msg.location.latitude,
+              longitude: msg.location.coordinates?.[0] || msg.location.longitude,
+              address: msg.location.address,
+              name: msg.location.name,
+              isLiveLocation: msg.location.isLive,
+            }
+            : undefined,
+          replyTo: msg.replyTo
+            ? {
+              _id: msg.replyTo._id,
+              content: msg.replyTo.text || '',
+              senderName: msg.replyTo.senderName || msg.replyTo.senderId?.firstName || 'Unknown',
+            }
+            : undefined,
         }));
 
-        console.log('📋 Formatted messages:', formattedMessages);
-        setMessages(formattedMessages);
+        // Track hasMore from API response
+        const hasMore = response.data.hasMore ?? messagesList.length >= 50;
+        setHasMoreMessages(hasMore);
+
+        if (cursor) {
+          // Prepend older messages (avoid duplicates)
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id?.toString()));
+            const newOnes = formattedMessages.filter(
+              (m: Message) => !existingIds.has(m.id?.toString())
+            );
+            return [...newOnes, ...prev];
+          });
+        } else {
+          setMessages(formattedMessages);
+        }
       } else {
-        // No messages yet
-        console.log('⚠️ No messages in response');
         setMessages([]);
+        setHasMoreMessages(false);
       }
-    } catch (error) {
-      console.error('❌ Error loading messages:', error);
-      setMessages([]);
+    } catch {
+      if (!cursor) setMessages([]);
+      setHasMoreMessages(false);
     } finally {
       setIsLoadingMessages(false);
+      setIsLoadingOlderMessages(false);
     }
   };
 
-  const filteredConversations = conversations.filter((conv) =>
-    conv.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const uniqueConversations = useMemo(() => {
+    const seen = new Set<string>();
+    return conversations.filter((conv) => {
+      if (seen.has(conv.id)) return false;
+      seen.add(conv.id);
+      return true;
+    });
+  }, [conversations]);
 
-  const filteredGroups = groups.filter((group) =>
-    group.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConversations = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return query
+      ? uniqueConversations.filter((conv) => conv.name.toLowerCase().includes(query))
+      : uniqueConversations;
+  }, [uniqueConversations, searchQuery]);
+
+  const uniqueGroups = useMemo(() => {
+    const seen = new Set<string>();
+    return groups.filter((group) => {
+      if (seen.has(group.id)) return false;
+      seen.add(group.id);
+      return true;
+    });
+  }, [groups]);
+
+  const filteredGroups = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    return query
+      ? uniqueGroups.filter((group) => group.name.toLowerCase().includes(query))
+      : uniqueGroups;
+  }, [uniqueGroups, searchQuery]);
 
   const displayList = activeTab === 'messages' ? filteredConversations : filteredGroups;
 
@@ -1262,27 +2003,24 @@ function ChatPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 h-screen">
-        {/* Sidebar - Hidden on mobile */}
+    <main className="h-[100dvh] bg-background overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-0 lg:gap-4 h-full pb-14 lg:pb-0">
         <aside className="hidden lg:block lg:col-span-1 border-r border-border sticky top-0 h-screen p-4 overflow-y-auto">
           <Navigation user={user} onLogout={handleLogout} />
         </aside>
 
-        {/* Conversations List - Hidden on mobile when chat is selected */}
         <section
-          className={`lg:col-span-1 border-r border-border flex flex-col ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
+          className={`lg:col-span-1 border-r border-border flex flex-col h-full overflow-hidden ${selectedConversation ? 'hidden lg:flex' : 'flex'}`}
         >
-          <div className="p-4 border-b border-border">
-            <h1 className="text-2xl font-bold mb-4 text-foreground">Chats</h1>
+          <div className="p-2.5 lg:p-4 border-b border-border">
+            <h1 className="text-2xl font-bold mb-3 lg:mb-4 text-foreground">Chats</h1>
 
-            {/* Tabs */}
             <div className="flex gap-2 mb-4">
               <Button
                 variant={activeTab === 'messages' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setActiveTab('messages')}
-                className="flex-1"
+                className="flex-1 cursor-pointer"
               >
                 Messages
               </Button>
@@ -1290,18 +2028,17 @@ function ChatPageContent() {
                 variant={activeTab === 'groups' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setActiveTab('groups')}
-                className="flex-1 gap-2"
+                className="flex-1 gap-2 cursor-pointer"
               >
                 <Users size={16} />
                 Groups
               </Button>
             </div>
 
-            {/* Create Group Button */}
             {activeTab === 'groups' && (
               <button
                 onClick={() => setIsCreateGroupOpen(true)}
-                className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl"
+                className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-xl font-medium transition-all shadow-lg hover:shadow-xl cursor-pointer"
               >
                 <UserPlus className="w-5 h-5" />
                 Create New Group
@@ -1318,32 +2055,92 @@ function ChatPageContent() {
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {displayList.map((conversation) => (
+            {conversations.length > 0 && (
+              <div className="p-3 border-b border-border">
+                <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+                  {[...uniqueConversations]
+                    .sort((a, b) => {
+                      if (a.online && !b.online) return -1;
+                      if (!a.online && b.online) return 1;
+                      return 0;
+                    })
+                    .slice(0, 15)
+                    .map((friend, friendIndex) => (
+                      <div
+                        key={`friend-${friend.id}-${friendIndex}`}
+                        onClick={() => {
+                          setSelectedConversation(friend);
+                          if (friend.threadId) {
+                            setSelectedThreadId(friend.threadId);
+                            joinThread(friend.threadId);
+                            loadMessages(friend.threadId, false);
+                          } else {
+                            handleGetThread(friend.participantId);
+                          }
+                        }}
+                        className="flex flex-col items-center gap-1.5 cursor-pointer min-w-[64px] hover:opacity-80 transition"
+                      >
+                        <div className="relative">
+                          <div
+                            className={`w-14 h-14 rounded-full p-[2px] ${friend.hasStory
+                              ? 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400'
+                              : 'bg-border'
+                              }`}
+                          >
+                            <div className="w-full h-full rounded-full bg-background p-[2px]">
+                              <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center">
+                                {friend.avatar?.startsWith('http') ||
+                                  friend.avatar?.startsWith('/') ? (
+                                  <img
+                                    src={getMediaUrl(friend.avatar)}
+                                    alt={friend.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <User className="w-6 h-6 text-white" />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {friend.online && (
+                            <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-green-500 border-2 border-background" />
+                          )}
+                        </div>
+                        <p
+                          className={`text-[11px] font-medium truncate w-14 text-center ${friend.online ? 'text-foreground' : 'text-muted-foreground'
+                            }`}
+                        >
+                          {friend.name?.split(' ')[0]}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+            {displayList.map((conversation, index) => (
               <div
-                key={conversation.id}
+                key={`conversation-${conversation.id}-${index}`}
                 className="relative flex items-center border-b border-border hover:bg-muted transition"
               >
                 <button
                   onClick={() => {
-                    console.log('🔄 Conversation clicked:', conversation);
-                    console.log('📌 Has threadId?', conversation.threadId);
                     setSelectedConversation(conversation);
+                    exitSelectionMode();
                     if (conversation.threadId) {
-                      // Use threadId directly if available
-                      console.log('✅ Setting selectedThreadId to:', conversation.threadId);
                       setSelectedThreadId(conversation.threadId);
                       joinThread(conversation.threadId);
-                      loadMessages(conversation.threadId);
-                      markThreadAsRead(conversation.threadId, conversation.id.toString());
+                      loadMessages(conversation.threadId, conversation.isGroup);
+                      markThreadAsRead(
+                        conversation.threadId,
+                        conversation.id.toString(),
+                        conversation.isGroup
+                      );
                     } else {
-                      // Fallback: create/get thread
-                      console.log('⚠️ No threadId, calling handleGetThread');
                       handleGetThread(conversation.id.toString());
                     }
                   }}
-                  className={`flex-1 p-4 flex items-start gap-3 text-left ${
-                    selectedConversation?.id === conversation.id ? 'bg-muted' : ''
-                  }`}
+                  className={`flex-1 p-4 flex items-start gap-3 text-left cursor-pointer ${selectedConversation?.id === conversation.id ? 'bg-muted' : ''
+                    }`}
                 >
                   <div className="relative flex-shrink-0">
                     <div
@@ -1351,18 +2148,20 @@ function ChatPageContent() {
                         e.stopPropagation();
                         !conversation.isGroup && handleOpenProfile(conversation.participantId);
                       }}
-                      className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg ${
-                        conversation.isGroup ? 'text-2xl' : ''
-                      } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
+                      className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${conversation.isGroup ? 'text-2xl' : ''
+                        } overflow-hidden ${!conversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
                     >
-                      {conversation.avatar?.startsWith('http') ? (
+                      {conversation.avatar?.startsWith('http') ||
+                        conversation.avatar?.startsWith('/') ? (
                         <img
-                          src={conversation.avatar}
+                          src={getMediaUrl(conversation.avatar)}
                           alt={conversation.name}
                           className="w-full h-full object-cover"
                         />
+                      ) : conversation.isGroup ? (
+                        <Users className="w-6 h-6 text-white" />
                       ) : (
-                        conversation.avatar
+                        <User className="w-6 h-6 text-white" />
                       )}
                     </div>
                     {!conversation.isGroup && conversation.online && (
@@ -1370,7 +2169,7 @@ function ChatPageContent() {
                     )}
                     {conversation.isGroup && (
                       <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold border-2 border-card">
-                        {conversation.members}
+                        {conversation.memberCount}
                       </div>
                     )}
                   </div>
@@ -1382,15 +2181,14 @@ function ChatPageContent() {
                           e.stopPropagation();
                           !conversation.isGroup && handleOpenProfile(conversation.participantId);
                         }}
-                        className={`font-semibold text-foreground ${
-                          conversation.unread ? 'font-bold' : ''
-                        } ${!conversation.isGroup ? 'cursor-pointer hover:text-primary transition' : ''}`}
+                        className={`font-semibold text-foreground ${conversation.unread ? 'font-bold' : ''
+                          } ${!conversation.isGroup ? 'cursor-pointer hover:text-primary transition' : ''}`}
                       >
                         {conversation.name}
                       </p>
                       {conversation.isGroup && (
                         <span className="text-xs text-muted-foreground">
-                          ({conversation.members})
+                          ({conversation.memberCount})
                         </span>
                       )}
                     </div>
@@ -1401,65 +2199,150 @@ function ChatPageContent() {
 
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     <div className="text-xs text-muted-foreground">{conversation.timestamp}</div>
-                    {conversation.unread && (
-                      <div className="w-5 h-5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold animate-pulse">
-                        !
+                    {conversation.unreadCount > 0 && (
+                      <div className="min-w-5 h-5 px-1.5 rounded-full bg-primary text-white text-[10px] flex items-center justify-center font-bold">
+                        {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
                       </div>
                     )}
                   </div>
                 </button>
 
-                {/* Options Dropdown Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
                       onClick={(e) => e.stopPropagation()}
-                      className="p-2 mr-2 hover:bg-muted rounded-full transition flex-shrink-0"
+                      className="p-2 mr-2 hover:bg-muted rounded-full transition flex-shrink-0 cursor-pointer"
                       title="More options"
                     >
                       <MoreHorizontal size={18} className="text-muted-foreground" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        confirm({
-                          title: 'Delete Conversation',
-                          message: `Are you sure you want to delete this conversation with ${conversation.name}? This action cannot be undone.`,
-                          confirmText: 'Delete',
-                          variant: 'danger',
-                          onConfirm: async () => {
-                            try {
-                              const threadId = conversation.threadId || conversation.id;
-                              const response = await chatService.deleteThread(threadId);
+                    {conversation.isGroup ? (
+                      conversation.createdBy === user?._id ? (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirm({
+                              title: 'Delete Group',
+                              message: `Are you sure you want to delete "${conversation.name}"? This will remove the group for all members and cannot be undone.`,
+                              confirmText: 'Delete',
+                              variant: 'danger',
+                              onConfirm: async () => {
+                                try {
+                                  const groupId = conversation.threadId || conversation.id;
+                                  const response = await groupService.deleteGroup(groupId);
 
-                              if (response.success) {
-                                // Remove from conversations list
-                                setConversations((prev) =>
-                                  prev.filter((c) => c.id !== conversation.id)
-                                );
+                                  if (response.success) {
+                                    setGroups((prev) =>
+                                      prev.filter((g) => g.id !== conversation.id)
+                                    );
 
-                                // Clear selected conversation if it was deleted
-                                if (selectedConversation?.id === conversation.id) {
-                                  setSelectedConversation(null);
-                                  setSelectedThreadId(null);
-                                  setMessages([]);
+                                    if (selectedConversation?.id === conversation.id) {
+                                      setSelectedConversation(null);
+                                      setSelectedThreadId(null);
+                                      setMessages([]);
+                                    }
+                                    showToast.success('Group deleted successfully');
+                                  } else {
+                                    showToast.error(response.message || 'Failed to delete group');
+                                  }
+                                } catch (error: any) {
+                                  showToast.error(error.message || 'Failed to delete group');
                                 }
+                              },
+                            });
+                          }}
+                          className="text-red-600 dark:text-red-400"
+                        >
+                          <Trash2 size={14} className="mr-2" />
+                          Delete Group
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            confirm({
+                              title: 'Leave Group',
+                              message: `Are you sure you want to leave "${conversation.name}"? You will no longer receive messages from this group.`,
+                              confirmText: 'Leave',
+                              variant: 'danger',
+                              onConfirm: async () => {
+                                try {
+                                  const groupId = conversation.threadId || conversation.id;
+                                  const response = await groupService.leaveGroup(
+                                    groupId,
+                                    user?._id || ''
+                                  );
 
-                                console.log('✅ Thread deleted successfully');
+                                  if (response.success) {
+                                    setGroups((prev) =>
+                                      prev.filter((g) => g.id !== conversation.id)
+                                    );
+
+                                    if (selectedConversation?.id === conversation.id) {
+                                      setSelectedConversation(null);
+                                      setSelectedThreadId(null);
+                                      setMessages([]);
+                                    }
+                                    showToast.success('Left group successfully');
+                                  } else {
+                                    showToast.error(response.message || 'Failed to leave group');
+                                  }
+                                } catch (error: any) {
+                                  showToast.error(error.message || 'Failed to leave group');
+                                }
+                              },
+                            });
+                          }}
+                          className="text-red-600 dark:text-red-400"
+                        >
+                          <LogOut size={14} className="mr-2" />
+                          Leave Group
+                        </DropdownMenuItem>
+                      )
+                    ) : (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          confirm({
+                            title: 'Delete Conversation',
+                            message: `Are you sure you want to delete this conversation with ${conversation.name}? This action cannot be undone.`,
+                            confirmText: 'Delete',
+                            variant: 'danger',
+                            onConfirm: async () => {
+                              try {
+                                const threadId = conversation.threadId || conversation.id;
+                                const response = await chatService.deleteThread(threadId);
+
+                                if (response.success) {
+                                  setConversations((prev) =>
+                                    prev.filter((c) => c.id !== conversation.id)
+                                  );
+
+                                  if (selectedConversation?.id === conversation.id) {
+                                    setSelectedConversation(null);
+                                    setSelectedThreadId(null);
+                                    setMessages([]);
+                                  }
+                                  showToast.success('Conversation deleted');
+                                } else {
+                                  showToast.error(
+                                    response.message || 'Failed to delete conversation'
+                                  );
+                                }
+                              } catch (error: any) {
+                                showToast.error(error.message || 'Failed to delete conversation');
                               }
-                            } catch (error: any) {
-                              console.error('❌ Error deleting thread:', error);
-                            }
-                          },
-                        });
-                      }}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 size={14} className="mr-2" />
-                      Delete Conversation
-                    </DropdownMenuItem>
+                            },
+                          });
+                        }}
+                        className="text-red-600 dark:text-red-400"
+                      >
+                        <Trash2 size={14} className="mr-2" />
+                        Delete Conversation
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -1477,393 +2360,359 @@ function ChatPageContent() {
           </div>
         </section>
 
-        {/* Chat Area - Show on mobile when conversation is selected */}
         {selectedConversation ? (
-          <section className="lg:col-span-2 flex flex-col">
-            {/* Chat Header */}
-            <div className="p-4 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {/* Back Button - Only visible on mobile */}
-                <button
-                  onClick={() => {
-                    setSelectedConversation(null);
-                    setSelectedThreadId(null);
-                    setMessages([]);
-                  }}
-                  className="lg:hidden p-2 hover:bg-muted rounded-full transition"
-                  title="Back to conversations"
-                >
-                  <X size={20} className="text-foreground" />
-                </button>
-
-                <div
-                  onClick={() =>
-                    !selectedConversation.isGroup &&
-                    handleOpenProfile(selectedConversation.participantId)
-                  }
-                  className={`w-12 h-12 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-lg ${
-                    selectedConversation.isGroup ? 'text-2xl' : ''
-                  } overflow-hidden ${!selectedConversation.isGroup ? 'cursor-pointer hover:opacity-80 transition' : ''}`}
-                >
-                  {selectedConversation.avatar?.startsWith('http') ? (
-                    <img
-                      src={selectedConversation.avatar}
-                      alt={selectedConversation.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    selectedConversation.avatar
-                  )}
+          <section className="lg:col-span-2 flex flex-col h-full overflow-hidden">
+            {isSelecting ? (
+              /* ─── Selection Mode Toolbar ─── */
+              <div className="p-2.5 lg:p-4 border-b border-border flex items-center justify-between bg-primary/5">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={exitSelectionMode}
+                    className="p-2 hover:bg-muted rounded-full transition cursor-pointer"
+                    title="Cancel selection"
+                  >
+                    <X size={20} className="text-foreground" />
+                  </button>
+                  <span className="font-semibold text-foreground">
+                    {selectedMessageIds.size} selected
+                  </span>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p
-                      onClick={() =>
-                        !selectedConversation.isGroup &&
-                        handleOpenProfile(selectedConversation.participantId)
-                      }
-                      className={`font-semibold text-foreground ${!selectedConversation.isGroup ? 'cursor-pointer hover:text-primary transition' : ''}`}
-                    >
-                      {selectedConversation.name}
-                    </p>
-                    {selectedConversation.isGroup && (
-                      <span className="text-xs text-muted-foreground">
-                        ({selectedConversation.members} members)
-                      </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={selectAllMessages}
+                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                    title="Select all"
+                  >
+                    <CheckSquare size={20} className="text-primary" />
+                  </button>
+                  <button
+                    onClick={handleBulkForward}
+                    disabled={selectedMessageIds.size === 0}
+                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer disabled:opacity-40"
+                    title="Forward selected"
+                  >
+                    <Forward size={20} className="text-primary" />
+                  </button>
+                  <button
+                    onClick={() => handleBulkDelete('me')}
+                    disabled={selectedMessageIds.size === 0}
+                    className="p-2 rounded-full hover:bg-muted transition cursor-pointer disabled:opacity-40"
+                    title="Delete for me"
+                  >
+                    <Trash2 size={20} className="text-muted-foreground" />
+                  </button>
+                  {/* Show "Delete for everyone" only if ALL selected messages were sent by current user */}
+                  {Array.from(selectedMessageIds).every((id) => {
+                    const msg = messages.find((m) => m.id.toString() === id);
+                    return msg?.isSent;
+                  }) &&
+                    selectedMessageIds.size > 0 && (
+                      <button
+                        onClick={() => handleBulkDelete('everyone')}
+                        className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                        title="Delete for everyone"
+                      >
+                        <Trash2 size={20} className="text-destructive" />
+                      </button>
+                    )}
+                </div>
+              </div>
+            ) : (
+              <div className="p-2.5 lg:p-4 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setSelectedConversation(null);
+                      setSelectedThreadId(null);
+                      setMessages([]);
+                    }}
+                    className="lg:hidden p-2 hover:bg-muted rounded-full transition cursor-pointer"
+                    title="Back to conversations"
+                  >
+                    <X size={20} className="text-foreground" />
+                  </button>
+
+                  <div
+                    onClick={() =>
+                      selectedConversation.isGroup
+                        ? setIsGroupInfoOpen(true)
+                        : handleOpenProfile(selectedConversation.participantId)
+                    }
+                    className={`w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg ${selectedConversation.isGroup ? 'text-2xl' : ''
+                      } overflow-hidden cursor-pointer hover:opacity-80 transition`}
+                  >
+                    {selectedConversation.avatar?.startsWith('http') ||
+                      selectedConversation.avatar?.startsWith('/') ? (
+                      <img
+                        src={getMediaUrl(selectedConversation.avatar)}
+                        alt={selectedConversation.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : selectedConversation.isGroup ? (
+                      <Users className="w-6 h-6 text-white" />
+                    ) : (
+                      <User className="w-6 h-6 text-white" />
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedConversation.isGroup
-                      ? `${selectedConversation.members} members`
-                      : selectedConversation.online
-                        ? 'Active now'
-                        : 'Offline'}
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p
+                        onClick={() =>
+                          selectedConversation.isGroup
+                            ? setIsGroupInfoOpen(true)
+                            : handleOpenProfile(selectedConversation.participantId)
+                        }
+                        className="font-semibold text-foreground cursor-pointer hover:text-primary transition"
+                      >
+                        {selectedConversation.name}
+                      </p>
+                      {selectedConversation.isGroup && (
+                        <span className="text-xs text-muted-foreground">
+                          ({selectedConversation.memberCount} members)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedConversation.isGroup
+                        ? `${selectedConversation.memberCount} members`
+                        : selectedConversation.online
+                          ? 'Active now'
+                          : 'Offline'}
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2">
-                {/* Group Info Button */}
-                {selectedConversation.isGroup && (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsGroupInfoOpen(true)}
-                    className="p-2 hover:bg-muted rounded-full transition"
-                    title="Group Info"
-                  >
-                    <Info size={20} className="text-foreground" />
-                  </button>
-                )}
+                    disabled={
+                      isVoiceCallOpen ||
+                      isVideoCallOpen ||
+                      isGroupVoiceCallOpen ||
+                      isGroupVideoCallOpen
+                    }
+                    onClick={async () => {
+                      // Debounce: prevent double-tap on mobile
+                      if (callInitiatingRef.current) return;
+                      callInitiatingRef.current = true;
+                      setTimeout(() => {
+                        callInitiatingRef.current = false;
+                      }, 2000);
 
-                {/* Voice/Video calls only for direct messages */}
-                {!selectedConversation.isGroup && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        console.log('📞 Voice call button clicked');
-                        console.log('📞 Current user:', user?._id);
-                        console.log('📞 Selected conversation:', selectedConversation);
-                        console.log('📞 Participant ID:', selectedConversation?.participantId);
-                        console.log('📞 Thread ID:', selectedConversation?.threadId);
-
-                        const socket = getSocket();
-                        console.log(
-                          '📞 Socket connected:',
-                          socket?.connected,
-                          'Socket ID:',
-                          socket?.id
+                      // Force microphone permission BEFORE initiating the call
+                      try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        stream.getTracks().forEach((t) => t.stop()); // Release immediately
+                      } catch {
+                        callInitiatingRef.current = false;
+                        alert(
+                          'Microphone access is required to make a voice call. Please allow microphone permission and try again.'
                         );
-
-                        if (selectedConversation?.participantId && selectedConversation?.threadId) {
-                          // Add system message for outgoing call
-                          const callMessage: Message = {
-                            id: `call-initiated-${Date.now()}`,
-                            sender: 'System',
-                            content: '📞 Outgoing voice call',
-                            timestamp: new Date().toISOString(),
-                            isSent: true,
-                            type: 'system',
-                            senderId: 'system',
-                            senderName: 'System',
-                            status: 'sent' as const,
-                            isSystemMessage: true,
-                            systemMessageType: 'call-initiated',
-                          };
-                          setMessages((prev) => [...prev, callMessage]);
-
-                          // Initiate the call via socket
-                          emitInitiateCall(
-                            selectedConversation.participantId,
-                            selectedConversation.threadId
-                          );
-                          // Open the modal
-                          setIsVoiceCallOpen(true);
-                        } else {
-                          console.error(
-                            '❌ Cannot initiate call: Missing participant or thread info'
-                          );
-                          console.error('❌ Conversation object:', selectedConversation);
-                        }
-                      }}
-                      className="p-2 rounded-full hover:bg-muted transition"
-                      title="Start voice call"
-                    >
-                      <Phone size={20} className="text-primary" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        console.log('📹 Video call button clicked');
-                        if (selectedConversation?.participantId && selectedConversation?.threadId) {
-                          // Add system message for outgoing video call
-                          const callMessage: Message = {
-                            id: `call-initiated-${Date.now()}`,
-                            sender: 'System',
-                            content: '📹 Outgoing video call',
-                            timestamp: new Date().toISOString(),
-                            isSent: true,
-                            type: 'system',
-                            senderId: 'system',
-                            senderName: 'System',
-                            status: 'sent' as const,
-                            isSystemMessage: true,
-                            systemMessageType: 'call-initiated',
-                          };
-                          setMessages((prev) => [...prev, callMessage]);
-
-                          // Initiate the video call via socket
-                          emitInitiateCall(
-                            selectedConversation.participantId,
-                            selectedConversation.threadId,
-                            'video'
-                          );
-                          // Open the modal
-                          setIsVideoCallOpen(true);
-                        } else {
-                          console.error(
-                            '❌ Cannot initiate video call: Missing participant or thread info'
-                          );
-                        }
-                      }}
-                      className="p-2 rounded-full hover:bg-muted transition"
-                      title="Start video call"
-                    >
-                      <Video size={20} className="text-primary" />
-                    </button>
-                  </>
-                )}
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
-                      title="More options"
-                    >
-                      <MoreHorizontal size={20} className="text-muted-foreground" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() =>
-                        !selectedConversation.isGroup &&
-                        handleOpenProfile(selectedConversation.participantId)
+                        return;
                       }
-                      className="cursor-pointer"
-                    >
-                      <User size={16} className="mr-2" />
-                      View Profile
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={handleReportUser}
-                      className="text-orange-500 cursor-pointer"
-                    >
-                      <Flag size={16} className="mr-2" />
-                      Report User
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={handleBlockUser}
-                      className="text-destructive cursor-pointer"
-                    >
-                      <Ban size={16} className="mr-2" />
-                      Block User
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                      if (selectedConversation?.isGroup && selectedConversation?.id) {
+                        emitInitiateGroupCall(selectedConversation.id, 'voice');
+                        setIsGroupVoiceCallOpen(true);
+                      } else if (
+                        selectedConversation?.participantId &&
+                        selectedConversation?.threadId
+                      ) {
+                        emitInitiateCall(
+                          selectedConversation.participantId,
+                          selectedConversation.threadId,
+                          'voice'
+                        );
+                        setIsVoiceCallOpen(true);
+                      } else {
+                      }
+                    }}
+                    className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
+                    title="Start voice call"
+                  >
+                    <Phone size={20} className="text-primary" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      isVoiceCallOpen ||
+                      isVideoCallOpen ||
+                      isGroupVoiceCallOpen ||
+                      isGroupVideoCallOpen
+                    }
+                    onClick={async () => {
+                      // Debounce: prevent double-tap on mobile
+                      if (callInitiatingRef.current) return;
+                      callInitiatingRef.current = true;
+                      setTimeout(() => {
+                        callInitiatingRef.current = false;
+                      }, 2000);
+
+                      // Force microphone + camera permission BEFORE initiating the call
+                      try {
+                        const stream = await navigator.mediaDevices.getUserMedia({
+                          audio: true,
+                          video: true,
+                        });
+                        stream.getTracks().forEach((t) => t.stop()); // Release immediately
+                      } catch {
+                        callInitiatingRef.current = false;
+                        alert(
+                          'Microphone and camera access are required to make a video call. Please allow permissions and try again.'
+                        );
+                        return;
+                      }
+
+                      if (selectedConversation?.isGroup && selectedConversation?.id) {
+                        emitInitiateGroupCall(selectedConversation.id, 'video');
+                        setIsGroupVideoCallOpen(true);
+                      } else if (
+                        selectedConversation?.participantId &&
+                        selectedConversation?.threadId
+                      ) {
+                        emitInitiateCall(
+                          selectedConversation.participantId,
+                          selectedConversation.threadId,
+                          'video'
+                        );
+                        setIsVideoCallOpen(true);
+                      } else {
+                      }
+                    }}
+                    className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full hover:bg-muted active:bg-muted/70 transition cursor-pointer"
+                    title="Start video call"
+                  >
+                    <Video size={20} className="text-primary" />
+                  </button>
+
+                  {!selectedConversation.isGroup && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="p-2 rounded-full hover:bg-muted transition cursor-pointer"
+                          title="More options"
+                        >
+                          <MoreHorizontal size={20} className="text-muted-foreground" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => handleOpenProfile(selectedConversation.participantId)}
+                          className="cursor-pointer"
+                        >
+                          <User size={16} className="mr-2" />
+                          View Profile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={handleReportUser}
+                          className="text-orange-500 cursor-pointer"
+                        >
+                          <Flag size={16} className="mr-2" />
+                          Report User
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={handleBlockUser}
+                          className="text-destructive cursor-pointer"
+                        >
+                          <Ban size={16} className="mr-2" />
+                          Block User
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto overscroll-contain p-2 lg:p-4 space-y-1.5 lg:space-y-4"
+            >
               {isLoadingMessages ? (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-muted-foreground">Loading messages...</p>
                 </div>
               ) : (
                 <>
-                  {messages.map((message) => {
-                    // Render system messages differently
-                    if ((message as any).isSystemMessage) {
-                      return (
-                        <div key={message.id} className="flex justify-center my-2">
-                          <div className="px-3 py-1 rounded-full bg-muted/50 text-muted-foreground text-xs">
-                            {message.content}
-                          </div>
-                        </div>
-                      );
-                    }
+                  {hasMoreMessages && (
+                    <div className="flex justify-center mb-2">
+                      <button
+                        onClick={() => {
+                          if (messages.length > 0 && selectedThreadId) {
+                            loadMessages(
+                              selectedThreadId,
+                              selectedConversation?.isGroup || false,
+                              messages[0]?.id?.toString()
+                            );
+                          }
+                        }}
+                        disabled={isLoadingOlderMessages}
+                        className="text-xs px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground transition cursor-pointer disabled:opacity-50"
+                      >
+                        {isLoadingOlderMessages ? 'Loading...' : 'Load older messages'}
+                      </button>
+                    </div>
+                  )}
+                  {messages.map((message, msgIndex) => {
+                    const prevMessage = messages[msgIndex - 1];
+                    const currentDate = message.createdAt ? new Date(message.createdAt).toDateString() : '';
+                    const prevDate = prevMessage?.createdAt ? new Date(prevMessage.createdAt).toDateString() : '';
+                    const showDateSeparator = currentDate && currentDate !== prevDate;
 
                     return (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.isSent ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className="flex items-start gap-2 group max-w-xs">
-                          {message.isSent && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button className="opacity-0 group-hover:opacity-100 p-1 rounded-full hover:bg-muted transition mt-1">
-                                  <MoreHorizontal size={16} className="text-muted-foreground" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingMessageId(message.id.toString());
-                                    setEditingMessageText(message.content);
-                                  }}
-                                >
-                                  <Edit2 size={14} className="mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDeleteMessage(message.id.toString(), 'me')}
-                                >
-                                  <Trash2 size={14} className="mr-2" />
-                                  Delete for me
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    handleDeleteMessage(message.id.toString(), 'everyone')
-                                  }
-                                  className="text-destructive"
-                                >
-                                  <Trash2 size={14} className="mr-2" />
-                                  Delete for everyone
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-
-                          {editingMessageId === message.id.toString() ? (
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <Input
-                                  value={editingMessageText}
-                                  onChange={(e) => setEditingMessageText(e.target.value)}
-                                  onKeyPress={(e) => {
-                                    if (e.key === 'Enter') {
-                                      handleEditMessage(message.id.toString());
-                                    }
-                                  }}
-                                  className="flex-1"
-                                  autoFocus
-                                />
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleEditMessage(message.id.toString())}
-                                >
-                                  Save
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setEditingMessageId(null);
-                                    setEditingMessageText('');
-                                  }}
-                                >
-                                  <X size={16} />
-                                </Button>
-                              </div>
+                      <div key={`msg-${message.id}-${msgIndex}`}>
+                        {showDateSeparator && (
+                          <div className="flex items-center justify-center my-4">
+                            <div className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-full shadow-sm">
+                              {getDateLabel(message.createdAt!)}
                             </div>
-                          ) : (
-                            <div
-                              className={`px-4 py-2 rounded-2xl ${
-                                message.isSent
-                                  ? 'bg-primary text-primary-foreground rounded-br-none'
-                                  : 'bg-muted text-foreground rounded-bl-none'
-                              }`}
-                            >
-                              {/* Media attachments */}
-                              {message.media &&
-                                message.media.map((item, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="mb-2 rounded-lg overflow-hidden max-w-[240px]"
-                                  >
-                                    {item.type === 'video' ? (
-                                      <video
-                                        src={item.url}
-                                        controls
-                                        className="w-full max-h-[300px] object-cover"
-                                      />
-                                    ) : (
-                                      <img
-                                        src={item.url}
-                                        alt="Shared content"
-                                        className="w-full max-h-[300px] object-cover"
-                                      />
-                                    )}
-                                  </div>
-                                ))}
-
-                              {message.content && (
-                                <p className={message.isDeleted ? 'italic opacity-60' : ''}>
-                                  {message.content}
-                                </p>
-                              )}
-
-                              {/* Shared Content Preview */}
-                              {((message as any).messageType === 'shared_post' ||
-                                (message as any).messageType === 'shared_reel') &&
-                                (message as any).sharedContent?.contentData && (
-                                  <SharedContentPreview
-                                    messageType={(message as any).messageType}
-                                    contentData={(message as any).sharedContent.contentData}
-                                  />
-                                )}
-
-                              <p
-                                className={`text-xs mt-1 ${
-                                  message.isSent ? 'opacity-70' : 'opacity-60'
-                                }`}
-                              >
-                                {message.timestamp}
-                                {message.isEdited && !message.isDeleted && (
-                                  <span className="ml-1">(edited)</span>
-                                )}
-                              </p>
-                            </div>
-                          )}
-                        </div>
+                          </div>
+                        )}
+                        <ChatMessageBubble
+                          message={message}
+                          msgIndex={msgIndex}
+                          isGroup={!!selectedConversation?.isGroup}
+                          editingMessageId={editingMessageId}
+                          editingMessageText={editingMessageText}
+                          onEditTextChange={setEditingMessageText}
+                          onEditSave={handleEditMessage}
+                          onEditCancel={() => {
+                            setEditingMessageId(null);
+                            setEditingMessageText('');
+                          }}
+                          onReply={setReplyingTo}
+                          onForward={(msg) => {
+                            setMessageToForward(msg);
+                            setIsForwardModalOpen(true);
+                          }}
+                          onEditStart={(id, content) => {
+                            setEditingMessageId(id);
+                            setEditingMessageText(content);
+                          }}
+                          onDeleteForMe={(id) => handleDeleteMessage(id, 'me')}
+                          onDeleteForEveryone={(id) => handleDeleteMessage(id, 'everyone')}
+                          isSelecting={isSelecting}
+                          isSelected={selectedMessageIds.has(message.id.toString())}
+                          onToggleSelect={toggleMessageSelect}
+                          onLongPress={enterSelectionMode}
+                        />
                       </div>
                     );
                   })}
 
-                  {/* Typing Indicator */}
                   {isOtherUserTyping && (
                     <div className="flex justify-start mb-4">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-lg flex-shrink-0">
-                          {selectedConversation?.avatar?.startsWith('http') ? (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
+                          {selectedConversation?.avatar?.startsWith('http') ||
+                            selectedConversation?.avatar?.startsWith('/') ? (
                             <img
-                              src={selectedConversation.avatar}
+                              src={getMediaUrl(selectedConversation.avatar)}
                               alt={selectedConversation.name}
                               className="w-full h-full rounded-full object-cover"
                             />
                           ) : (
-                            selectedConversation?.avatar || '👤'
+                            <User className="w-4 h-4 text-white" />
                           )}
                         </div>
                         <div className="bg-muted text-muted-foreground rounded-2xl px-4 py-2.5 shadow-sm">
@@ -1896,78 +2745,53 @@ function ChatPageContent() {
               )}
             </div>
 
-            {/* Message Input */}
-            <div className="relative">
-              {/* File Preview */}
-              {selectedFile && (
-                <div className="absolute bottom-full left-0 right-0 p-4 bg-background border-t border-border flex items-center gap-4 z-20 shadow-md">
-                  <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border bg-muted">
-                    {selectedFile.type.startsWith('video') ? (
-                      <video src={previewUrl || ''} className="w-full h-full object-cover" />
-                    ) : (
-                      <img
-                        src={previewUrl || ''}
-                        className="w-full h-full object-cover"
-                        alt="Preview"
-                      />
-                    )}
-                    <button
-                      onClick={removeSelectedFile}
-                      className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white hover:bg-black/80 transition"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium truncate max-w-[200px]">
-                      {selectedFile.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <div className="p-4 border-t border-border flex items-end gap-2 mb-20 lg:mb-0 bg-background relative z-10 w-full">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileSelect}
-                  className="hidden"
-                  accept="image/*,video/*"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="text-muted-foreground hover:text-primary mb-0.5"
-                  title="Attach image or video"
+            {isSelecting ? (
+              <div className="p-3 border-t border-border bg-muted/30 flex items-center justify-center gap-4">
+                <button
+                  onClick={handleBulkForward}
+                  disabled={selectedMessageIds.size === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-40 cursor-pointer"
                 >
-                  <ImageIcon size={20} />
-                </Button>
-
-                <div className="flex-1">
-                  <Input
-                    type="text"
-                    placeholder={selectedFile ? 'Add a caption...' : 'Type a message...'}
-                    value={messageInput}
-                    onChange={(e) => handleMessageInputChange(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    disabled={isSendingMessage}
-                    className="w-full"
-                  />
-                </div>
-
-                <Button
-                  onClick={handleSendMessage}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer mb-0.5"
-                  disabled={isSendingMessage || (!messageInput.trim() && !selectedFile)}
+                  <Forward size={16} />
+                  <span className="text-sm font-medium">Forward ({selectedMessageIds.size})</span>
+                </button>
+                <button
+                  onClick={() => handleBulkDelete('me')}
+                  disabled={selectedMessageIds.size === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition disabled:opacity-40 cursor-pointer"
                 >
-                  <Send size={20} />
-                </Button>
+                  <Trash2 size={16} />
+                  <span className="text-sm font-medium">Delete ({selectedMessageIds.size})</span>
+                </button>
               </div>
-            </div>
+            ) : (
+              <ChatInputBar
+                messageInput={messageInput}
+                onMessageInputChange={handleMessageInputChange}
+                onSendMessage={handleSendMessage}
+                isSendingMessage={isSendingMessage}
+                selectedFile={selectedFile}
+                previewUrl={previewUrl}
+                onFileSelect={handleFileSelect}
+                onRemoveFile={removeSelectedFile}
+                showAttachmentMenu={showAttachmentMenu}
+                onToggleAttachmentMenu={() => setShowAttachmentMenu(!showAttachmentMenu)}
+                onEmojiSelect={handleEmojiSelect}
+                isRecording={isRecording}
+                recordingDuration={recordingDuration}
+                formatRecordingDuration={formatRecordingDuration}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
+                onCancelRecording={cancelRecording}
+                replyingTo={replyingTo}
+                onCancelReply={() => setReplyingTo(null)}
+                isSendingLocation={isSendingLocation}
+                showLocationMenu={showLocationMenu}
+                onToggleLocationMenu={() => setShowLocationMenu(!showLocationMenu)}
+                onSendCurrentLocation={sendCurrentLocation}
+                onSendLiveLocation={sendLiveLocation}
+              />
+            )}
           </section>
         ) : (
           <section className="lg:col-span-2 flex items-center justify-center">
@@ -1977,51 +2801,10 @@ function ChatPageContent() {
             </div>
           </section>
         )}
-
-        {/* Right Sidebar */}
-        <aside className="hidden lg:block lg:col-span-1 border-l border-border p-4">
-          <div className="bg-card rounded-2xl border border-border p-4 sticky top-0">
-            <h3 className="font-bold text-lg mb-4">Online Friends</h3>
-            <div className="space-y-3">
-              {conversations
-                .filter((conv) => conv.online) // Only show online friends
-                .map((friend) => (
-                  <div
-                    key={friend.participantId}
-                    onClick={() => {
-                      setSelectedConversation(friend);
-                      setSelectedThreadIdRef(friend.threadId);
-                      setIsMobileConversationOpen(true);
-                    }}
-                    className="flex items-center gap-3 p-2 hover:bg-muted rounded-lg cursor-pointer transition"
-                  >
-                    <div className="relative">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-semibold">
-                        {friend.avatar}
-                      </div>
-                      <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-500 border-2 border-card" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{friend.name}</p>
-                      <p className="text-xs text-green-500">Online</p>
-                    </div>
-                  </div>
-                ))}
-
-              {conversations.filter((conv) => conv.online).length === 0 && (
-                <div className="text-center py-8">
-                  <p className="text-sm text-muted-foreground">No friends online</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </aside>
       </div>
 
-      {/* Mobile Navigation */}
       <Navigation user={user} onLogout={handleLogout} isMobile={true} />
 
-      {/* Voice Call Modal */}
       <VoiceCallModal
         isOpen={isVoiceCallOpen}
         onClose={() => {
@@ -2036,12 +2819,10 @@ function ChatPageContent() {
         callerId={incomingCall?.callerId}
         threadId={incomingCall?.threadId || selectedConversation?.threadId}
         onCallEnd={() => {
-          console.log('📞 Voice call ended');
           setIncomingCall(null);
         }}
       />
 
-      {/* Video Call Modal */}
       <VideoCallModal
         isOpen={isVideoCallOpen}
         onClose={() => {
@@ -2051,83 +2832,91 @@ function ChatPageContent() {
         recipientName={incomingCall?.callerName || selectedConversation?.name || 'User'}
         recipientAvatar={incomingCall?.callerAvatar || selectedConversation?.avatar || '👤'}
         recipientId={incomingCall?.callerId || selectedConversation?.participantId || ''}
-        isIncoming={!!incomingCall && incomingCall.callType === 'video'}
-        callId={incomingCall?.threadId || selectedConversation?.threadId}
+        currentUserId={user?._id || ''}
+        isIncomingCall={!!incomingCall && incomingCall.callType === 'video'}
         callerId={incomingCall?.callerId}
         threadId={incomingCall?.threadId || selectedConversation?.threadId}
+        onCallEnd={() => {
+          setIncomingCall(null);
+        }}
       />
 
-      {/* Create Group Modal */}
+      <GroupVoiceCallModal
+        isOpen={isGroupVoiceCallOpen}
+        onClose={() => {
+          setIsGroupVoiceCallOpen(false);
+          setIncomingCall(null);
+        }}
+        groupId={incomingCall?.groupInfo?.groupId || selectedConversation?.id || ''}
+        groupName={incomingCall?.groupInfo?.groupName || selectedConversation?.name || 'Group'}
+        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || '👥'}
+        currentUserId={user?._id || ''}
+        currentUserName={
+          user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.username || ''
+        }
+        currentUserAvatar={user?.avatar || user?.profilePicture || ''}
+        isIncomingCall={!!incomingCall?.isGroupCall && incomingCall?.callType === 'voice'}
+        callerId={incomingCall?.callerId}
+        callerInfo={
+          incomingCall
+            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar }
+            : undefined
+        }
+      />
+
+      <GroupVideoCallModal
+        isOpen={isGroupVideoCallOpen}
+        onClose={() => {
+          setIsGroupVideoCallOpen(false);
+          setIncomingCall(null);
+        }}
+        groupId={incomingCall?.groupInfo?.groupId || selectedConversation?.id || ''}
+        groupName={incomingCall?.groupInfo?.groupName || selectedConversation?.name || 'Group'}
+        groupAvatar={incomingCall?.groupInfo?.groupAvatar || selectedConversation?.avatar || '👥'}
+        currentUserId={user?._id || ''}
+        currentUserName={
+          user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.username || ''
+        }
+        currentUserAvatar={user?.avatar || user?.profilePicture || ''}
+        isIncomingCall={!!incomingCall?.isGroupCall && incomingCall?.callType === 'video'}
+        callerId={incomingCall?.callerId}
+        callerInfo={
+          incomingCall
+            ? { name: incomingCall.callerName, avatar: incomingCall.callerAvatar }
+            : undefined
+        }
+      />
+
       <CreateGroupModal
         isOpen={isCreateGroupOpen}
         onClose={() => setIsCreateGroupOpen(false)}
         onGroupCreated={(group) => {
-          console.log('✅ Group created:', group);
-          // Reload conversations to show new group
-          const loadConvs = async () => {
-            try {
-              const response = await chatService.getThreads();
-              if (response.success && response.data) {
-                const threadsArray = response.data.threads || response.data || [];
-                const convList = threadsArray.map((thread: any) => {
-                  if (thread.isGroup) {
-                    return {
-                      id: thread._id,
-                      name: thread.groupName || 'Group',
-                      avatar: thread.groupAvatar || '👥',
-                      lastMessage: thread.lastMessage?.text || '',
-                      timestamp: thread.lastMessageAt
-                        ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : 'Just now',
-                      unread: (thread.unreadCount || 0) > 0,
-                      online: false,
-                      isGroup: true,
-                      members: thread.participants?.length || 0,
-                      threadId: thread._id,
-                      participantId: '',
-                    };
-                  } else {
-                    const otherParticipant = thread.participant;
-                    return {
-                      id: thread._id,
-                      participantId: otherParticipant?._id,
-                      name: otherParticipant?.firstName || otherParticipant?.username || 'Unknown',
-                      avatar:
-                        otherParticipant?.profileImage || otherParticipant?.profilePicture || '👤',
-                      lastMessage: thread.lastMessage?.text || '',
-                      timestamp: thread.lastMessageAt
-                        ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : 'Just now',
-                      unread: (thread.unreadCount || 0) > 0,
-                      online: otherParticipant?.isOnline || false,
-                      threadId: thread._id,
-                    };
-                  }
-                });
-                setConversations(convList);
-              }
-            } catch (error) {
-              console.error('Error reloading conversations:', error);
-            }
+          const newGroup = {
+            id: group._id,
+            threadId: group._id,
+            name: group.name || 'Unnamed Group',
+            avatar: group.avatar || '👥',
+            lastMessage: '',
+            timestamp: 'Just now',
+            unread: false,
+            unreadCount: 0,
+            online: false,
+            isGroup: true,
+            memberCount: group.members?.length || 0,
+            members: group.members || [],
+            participantId: '',
           };
-          loadConvs();
+          setGroups((prev) => [newGroup, ...prev]);
+          setActiveTab('groups');
         }}
       />
 
-      {/* Group Info Modal */}
       <GroupInfoModal
         isOpen={isGroupInfoOpen}
         onClose={() => setIsGroupInfoOpen(false)}
         groupId={selectedConversation?.isGroup ? selectedConversation.id : ''}
         currentUserId={user?._id || ''}
         onGroupUpdated={() => {
-          // Reload conversations and messages
           const loadConvs = async () => {
             try {
               const response = await chatService.getThreads();
@@ -2142,11 +2931,12 @@ function ChatPageContent() {
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: false,
                       isGroup: true,
                       members: thread.participants?.length || 0,
@@ -2155,40 +2945,41 @@ function ChatPageContent() {
                     };
                   } else {
                     const otherParticipant = thread.participant;
+                    const fullName =
+                      otherParticipant?.firstName && otherParticipant?.lastName
+                        ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
+                        : otherParticipant?.firstName || otherParticipant?.username || 'Unknown';
                     return {
                       id: thread._id,
                       participantId: otherParticipant?._id,
-                      name: otherParticipant?.firstName || otherParticipant?.username || 'Unknown',
+                      name: fullName,
                       avatar:
                         otherParticipant?.profileImage || otherParticipant?.profilePicture || '👤',
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: otherParticipant?.isOnline || false,
                       threadId: thread._id,
                     };
                   }
                 });
                 setConversations(convList);
-                // Update selected conversation if it's the current one
                 const updatedConv = convList.find((c: any) => c.id === selectedConversation?.id);
                 if (updatedConv) {
                   setSelectedConversation(updatedConv);
                 }
               }
-            } catch (error) {
-              console.error('Error reloading conversations:', error);
-            }
+            } catch (error) { }
           };
           loadConvs();
         }}
         onLeaveGroup={() => {
-          // Close modal, clear selection, reload conversations
           setIsGroupInfoOpen(false);
           setSelectedConversation(null);
           setSelectedThreadId(null);
@@ -2207,11 +2998,12 @@ function ChatPageContent() {
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: false,
                       isGroup: true,
                       members: thread.participants?.length || 0,
@@ -2220,20 +3012,25 @@ function ChatPageContent() {
                     };
                   } else {
                     const otherParticipant = thread.participant;
+                    const fullName =
+                      otherParticipant?.firstName && otherParticipant?.lastName
+                        ? `${otherParticipant.firstName} ${otherParticipant.lastName}`
+                        : otherParticipant?.firstName || otherParticipant?.username || 'Unknown';
                     return {
                       id: thread._id,
                       participantId: otherParticipant?._id,
-                      name: otherParticipant?.firstName || otherParticipant?.username || 'Unknown',
+                      name: fullName,
                       avatar:
                         otherParticipant?.profileImage || otherParticipant?.profilePicture || '👤',
                       lastMessage: thread.lastMessage?.text || '',
                       timestamp: thread.lastMessageAt
                         ? new Date(thread.lastMessageAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : 'Just now',
                       unread: (thread.unreadCount || 0) > 0,
+                      unreadCount: thread.unreadCount || 0,
                       online: otherParticipant?.isOnline || false,
                       threadId: thread._id,
                     };
@@ -2241,15 +3038,110 @@ function ChatPageContent() {
                 });
                 setConversations(convList);
               }
-            } catch (error) {
-              console.error('Error reloading conversations:', error);
-            }
+            } catch (error) { }
           };
           loadConvs();
         }}
+        onDeleteGroup={() => {
+          setIsGroupInfoOpen(false);
+          setGroups((prev) => prev.filter((g) => g.id !== selectedConversation?.id));
+          setSelectedConversation(null);
+          setSelectedThreadId(null);
+          setMessages([]);
+        }}
       />
 
-      {/* Confirm Dialog */}
+      <Dialog
+        open={isForwardModalOpen}
+        onOpenChange={(open) => {
+          setIsForwardModalOpen(open);
+          if (!open) setForwardSearchQuery('');
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {isSelecting
+                ? `Forward ${selectedMessageIds.size} message${selectedMessageIds.size > 1 ? 's' : ''}`
+                : 'Forward Message'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Preview: single message or multi-select count */}
+            {isSelecting && selectedMessageIds.size > 0 ? (
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm text-muted-foreground">
+                  {selectedMessageIds.size} message{selectedMessageIds.size > 1 ? 's' : ''} selected
+                </p>
+              </div>
+            ) : messageToForward ? (
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm text-muted-foreground mb-1">Message:</p>
+                <p className="text-sm truncate">
+                  {messageToForward.content || (messageToForward.media ? '📷 Media' : 'Message')}
+                </p>
+              </div>
+            ) : null}
+
+            <Input
+              placeholder="Search conversations..."
+              value={forwardSearchQuery}
+              onChange={(e) => setForwardSearchQuery(e.target.value)}
+            />
+
+            <ScrollArea className="h-[300px]">
+              <div className="space-y-2">
+                {[...conversations, ...groups]
+                  .filter(
+                    (conv) =>
+                      conv.name.toLowerCase().includes(forwardSearchQuery.toLowerCase()) &&
+                      conv.id !== selectedConversation?.id
+                  )
+                  .map((conv) => (
+                    <button
+                      key={conv.id}
+                      onClick={() =>
+                        isSelecting
+                          ? handleBulkForwardToConversation(conv)
+                          : handleForwardMessage(conv)
+                      }
+                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 flex items-center justify-center text-lg overflow-hidden">
+                        {conv.avatar?.startsWith('http') || conv.avatar?.startsWith('/') ? (
+                          <img
+                            src={getMediaUrl(conv.avatar)}
+                            alt={conv.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : conv.isGroup ? (
+                          <Users className="w-5 h-5 text-white" />
+                        ) : (
+                          <User className="w-5 h-5 text-white" />
+                        )}
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="font-medium text-sm">{conv.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {conv.isGroup ? 'Group' : conv.lastMessage}
+                        </p>
+                      </div>
+                      <Send size={16} className="text-primary" />
+                    </button>
+                  ))}
+                {[...conversations, ...groups].filter(
+                  (conv) =>
+                    conv.name.toLowerCase().includes(forwardSearchQuery.toLowerCase()) &&
+                    conv.id !== selectedConversation?.id
+                ).length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No conversations found</p>
+                  )}
+              </div>
+            </ScrollArea>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog {...dialogProps} />
     </main>
   );

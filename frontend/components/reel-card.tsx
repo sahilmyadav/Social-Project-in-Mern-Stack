@@ -1,141 +1,349 @@
-"use client"
+'use client';
 
-import { useState, useRef } from "react"
-import { Heart, MessageCircle, Share2, Play, Volume2, VolumeX, MoreHorizontal, Bookmark } from "lucide-react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { reelService } from "@/lib/api-services"
-import ShareModal from "@/components/share-modal"
-import ReportReelModal from "@/components/report-reel-modal"
-import UserAvatar from "@/components/user-avatar"
-import { useRouter } from "next/navigation"
+import ReportReelModal from '@/components/report-reel-modal';
+import ShareModal from '@/components/share-modal';
+import { ConfirmDialog, useConfirmDialog } from '@/components/ui/confirm-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import UserAvatar from '@/components/user-avatar';
+import { useVideoSafe } from '@/contexts/video-context';
+import { reelService } from '@/lib/api-services';
+import { getMediaUrl } from '@/lib/media-utils';
+import { showToast } from '@/lib/toast';
+import {
+  Bookmark,
+  Download,
+  Eye,
+  Heart,
+  MessageCircle,
+  MoreHorizontal,
+  Play,
+  Share2,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
 interface ReelCardProps {
-  reel: any
-  currentUserId?: string
-  onCommentClick?: () => void
+  reel: any;
+  currentUserId?: string;
+  onCommentClick?: () => void;
+  onViewUpdate?: (reelId: string, viewCount: number) => void;
 }
 
-export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCardProps) {
-  const router = useRouter()
-  const [liked, setLiked] = useState(reel.isLiked || false)
-  const [likeCount, setLikeCount] = useState(reel.likes_count || 0)
-  const [saved, setSaved] = useState(reel.isSaved || false)
-  const [isLiking, setIsLiking] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(true)
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false)
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
+export default function ReelCard({
+  reel,
+  currentUserId,
+  onCommentClick,
+  onViewUpdate,
+}: ReelCardProps) {
+  const router = useRouter();
+  const { isMuted: globalMuted, toggleMute: toggleGlobalMute } = useVideoSafe();
+  const [liked, setLiked] = useState(reel.isLiked || reel.is_liked || false);
+  const [likeCount, setLikeCount] = useState(reel.likes_count || 0);
+  const [saved, setSaved] = useState(reel.isSaved || reel.is_saved || false);
+  const [viewCount, setViewCount] = useState(reel.views_count || 0);
+  const [isViewed, setIsViewed] = useState(reel.isViewed || reel.is_viewed || false);
+  const [isLiking, setIsLiking] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isHidden, setIsHidden] = useState(false);
+  const [isInView, setIsInView] = useState(false);
+  const [userPaused, setUserPaused] = useState(false); // Track if user manually paused
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hasTrackedView = useRef(reel.isViewed || false);
+  const { confirm, dialogProps } = useConfirmDialog();
+
+  const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = globalMuted;
+    }
+  }, [globalMuted]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          setIsInView(entry.isIntersecting);
+        });
+      },
+      {
+        threshold: 0.5, // Trigger when 50% of the video is visible
+      }
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      if (containerRef.current) {
+        observer.unobserve(containerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    if (isInView && !userPaused) {
+      videoRef.current.play().catch((error) => {});
+    } else {
+      videoRef.current.pause();
+    }
+  }, [isInView, userPaused]);
+
+  useEffect(() => {
+    if (!isInView || hasTrackedView.current || !reel._id) return;
+
+    const trackView = async () => {
+      try {
+        hasTrackedView.current = true;
+        setIsViewed(true);
+        const response = await reelService.viewReel(reel._id);
+        if (response.success && response.data) {
+          setViewCount(response.data.views_count);
+          onViewUpdate?.(reel._id, response.data.views_count);
+        }
+      } catch (error) {
+        hasTrackedView.current = false; // Allow retry
+        setIsViewed(false);
+      }
+    };
+
+    const timeoutId = setTimeout(trackView, 1500);
+    return () => clearTimeout(timeoutId);
+  }, [isInView, reel._id, onViewUpdate]);
+
+  // Sync music audio with video playback
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current;
+    if (!video || !audio || !reel.music?.previewUrl) return;
+
+    let prevTime = 0;
+
+    const onPlay = () => audio.play().catch(() => {});
+    const onPause = () => audio.pause();
+    const onTimeUpdate = () => {
+      // Detect loop: video time jumped backward significantly
+      if (video.currentTime < prevTime - 1) {
+        audio.currentTime = reel.music?.startTime || 0;
+      }
+      prevTime = video.currentTime;
+    };
+
+    audio.currentTime = reel.music?.startTime || 0;
+
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('timeupdate', onTimeUpdate);
+
+    if (!video.paused) {
+      audio.play().catch(() => {});
+    }
+
+    return () => {
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      audio.pause();
+    };
+  }, [reel.music?.previewUrl, reel.music?.startTime]);
+
+  // Sync music audio mute state
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.muted = globalMuted;
+    }
+  }, [globalMuted]);
+
+  if (isHidden) {
+    return null;
+  }
 
   const handleOpenProfile = () => {
-    router.push(`/profile/${reel.user_id?._id}`)
-  }
+    router.push(`/profile/${reel.user_id?.username || reel.user_id?._id}`);
+  };
 
   const handleLike = async () => {
-    if (isLiking) return
+    if (isLiking) return;
 
-    setIsLiking(true)
-    const previousLiked = liked
-    const previousCount = likeCount
+    setIsLiking(true);
+    const previousLiked = liked;
+    const previousCount = likeCount;
 
-    // Optimistic update
-    setLiked(!liked)
-    setLikeCount(liked ? likeCount - 1 : likeCount + 1)
+    setLiked(!liked);
+    setLikeCount(liked ? Math.max(0, likeCount - 1) : likeCount + 1);
 
     try {
-      const response = await reelService.toggleLikeReel(reel._id)
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to toggle like')
+      const response = await reelService.toggleLikeReel(reel._id);
+      if (response.success) {
+        const serverIsLiked = response.data?.isLiked ?? !previousLiked;
+        const serverLikeCount =
+          response.data?.likes_count ??
+          response.data?.likesCount ??
+          (serverIsLiked ? previousCount + 1 : previousCount - 1);
+        setLiked(serverIsLiked);
+        setLikeCount(serverLikeCount);
+      } else {
+        throw new Error(response.message || 'Failed to toggle like');
       }
     } catch (error: any) {
-      console.error('Error toggling like:', error.message || error)
-      // Revert on error
-      setLiked(previousLiked)
-      setLikeCount(previousCount)
+      setLiked(previousLiked);
+      setLikeCount(previousCount);
     } finally {
-      setIsLiking(false)
+      setIsLiking(false);
     }
-  }
+  };
 
   const handleSaveReel = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isSaving) return
+    e.stopPropagation();
+    if (isSaving) return;
 
-    setIsSaving(true)
-    const previousSaved = saved
+    setIsSaving(true);
+    const previousSaved = saved;
 
-    // Optimistic update
-    setSaved(!saved)
+    setSaved(!saved);
 
     try {
       if (saved) {
-        const response = await reelService.unsaveReel(reel._id)
+        const response = await reelService.unsaveReel(reel._id);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to unsave reel')
+          throw new Error(response.message || 'Failed to unsave reel');
         }
-        console.log('Reel unsaved successfully')
       } else {
-        const response = await reelService.saveReel(reel._id)
+        const response = await reelService.saveReel(reel._id);
         if (!response.success) {
-          throw new Error(response.message || 'Failed to save reel')
+          throw new Error(response.message || 'Failed to save reel');
         }
-        console.log('Reel saved successfully')
       }
     } catch (error: any) {
-      console.error('Error saving/unsaving reel:', error.message || error)
-      // Revert on error
-      setSaved(previousSaved)
-      alert(error.message || 'Failed to save reel')
+      setSaved(previousSaved);
+      showToast.error(error.message || 'Failed to save reel');
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   const handlePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) {
-        videoRef.current.pause()
+        videoRef.current.pause();
+        setUserPaused(true); // User manually paused
       } else {
-        videoRef.current.play()
+        videoRef.current.play();
+        setUserPaused(false); // User manually played
       }
-      setIsPlaying(!isPlaying)
+      setIsPlaying(!isPlaying);
     }
-  }
+  };
 
   const handleMuteToggle = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted
-      setIsMuted(!isMuted)
+    toggleGlobalMute(); // Toggle global mute state - affects all videos
+  };
+
+  const handleDownloadReel = async () => {
+    const isOwnReel = currentUserId && reel.user_id?._id === currentUserId;
+
+    if (isOwnReel) {
+    } else {
+      const allowDownloads = reel.user_id?.allowDownloads;
+      const canDownload = reel.canDownload;
+
+      if (allowDownloads === false || canDownload === false) {
+        showToast.error('Download not allowed', 'The creator has disabled downloads for this reel');
+        return;
+      }
     }
-  }
+
+    if (!videoUrl) {
+      showToast.error('No video', 'This reel has no video to download');
+      return;
+    }
+
+    try {
+      const response = await fetch(videoUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `reel_${reel._id}.mp4`;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      showToast.success('Downloaded', 'Reel downloaded successfully');
+    } catch (error) {
+      showToast.error('Download failed', 'Failed to download reel');
+    }
+  };
+
+  const handleDeleteReel = () => {
+    confirm({
+      title: 'Delete Reel',
+      message: 'Are you sure you want to delete this reel? This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          const response = await reelService.deleteReel(reel._id);
+          if (response.success) {
+            showToast.success('Deleted', 'Reel deleted successfully');
+            setIsHidden(true); // Hide the reel immediately
+          } else {
+            throw new Error(response.message || 'Failed to delete reel');
+          }
+        } catch (error: any) {
+          showToast.error('Delete failed', error.message || 'Failed to delete reel');
+        }
+      },
+    });
+  };
 
   const authorName = reel.user_id?.firstName
     ? `${reel.user_id.firstName} ${reel.user_id.lastName || ''}`.trim()
-    : reel.user_id?.username || 'Unknown User'
+    : reel.user_id?.username || 'Unknown User';
 
-  const videoUrl = reel.media?.url
-  const thumbnailUrl = reel.media?.thumbnail || reel.media?.url
+  const videoUrl = getMediaUrl(reel.media?.url);
+  const thumbnailUrl = getMediaUrl(reel.media?.thumbnail || reel.media?.url);
 
   return (
-    <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto">
-      {/* User Header - Above Video */}
+    <div
+      ref={containerRef}
+      className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition w-full max-w-md mx-auto"
+    >
       <div className="p-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <div
-            onClick={handleOpenProfile}
-            className="cursor-pointer hover:opacity-80 transition"
-          >
-            <UserAvatar user={{
-              _id: reel.user_id?._id || 'unknown',
-              firstName: reel.user_id?.firstName,
-              lastName: reel.user_id?.lastName,
-              fullName: reel.user_id?.fullName,
-              username: reel.user_id?.username,
-              profileImage: reel.user_id?.profileImage,
-              profilePicture: reel.user_id?.profilePicture,
-              avatar: reel.user_id?.avatar
-            }} size="sm" clickable={false} />
+          <div onClick={handleOpenProfile} className="cursor-pointer hover:opacity-80 transition">
+            <UserAvatar
+              user={{
+                _id: reel.user_id?._id || 'unknown',
+                firstName: reel.user_id?.firstName,
+                lastName: reel.user_id?.lastName,
+                fullName: reel.user_id?.fullName,
+                username: reel.user_id?.username,
+                profileImage: reel.user_id?.profileImage,
+                profilePicture: reel.user_id?.profilePicture,
+                avatar: reel.user_id?.avatar,
+              }}
+              size="sm"
+              clickable={false}
+            />
           </div>
           <div className="flex-1 min-w-0">
             <h3
@@ -144,35 +352,84 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             >
               {authorName}
             </h3>
-            <p className="text-sm text-muted-foreground">Reel</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-muted-foreground">Reel</p>
+              {isViewed && (
+                <span className="text-[10px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded-full font-medium">
+                  Viewed
+                </span>
+              )}
+              {reel.isSuggested && (
+                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                  Suggested
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* Dropdown Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="p-2 hover:bg-muted rounded-full transition">
+              <button className="p-2 hover:bg-muted rounded-full transition cursor-pointer ">
                 <MoreHorizontal size={20} className="text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={handleSaveReel} disabled={isSaving}>
-                <Bookmark size={16} className={`mr-2 ${saved ? 'fill-current' : ''}`} />
-                {saved ? 'Unsave Reel' : 'Save Reel'}
+              {!isOwnReel && (
+                <DropdownMenuItem onClick={handleSaveReel} disabled={isSaving}>
+                  <Bookmark size={16} className={`mr-2 ${saved ? 'fill-current' : ''}`} />
+                  {saved ? 'Unsave Reel' : 'Save Reel'}
+                </DropdownMenuItem>
+              )}
+              {!isOwnReel && videoUrl && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadReel();
+                  }}
+                >
+                  <Download size={16} className="mr-2" />
+                  {reel.canDownload === false || reel.user_id?.allowDownloads === false
+                    ? 'Download Disabled'
+                    : 'Download'}
+                </DropdownMenuItem>
+              )}
+              {!isOwnReel && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsReportModalOpen(true);
+                  }}
+                >
+                  <span className="mr-2">⚠️</span>
+                  Report Reel
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsShareModalOpen(true);
+                }}
+              >
+                <Share2 size={16} className="mr-2" />
+                Share
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                setIsReportModalOpen(true)
-              }}>
-                <span className="mr-2">⚠️</span>
-                Report Reel
-              </DropdownMenuItem>
+              {isOwnReel && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteReel();
+                  }}
+                  className="text-destructive"
+                >
+                  Delete Reel
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      {/* Video Player */}
-      <div className="relative aspect-[9/16] bg-black">
+      <div className="relative aspect-[3/4] bg-black">
         {videoUrl ? (
           <>
             <video
@@ -185,10 +442,10 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
               controls={false}
               loop
               playsInline
-              muted={isMuted}
+              muted={globalMuted}
+              preload="auto"
             />
 
-            {/* Play Button Overlay */}
             {!isPlaying && (
               <div
                 className="absolute inset-0 flex items-center justify-center cursor-pointer"
@@ -200,7 +457,6 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
               </div>
             )}
 
-            {/* Pause Button (when playing) */}
             {isPlaying && (
               <div
                 className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 hover:opacity-100 transition"
@@ -212,16 +468,35 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
               </div>
             )}
 
-            {/* Mute/Unmute Button */}
             <button
-              className="absolute bottom-4 right-4 p-2 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition"
+              className="absolute bottom-4 right-4 p-2 rounded-full bg-black/50 backdrop-blur-sm text-white hover:bg-black/70 transition cursor-pointer"
               onClick={(e) => {
-                e.stopPropagation()
-                handleMuteToggle()
+                e.stopPropagation();
+                handleMuteToggle();
               }}
             >
-              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              {globalMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
             </button>
+
+            {reel.music?.previewUrl && (
+              <audio
+                ref={audioRef}
+                src={reel.music.previewUrl}
+                loop
+                preload="auto"
+                muted={globalMuted}
+              />
+            )}
+
+            {reel.music?.trackName && (
+              <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-black/40 backdrop-blur-sm rounded-full px-3 py-1.5 z-10 max-w-[60%]">
+                <span className="text-sm animate-pulse">🎵</span>
+                <p className="text-white text-xs truncate">
+                  {reel.music.trackName}
+                  {reel.music.artistName ? ` · ${reel.music.artistName}` : ''}
+                </p>
+              </div>
+            )}
           </>
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -229,29 +504,28 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
           </div>
         )}
 
-        {/* Duration Badge */}
         {reel.media?.duration && (
           <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-            {Math.floor(reel.media.duration / 60)}:{Math.floor(reel.media.duration % 60).toString().padStart(2, '0')}
+            {Math.floor(reel.media.duration / 60)}:
+            {Math.floor(reel.media.duration % 60)
+              .toString()
+              .padStart(2, '0')}
           </div>
         )}
       </div>
 
-      {/* Content */}
       <div className="p-4">
-        {/* Caption */}
         {reel.caption && (
           <p className="text-sm text-foreground mb-3 line-clamp-2">{reel.caption}</p>
         )}
 
-        {/* Actions */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
-              className={`flex items-center gap-1 transition ${liked ? 'text-red-500' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`flex items-center gap-1 transition ${liked ? 'text-red-500' : 'text-muted-foreground hover:text-foreground cursor-pointer'}`}
               onClick={(e) => {
-                e.stopPropagation()
-                handleLike()
+                e.stopPropagation();
+                handleLike();
               }}
               disabled={isLiking}
             >
@@ -260,10 +534,10 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             </button>
 
             <button
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition"
+              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition cursor-pointer"
               onClick={(e) => {
-                e.stopPropagation()
-                onCommentClick?.()
+                e.stopPropagation();
+                onCommentClick?.();
               }}
             >
               <MessageCircle size={20} />
@@ -271,20 +545,24 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
             </button>
 
             <button
-              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition"
+              className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition cursor-pointer"
               onClick={(e) => {
-                e.stopPropagation()
-                setIsShareModalOpen(true)
+                e.stopPropagation();
+                setIsShareModalOpen(true);
               }}
             >
               <Share2 size={20} />
               <span className="text-sm">{reel.shares_count || 0}</span>
             </button>
           </div>
+
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Eye size={16} />
+            <span className="text-sm">{viewCount}</span>
+          </div>
         </div>
       </div>
 
-      {/* Share Modal */}
       <ShareModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
@@ -292,13 +570,15 @@ export default function ReelCard({ reel, currentUserId, onCommentClick }: ReelCa
         contentId={reel._id}
       />
 
-      {/* Report Modal */}
       <ReportReelModal
         open={isReportModalOpen}
         onOpenChange={setIsReportModalOpen}
         reelId={reel._id}
         reelAuthor={authorName}
+        onReported={() => setIsHidden(true)}
       />
+
+      <ConfirmDialog {...dialogProps} />
     </div>
-  )
+  );
 }
